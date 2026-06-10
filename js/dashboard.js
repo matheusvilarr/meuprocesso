@@ -553,7 +553,8 @@ function atualizarPrazosDash() {
     return;
   }
 
-  const urgCls = { alta: 'urgency-alta', media: 'urgency-media', baixa: 'urgency-baixa' };
+  const urgCls    = { alta: 'urgency-alta', media: 'urgency-media', baixa: 'urgency-baixa' };
+  const tipoLabel = { prazo_processual:'Prazo Processual', audiencia:'Audiência', lembrete:'Lembrete', reuniao:'Reunião' };
   wrap.innerHTML = proximos.map(e => {
     const dt   = new Date(e.data + 'T12:00:00');
     const dias = Math.ceil((dt - hoje) / 86400000);
@@ -564,7 +565,7 @@ function atualizarPrazosDash() {
       <div class="prazo-item">
         <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
         <div class="prazo-urgency ${urgCls[e.urgencia] || 'urgency-baixa'}"></div>
-        <div class="prazo-info"><div class="prazo-name">${e.titulo}</div><div class="prazo-type">${e.tipo}</div></div>
+        <div class="prazo-info"><div class="prazo-name">${e.titulo}</div><div class="prazo-type">${tipoLabel[e.tipo] || 'Lembrete'}</div></div>
         <span class="dias-badge ${badgeCls}">${dias === 0 ? 'Hoje' : dias + 'd'}</span>
       </div>`;
   }).join('');
@@ -835,7 +836,7 @@ function renderizarTimelineCNJ(proc) {
         const isNota  = m._tipo === 'nota';
         return `
         <div class="cnj-tl-item ${isNovo ? 'cnj-tl-item--novo' : ''}">
-          <div class="cnj-tl-dot ${isNova ? 'cnj-tl-dot--novo' : isNota ? 'cnj-tl-dot--nota' : ''}"></div>
+          <div class="cnj-tl-dot ${isNovo ? 'cnj-tl-dot--novo' : isNota ? 'cnj-tl-dot--nota' : ''}"></div>
           <div class="cnj-tl-body">
             <div class="cnj-tl-data">
               ${fmt(m.data)}
@@ -1576,6 +1577,8 @@ async function salvarEvento() {
 
   try {
     const { data: { session } } = await _supabase.auth.getSession();
+    if (!session) { showToast('Sessão expirada. Recarregue a página.'); return; }
+
     const res = await fetch('/api/salvar-evento', {
       method:  'POST',
       headers: {
@@ -1590,15 +1593,16 @@ async function salvarEvento() {
       }),
     });
 
-    const json = await res.json();
-    if (!res.ok) { showToast('Erro: ' + (json.erro || 'falha ao salvar')); return; }
+    let json = {};
+    try { json = await res.json(); } catch (_) {}
+    if (!res.ok) { showToast('Erro: ' + (json.erro || `status ${res.status}`)); return; }
 
     closeModal('modal-lembrete');
     document.getElementById('ev-titulo').value = '';
     showToast('Prazo registrado! Você receberá um e-mail de confirmação.');
     carregarEventos();
-  } catch {
-    showToast('Erro de conexão. Tente novamente.');
+  } catch (err) {
+    showToast('Erro: ' + (err?.message || 'falha ao salvar'));
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-check"></i> Salvar Prazo'; }
   }
@@ -1742,7 +1746,7 @@ async function salvarTarefa() {
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Salvando...'; }
 
   const { error } = await _supabase.from('tarefas').insert({
-    user_id:     window._user.id,
+    user_id:     window._user?.id,
     titulo,
     processo_id: processo || null,
     coluna,
@@ -1752,7 +1756,11 @@ async function salvarTarefa() {
 
   if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-check"></i> Criar Tarefa'; }
 
-  if (error) { showToast('Erro ao salvar tarefa: ' + error.message); return; }
+  if (error) {
+    showToast('Erro ao salvar tarefa: ' + error.message);
+    console.error('Erro tarefa:', error);
+    return;
+  }
 
   closeModal('modal-tarefa');
   document.getElementById('tar-titulo').value = '';
