@@ -254,190 +254,59 @@ nav {
   gap: 6px;
 }
 
-/* Dashboard mockup */
+/* Screenshot hero */
 .hero-visual {
   position: relative;
-}
-
-.mockup-shell {
-  background: #0a1929;
-  border-radius: 14px;
-  border: 1px solid rgba(255,255,255,0.08);
-  overflow: hidden;
-  box-shadow: 0 32px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04);
-  transform: perspective(1200px) rotateY(-4deg) rotateX(2deg);
-  transition: transform 0.4s ease;
-}
-
-.mockup-shell:hover {
-  transform: perspective(1200px) rotateY(-1deg) rotateX(0deg);
-}
-
-.mockup-bar {
-  background: #0d2035;
-  padding: 10px 16px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
 }
 
 .mockup-dot {
   width: 10px; height: 10px;
   border-radius: 50%;
-}
-
-.mockup-url {
-  margin-left: 8px;
-  background: rgba(255,255,255,0.06);
-  border-radius: 4px;
-  padding: 3px 10px;
-  font-size: 11px;
-  color: rgba(255,255,255,0.3);
-  flex: 1;
-  text-align: center;
-}
-
-.mockup-body {
-  display: flex;
-  height: 340px;
-}
-
-.mockup-sidebar {
-  width: 52px;
-  background: #0a1929;
-  border-right: 1px solid rgba(255,255,255,0.05);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 12px 0;
-  gap: 16px;
-}
-
-.mockup-icon {
-  width: 28px; height: 28px;
-  border-radius: 6px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 14px;
-}
-
-.mockup-icon.active { background: rgba(201,162,39,0.15); }
-
-.mockup-content {
-  flex: 1;
-  background: #0f1f35;
-  padding: 14px;
-  overflow: hidden;
-}
-
-.mockup-row-title {
-  font-size: 9px;
-  font-weight: 600;
-  color: rgba(255,255,255,0.5);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  margin-bottom: 8px;
-}
-
-.mockup-stats {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 6px;
-  margin-bottom: 12px;
-}
-
-.mockup-stat {
-  background: rgba(255,255,255,0.04);
-  border-radius: 6px;
-  padding: 8px;
-  border: 1px solid rgba(255,255,255,0.06);
-}
-
-.mockup-stat-n {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--white);
-  line-height: 1;
-}
-
-.mockup-stat-l {
-  font-size: 8px;
-  color: rgba(255,255,255,0.35);
-  margin-top: 2px;
-}
-
-.mockup-prazo {
-  background: rgba(220,38,38,0.1);
-  border: 1px solid rgba(220,38,38,0.2);
-  border-radius: 6px;
-  padding: 7px 10px;
-  margin-bottom: 6px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.mockup-prazo-dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: #dc2626;
   flex-shrink: 0;
 }
 
-.mockup-prazo-text {
-  font-size: 9px;
-  color: rgba(255,255,255,0.7);
-  flex: 1;
+.screenshot-shell {
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 32px 80px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.07);
+  transform: perspective(1200px) rotateY(-4deg) rotateX(2deg);
+  transition: transform 0.4s ease;
+  background: #1e1e1e;
 }
 
-.mockup-prazo-badge {
-  font-size: 8px;
-  font-weight: 600;
-  color: #dc2626;
-  background: rgba(220,38,38,0.15);
-  padding: 2px 6px;
-  border-radius: 4px;
+.screenshot-shell:hover {
+  transform: perspective(1200px) rotateY(-1deg) rotateX(0deg);
 }
 
-.mockup-prazo.ok { background: rgba(22,163,74,0.08); border-color: rgba(22,163,74,0.2); }
-.mockup-prazo.ok .mockup-prazo-dot { background: #16a34a; }
-.mockup-prazo.ok .mockup-prazo-badge { color: #16a34a; background: rgba(22,163,74,0.1); }
-
-.mockup-prazo.mid { background: rgba(201,162,39,0.08); border-color: rgba(201,162,39,0.2); }
-.mockup-prazo.mid .mockup-prazo-dot { background: var(--gold); }
-.mockup-prazo.mid .mockup-prazo-badge { color: var(--gold); background: rgba(201,162,39,0.1); }
-
-.mockup-grid2 {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+.screenshot-bar {
+  background: #2a2a2a;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
   gap: 6px;
-  margin-top: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
 }
 
-.mockup-card-mini {
-  background: rgba(255,255,255,0.03);
-  border-radius: 6px;
-  border: 1px solid rgba(255,255,255,0.06);
-  padding: 8px;
-}
-
-.mockup-card-mini-title {
-  font-size: 8px;
-  color: rgba(255,255,255,0.35);
-  margin-bottom: 6px;
-}
-
-.mockup-bar-item {
-  height: 5px;
-  border-radius: 3px;
+.screenshot-url {
+  margin-left: 8px;
   background: rgba(255,255,255,0.08);
-  margin-bottom: 4px;
+  border-radius: 4px;
+  padding: 3px 12px;
+  font-size: 11px;
+  color: rgba(255,255,255,0.35);
+  flex: 1;
+  text-align: center;
+  font-family: 'Inter', sans-serif;
 }
 
-.mockup-bar-item.filled { background: rgba(201,162,39,0.4); }
-.mockup-bar-item.filled-blue { background: rgba(42,74,127,0.6); }
-.mockup-bar-item.half { width: 60%; }
-.mockup-bar-item.third { width: 40%; }
+.screenshot-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 490px;
+  object-fit: cover;
+  object-position: top left;
+}
 
 /* ── SECTION BASE ── */
 section { padding: 96px 6%; }
@@ -938,75 +807,18 @@ footer {
     </div>
 
     <div class="hero-visual">
-      <div class="mockup-shell">
-        <div class="mockup-bar">
+      <div class="screenshot-shell">
+        <div class="screenshot-bar">
           <div class="mockup-dot" style="background:#ff5f57"></div>
           <div class="mockup-dot" style="background:#febc2e"></div>
           <div class="mockup-dot" style="background:#28c840"></div>
-          <div class="mockup-url">meuprocesso.app.br/dashboard</div>
+          <div class="screenshot-url">meuprocesso.app.br/dashboard</div>
         </div>
-        <div class="mockup-body">
-          <div class="mockup-sidebar">
-            <div class="mockup-icon active" style="color:var(--gold);font-size:18px">⊞</div>
-            <div class="mockup-icon" style="color:rgba(255,255,255,0.25);font-size:16px">📁</div>
-            <div class="mockup-icon" style="color:rgba(255,255,255,0.25);font-size:16px">📅</div>
-            <div class="mockup-icon" style="color:rgba(255,255,255,0.25);font-size:16px">✓</div>
-            <div class="mockup-icon" style="color:rgba(255,255,255,0.25);font-size:16px">👥</div>
-          </div>
-          <div class="mockup-content">
-            <div class="mockup-row-title">Visão geral</div>
-            <div class="mockup-stats">
-              <div class="mockup-stat">
-                <div class="mockup-stat-n">24</div>
-                <div class="mockup-stat-l">Processos</div>
-              </div>
-              <div class="mockup-stat">
-                <div class="mockup-stat-n" style="color:#dc2626">3</div>
-                <div class="mockup-stat-l">Prazos</div>
-              </div>
-              <div class="mockup-stat">
-                <div class="mockup-stat-n">11</div>
-                <div class="mockup-stat-l">Tarefas</div>
-              </div>
-              <div class="mockup-stat">
-                <div class="mockup-stat-n">4</div>
-                <div class="mockup-stat-l">Equipe</div>
-              </div>
-            </div>
-
-            <div class="mockup-row-title">Prazos próximos</div>
-            <div class="mockup-prazo">
-              <div class="mockup-prazo-dot"></div>
-              <div class="mockup-prazo-text">Contestação — Rodrigues vs Banco</div>
-              <div class="mockup-prazo-badge">1 dia</div>
-            </div>
-            <div class="mockup-prazo mid">
-              <div class="mockup-prazo-dot"></div>
-              <div class="mockup-prazo-text">Recurso Ordinário — Marques</div>
-              <div class="mockup-prazo-badge">4 dias</div>
-            </div>
-            <div class="mockup-prazo ok">
-              <div class="mockup-prazo-dot"></div>
-              <div class="mockup-prazo-text">Audiência — Ana Paula Ferreira</div>
-              <div class="mockup-prazo-badge">6 dias</div>
-            </div>
-
-            <div class="mockup-grid2">
-              <div class="mockup-card-mini">
-                <div class="mockup-card-mini-title">Processos por área</div>
-                <div class="mockup-bar-item filled" style="width:80%"></div>
-                <div class="mockup-bar-item filled-blue" style="width:55%"></div>
-                <div class="mockup-bar-item filled" style="width:35%;opacity:0.5"></div>
-              </div>
-              <div class="mockup-card-mini">
-                <div class="mockup-card-mini-title">Tarefas da semana</div>
-                <div class="mockup-bar-item filled" style="width:70%"></div>
-                <div class="mockup-bar-item" style="width:100%"></div>
-                <div class="mockup-bar-item filled-blue half"></div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <img
+          src="dashboard.jpeg"
+          alt="Dashboard do Meu Processo"
+          class="screenshot-img"
+        >
       </div>
     </div>
   </div>
