@@ -1067,13 +1067,18 @@ function iniciarSyncAutomatico() {
 // ── INIT: carrega dados ao abrir dashboard ────────────────────────────────
 
 window.addEventListener('DOMContentLoaded', () => {
+  // Impede botão voltar de sair do dashboard
+  history.pushState(null, '', '/dashboard');
+  window.addEventListener('popstate', () => {
+    history.pushState(null, '', '/dashboard');
+  });
+
   const aguardar = setInterval(() => {
     if (window._user !== undefined) {
       clearInterval(aguardar);
       if (window._user) {
         carregarProcessos().then(() => {
           iniciarSyncAutomatico();
-          // Sync imediato ao abrir — garante dados frescos sem esperar 10min
           sincronizarTodos(true);
         });
         aplicarAvatarSidebar();

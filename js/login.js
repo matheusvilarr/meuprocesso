@@ -1,9 +1,3 @@
-// Se já tem sessão ativa, vai direto pro dashboard
-(async () => {
-  const { data: { session } } = await _supabase.auth.getSession();
-  if (session) window.location.replace('/dashboard');
-})();
-
 document.getElementById('togglePw').addEventListener('click', function () {
   const input = document.getElementById('password');
   const hide  = input.type === 'password';
@@ -58,7 +52,7 @@ document.getElementById('loginForm').addEventListener('submit', async function (
   }
 
   btn.textContent = 'Redirecionando...';
-  window.location.replace('/dashboard');
+  window.location.href = '/dashboard';
 });
 
 function iconEye() {
