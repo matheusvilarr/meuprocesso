@@ -65,7 +65,7 @@ body {
 }
 
 .sidebar-logo-img {
-  height: 36px;
+  height: 54px;
   width: auto;
   flex-shrink: 0;
   border-radius: 4px;
@@ -687,8 +687,9 @@ body {
 .task-card {
   background: var(--white); border: 1px solid var(--gray-200);
   border-radius: var(--radius); padding: 12px 14px; margin-bottom: 8px;
-  cursor: pointer; transition: all 0.12s; border-left: 3px solid transparent;
+  cursor: grab; transition: all 0.12s; border-left: 3px solid transparent;
 }
+.task-card:active { cursor: grabbing; }
 
 .task-card:hover { box-shadow: var(--shadow); transform: translateY(-1px); }
 .task-card.urgente { border-left-color: var(--red); }
@@ -700,6 +701,9 @@ body {
 .task-due     { font-size: 11px; color: var(--gray-400); margin-top: 4px; display: flex; align-items: center; gap: 4px; }
 
 .task-cols { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+
+.task-col-body { min-height: 120px; padding: 4px 0; transition: background 0.15s, outline 0.15s; border-radius: var(--radius); }
+.task-col-body.drag-over { outline: 2px dashed var(--navy); background: rgba(26,46,107,0.04); }
 
 /* ── COLABORADORES ── */
 .colab-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }

@@ -156,7 +156,7 @@ async function enviarEmailNotificacao(para, nomeUsuario, itens) {
           ${blocos}
 
           <div style="text-align:center;margin-top:24px">
-            <a href="https://meuprocesso.app.br/dashboard.html"
+            <a href="https://meuprocesso.app.br/dashboard"
                style="display:inline-block;background:#1a2e6b;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:600">
               Ver no Dashboard →
             </a>

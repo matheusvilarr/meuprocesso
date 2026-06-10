@@ -15,13 +15,13 @@
 <!-- SIDEBAR -->
 <aside class="sidebar">
   <div class="sidebar-logo">
-    <a href="index.html" class="logo-mark">
+    <div class="logo-mark" onclick="showPage('dashboard')" style="cursor:pointer">
       <img src="img/images/logo.png" alt="Meu Processo" class="sidebar-logo-img">
       <div>
         <div class="logo-text">Meu Processo</div>
         <div class="logo-sub">Gestão Jurídica</div>
       </div>
-    </a>
+    </div>
   </div>
 
   <nav class="sidebar-nav">
@@ -40,7 +40,7 @@
     <div class="nav-item" onclick="showPage('calendario')">
       <i class="ti ti-calendar"></i>
       Calendário
-      <span class="nav-badge">5</span>
+      <span class="nav-badge" id="badge-eventos" style="display:none">0</span>
     </div>
     <div class="nav-item" onclick="showPage('tarefas')">
       <i class="ti ti-checklist"></i>
@@ -73,12 +73,15 @@
   </nav>
 
   <div class="sidebar-user">
-    <div class="user-avatar" id="sidebar-user-avatar">?</div>
-    <div class="user-info">
-      <div class="user-name" id="sidebar-user-name">Carregando...</div>
-      <div class="user-role" id="sidebar-user-email"></div>
+    <div style="display:flex;align-items:center;gap:10px;flex:1;cursor:pointer;min-width:0;overflow:hidden"
+         onclick="showPage('configuracoes')" title="Editar perfil">
+      <div class="user-avatar" id="sidebar-user-avatar">?</div>
+      <div class="user-info">
+        <div class="user-name" id="sidebar-user-name">Carregando...</div>
+        <div class="user-role" id="sidebar-user-email"></div>
+      </div>
     </div>
-    <i class="ti ti-bell" id="notif-bell" style="color:rgba(255,255,255,0.3);cursor:pointer;font-size:16px;" onclick="verNotificacoes()" title="Notificações"></i>
+    <i class="ti ti-bell" id="notif-bell" style="color:rgba(255,255,255,0.3);cursor:pointer;font-size:16px;flex-shrink:0" onclick="verNotificacoes()" title="Notificações"></i>
   </div>
 </aside>
 
@@ -162,41 +165,7 @@
             <div class="card-title"><i class="ti ti-activity"></i> Últimas Atualizações</div>
             <span style="font-size:12px;color:var(--gray-400)">Hoje</span>
           </div>
-          <div class="timeline-item" onclick="showProcessDetail()">
-            <div class="tl-dot red"></div>
-            <div class="tl-content">
-              <div class="tl-text"><strong>Novo prazo</strong> adicionado em Rodrigues &amp; Cia vs. Banco Nacional — Contestação: 10/06</div>
-              <div class="tl-time">Há 2 horas · por você</div>
-            </div>
-          </div>
-          <div class="timeline-item" onclick="showProcessDetail()">
-            <div class="tl-dot navy"></div>
-            <div class="tl-content">
-              <div class="tl-text"><strong>Documento</strong> anexado por Dr. Paulo Ramos em Carlos Eduardo Marques — Petição Inicial.pdf</div>
-              <div class="tl-time">Há 4 horas · Dr. Paulo Ramos</div>
-            </div>
-          </div>
-          <div class="timeline-item" onclick="showProcessDetail()">
-            <div class="tl-dot gold"></div>
-            <div class="tl-content">
-              <div class="tl-text"><strong>Comentário</strong> em Inventário Souza Lima: "Aguardando certidão de óbito do cartório"</div>
-              <div class="tl-time">Ontem, 16h30 · Dra. Lúcia Mendes</div>
-            </div>
-          </div>
-          <div class="timeline-item" onclick="showProcessDetail()">
-            <div class="tl-dot green"></div>
-            <div class="tl-content">
-              <div class="tl-text"><strong>Status alterado</strong> em Tech Solutions ME vs. Prefeitura para Aguardando Decisão</div>
-              <div class="tl-time">Ontem, 14h10 · por você</div>
-            </div>
-          </div>
-          <div class="timeline-item" onclick="showProcessDetail()">
-            <div class="tl-dot navy"></div>
-            <div class="tl-content">
-              <div class="tl-text"><strong>Audiência agendada</strong> em Ana Paula Ferreira (Defesa) — 15/06/2025 às 14h</div>
-              <div class="tl-time">20/05, 09h00 · Tribunal</div>
-            </div>
-          </div>
+          <div id="dash-atualizacoes-recentes"></div>
         </div>
 
       </div>
@@ -219,42 +188,7 @@
             <div class="card-title"><i class="ti ti-clock-hour-4"></i> Prazos Próximos</div>
             <a class="card-link" onclick="showPage('calendario')">Calendário</a>
           </div>
-          <div class="prazo-item" onclick="showProcessDetail()">
-            <div class="prazo-date"><div class="prazo-day">10</div><div class="prazo-month">Jun</div></div>
-            <div class="prazo-urgency urgency-alta"></div>
-            <div class="prazo-info">
-              <div class="prazo-name">Rodrigues &amp; Cia — Contestação</div>
-              <div class="prazo-type">Prazo processual fatal</div>
-            </div>
-            <span class="dias-badge dias-urgente">1 dia</span>
-          </div>
-          <div class="prazo-item" onclick="showProcessDetail()">
-            <div class="prazo-date"><div class="prazo-day">13</div><div class="prazo-month">Jun</div></div>
-            <div class="prazo-urgency urgency-media"></div>
-            <div class="prazo-info">
-              <div class="prazo-name">Marques — Recurso Ordinário</div>
-              <div class="prazo-type">Prazo recursal</div>
-            </div>
-            <span class="dias-badge dias-aviso">4 dias</span>
-          </div>
-          <div class="prazo-item" onclick="showProcessDetail()">
-            <div class="prazo-date"><div class="prazo-day">15</div><div class="prazo-month">Jun</div></div>
-            <div class="prazo-urgency urgency-baixa"></div>
-            <div class="prazo-info">
-              <div class="prazo-name">Ana Paula F. — Audiência</div>
-              <div class="prazo-type">Audiência de instrução</div>
-            </div>
-            <span class="dias-badge dias-ok">6 dias</span>
-          </div>
-          <div class="prazo-item" onclick="showProcessDetail()">
-            <div class="prazo-date"><div class="prazo-day">20</div><div class="prazo-month">Jun</div></div>
-            <div class="prazo-urgency urgency-baixa"></div>
-            <div class="prazo-info">
-              <div class="prazo-name">Tech Solutions — Manifestação</div>
-              <div class="prazo-type">Lembrete manual</div>
-            </div>
-            <span class="dias-badge dias-ok">11 dias</span>
-          </div>
+          <div id="dash-prazos-recentes"></div>
           <div style="padding:12px 20px">
             <button class="btn-secondary" style="width:100%;justify-content:center" onclick="openModal('modal-lembrete')">
               <i class="ti ti-bell-plus"></i> Programar Lembrete
@@ -632,40 +566,47 @@
       <div style="display:flex;flex-direction:column;gap:16px">
         <div class="card">
           <div class="card-header"><div class="card-title"><i class="ti ti-list"></i> Este Mês</div></div>
-          <div class="prazo-item">
-            <div class="prazo-date"><div class="prazo-day">10</div><div class="prazo-month">Jun</div></div>
-            <div class="prazo-urgency urgency-alta"></div>
-            <div class="prazo-info"><div class="prazo-name">Contestação — Rodrigues</div><div class="prazo-type"><span class="badge event-prazo">Prazo Fatal</span></div></div>
-          </div>
-          <div class="prazo-item">
-            <div class="prazo-date"><div class="prazo-day">13</div><div class="prazo-month">Jun</div></div>
-            <div class="prazo-urgency urgency-media"></div>
-            <div class="prazo-info"><div class="prazo-name">Recurso — Marques</div><div class="prazo-type"><span class="badge event-prazo">Prazo Recursal</span></div></div>
-          </div>
-          <div class="prazo-item">
-            <div class="prazo-date"><div class="prazo-day">15</div><div class="prazo-month">Jun</div></div>
-            <div class="prazo-urgency urgency-baixa"></div>
-            <div class="prazo-info"><div class="prazo-name">Audiência — Ana Paula F.</div><div class="prazo-type"><span class="badge event-audiencia">Audiência 14h</span></div></div>
-          </div>
-          <div class="prazo-item">
-            <div class="prazo-date"><div class="prazo-day">18</div><div class="prazo-month">Jun</div></div>
-            <div class="prazo-urgency urgency-baixa"></div>
-            <div class="prazo-info"><div class="prazo-name">Reunião — Inventário Lima</div><div class="prazo-type"><span class="badge event-reuniao">Reunião 10h</span></div></div>
-          </div>
-          <div class="prazo-item">
-            <div class="prazo-date"><div class="prazo-day">20</div><div class="prazo-month">Jun</div></div>
-            <div class="prazo-urgency urgency-baixa"></div>
-            <div class="prazo-info"><div class="prazo-name">Manifestação — Tech Solutions</div><div class="prazo-type"><span class="badge event-lembrete">Lembrete</span></div></div>
-          </div>
+          <div id="cal-este-mes" style="padding:4px 0"></div>
         </div>
 
         <div class="card" style="padding:16px 20px">
-          <div style="font-size:12px;font-weight:600;color:var(--navy);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Legenda</div>
-          <div style="display:flex;flex-direction:column;gap:8px">
-            <div style="display:flex;align-items:center;gap:8px;font-size:12px"><span style="width:12px;height:12px;border-radius:3px;background:var(--red);flex-shrink:0"></span> Prazo processual</div>
-            <div style="display:flex;align-items:center;gap:8px;font-size:12px"><span style="width:12px;height:12px;border-radius:3px;background:var(--blue);flex-shrink:0"></span> Audiência</div>
-            <div style="display:flex;align-items:center;gap:8px;font-size:12px"><span style="width:12px;height:12px;border-radius:3px;background:var(--gold);flex-shrink:0"></span> Lembrete manual</div>
-            <div style="display:flex;align-items:center;gap:8px;font-size:12px"><span style="width:12px;height:12px;border-radius:3px;background:var(--green);flex-shrink:0"></span> Reunião</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+            <div style="font-size:12px;font-weight:600;color:var(--navy);text-transform:uppercase;letter-spacing:0.05em">Legenda</div>
+            <span style="font-size:10px;color:var(--gray-400)">clique para criar</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div onclick="abrirModalTipo('prazo_processual')"
+              style="display:flex;align-items:center;gap:8px;font-size:12px;padding:7px 10px;border-radius:8px;cursor:pointer;transition:background .12s;border:1px solid transparent"
+              onmouseover="this.style.background='var(--gray-50)';this.style.borderColor='var(--gray-200)'"
+              onmouseout="this.style.background='';this.style.borderColor='transparent'">
+              <span style="width:12px;height:12px;border-radius:3px;background:var(--red);flex-shrink:0"></span>
+              Prazo processual
+              <i class="ti ti-plus" style="margin-left:auto;color:var(--gray-400);font-size:11px"></i>
+            </div>
+            <div onclick="abrirModalTipo('audiencia')"
+              style="display:flex;align-items:center;gap:8px;font-size:12px;padding:7px 10px;border-radius:8px;cursor:pointer;transition:background .12s;border:1px solid transparent"
+              onmouseover="this.style.background='var(--gray-50)';this.style.borderColor='var(--gray-200)'"
+              onmouseout="this.style.background='';this.style.borderColor='transparent'">
+              <span style="width:12px;height:12px;border-radius:3px;background:var(--blue);flex-shrink:0"></span>
+              Audiência
+              <i class="ti ti-plus" style="margin-left:auto;color:var(--gray-400);font-size:11px"></i>
+            </div>
+            <div onclick="abrirModalTipo('lembrete')"
+              style="display:flex;align-items:center;gap:8px;font-size:12px;padding:7px 10px;border-radius:8px;cursor:pointer;transition:background .12s;border:1px solid transparent"
+              onmouseover="this.style.background='var(--gray-50)';this.style.borderColor='var(--gray-200)'"
+              onmouseout="this.style.background='';this.style.borderColor='transparent'">
+              <span style="width:12px;height:12px;border-radius:3px;background:var(--gold);flex-shrink:0"></span>
+              Lembrete manual
+              <i class="ti ti-plus" style="margin-left:auto;color:var(--gray-400);font-size:11px"></i>
+            </div>
+            <div onclick="abrirModalTipo('reuniao')"
+              style="display:flex;align-items:center;gap:8px;font-size:12px;padding:7px 10px;border-radius:8px;cursor:pointer;transition:background .12s;border:1px solid transparent"
+              onmouseover="this.style.background='var(--gray-50)';this.style.borderColor='var(--gray-200)'"
+              onmouseout="this.style.background='';this.style.borderColor='transparent'">
+              <span style="width:12px;height:12px;border-radius:3px;background:var(--green);flex-shrink:0"></span>
+              Reunião
+              <i class="ti ti-plus" style="margin-left:auto;color:var(--gray-400);font-size:11px"></i>
+            </div>
           </div>
         </div>
       </div>
@@ -677,7 +618,7 @@
     <div class="page-header">
       <div>
         <div class="page-title">Tarefas</div>
-        <div class="page-sub">11 pendentes · 4 concluídas hoje</div>
+        <div class="page-sub" id="tarefas-sub">Carregando...</div>
       </div>
       <button class="btn-primary" onclick="openModal('modal-tarefa')"><i class="ti ti-plus"></i> Nova Tarefa</button>
     </div>
@@ -686,100 +627,45 @@
       <div class="task-col">
         <div class="task-col-header">
           <span class="task-col-title"><i class="ti ti-circle" style="color:var(--gray-400)"></i> A fazer</span>
-          <span class="task-col-count">5</span>
+          <span class="task-col-count" id="col-count-a_fazer">0</span>
         </div>
-        <div class="task-card urgente" onclick="showToast('Tarefa aberta')">
-          <div class="task-title">Redigir contestação completa — Rodrigues vs Banco</div>
-          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 1015728-45.2024</div>
-          <div class="task-due"><i class="ti ti-clock" style="font-size:11px;color:var(--red)"></i><span style="color:var(--red)">Hoje até 18h</span></div>
-        </div>
-        <div class="task-card media">
-          <div class="task-title">Calcular danos atualizados com INPC</div>
-          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 1015728-45.2024</div>
-          <div class="task-due"><i class="ti ti-clock" style="font-size:11px"></i> Até 09/06</div>
-        </div>
-        <div class="task-card baixa">
-          <div class="task-title">Solicitar certidão de óbito — Inventário</div>
-          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 5571034-88.2024</div>
-          <div class="task-due"><i class="ti ti-clock" style="font-size:11px"></i> Sem prazo</div>
-        </div>
-        <div class="task-card baixa">
-          <div class="task-title">Revisar cláusulas contratuais Tech Solutions</div>
-          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 7890123-56.2024</div>
-          <div class="task-due"><i class="ti ti-clock" style="font-size:11px"></i> Até 15/06</div>
-        </div>
-        <div class="task-card baixa">
-          <div class="task-title">Contato com perito judicial — confirmação</div>
-          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 0023841-12.2023</div>
-          <div class="task-due"><i class="ti ti-clock" style="font-size:11px"></i> Até 12/06</div>
-        </div>
+        <div class="task-col-body" id="col-a_fazer"
+          ondragover="kanbanDragOver(event)"
+          ondrop="kanbanDrop(event,'a_fazer')"
+          ondragleave="kanbanDragLeave(event)"></div>
       </div>
 
       <div class="task-col">
         <div class="task-col-header">
           <span class="task-col-title"><i class="ti ti-loader" style="color:var(--gold)"></i> Em andamento</span>
-          <span class="task-col-count">3</span>
+          <span class="task-col-count" id="col-count-em_andamento">0</span>
         </div>
-        <div class="task-card media">
-          <div class="task-title">Revisar petição inicial — Paulo Ramos</div>
-          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 1015728-45.2024</div>
-          <div class="task-due"><i class="ti ti-user" style="font-size:11px"></i> Dr. Paulo Ramos</div>
-        </div>
-        <div class="task-card baixa">
-          <div class="task-title">Preparar rol de testemunhas — Ana Paula</div>
-          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 2234567-90.2023</div>
-          <div class="task-due"><i class="ti ti-clock" style="font-size:11px"></i> Até 13/06</div>
-        </div>
-        <div class="task-card baixa">
-          <div class="task-title">Notificar cliente sobre audiência 15/06</div>
-          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 2234567-90.2023</div>
-          <div class="task-due"><i class="ti ti-user" style="font-size:11px"></i> Dra. Marina Alves</div>
-        </div>
+        <div class="task-col-body" id="col-em_andamento"
+          ondragover="kanbanDragOver(event)"
+          ondrop="kanbanDrop(event,'em_andamento')"
+          ondragleave="kanbanDragLeave(event)"></div>
       </div>
 
       <div class="task-col">
         <div class="task-col-header">
           <span class="task-col-title"><i class="ti ti-eye" style="color:var(--blue)"></i> Revisão</span>
-          <span class="task-col-count">3</span>
+          <span class="task-col-count" id="col-count-revisao">0</span>
         </div>
-        <div class="task-card baixa">
-          <div class="task-title">Proposta de acordo — Alves Construtora</div>
-          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 4456789-11.2022</div>
-          <div class="task-due"><i class="ti ti-user" style="font-size:11px"></i> Dra. Marina Alves</div>
-        </div>
-        <div class="task-card media">
-          <div class="task-title">Memorial de cálculo — Marques</div>
-          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 0023841-12.2023</div>
-          <div class="task-due"><i class="ti ti-clock" style="font-size:11px"></i> Até 10/06</div>
-        </div>
-        <div class="task-card baixa">
-          <div class="task-title">Minuta de embargos de declaração</div>
-          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 7890123-56.2024</div>
-          <div class="task-due"><i class="ti ti-user" style="font-size:11px"></i> Dra. Lúcia Mendes</div>
-        </div>
+        <div class="task-col-body" id="col-revisao"
+          ondragover="kanbanDragOver(event)"
+          ondrop="kanbanDrop(event,'revisao')"
+          ondragleave="kanbanDragLeave(event)"></div>
       </div>
 
       <div class="task-col">
         <div class="task-col-header">
           <span class="task-col-title"><i class="ti ti-circle-check" style="color:var(--green)"></i> Concluídas</span>
-          <span class="task-col-count">4</span>
+          <span class="task-col-count" id="col-count-concluida">0</span>
         </div>
-        <div class="task-card" style="opacity:0.6;border-left-color:var(--green)">
-          <div class="task-title" style="text-decoration:line-through">Protocolar petição — Tech Solutions</div>
-          <div class="task-process"><i class="ti ti-check" style="font-size:11px;color:var(--green)"></i> Concluído hoje às 9h</div>
-        </div>
-        <div class="task-card" style="opacity:0.6;border-left-color:var(--green)">
-          <div class="task-title" style="text-decoration:line-through">Agendar reunião com herdeiros — Inventário</div>
-          <div class="task-process"><i class="ti ti-check" style="font-size:11px;color:var(--green)"></i> Concluído ontem</div>
-        </div>
-        <div class="task-card" style="opacity:0.6;border-left-color:var(--green)">
-          <div class="task-title" style="text-decoration:line-through">Enviar documentos ao cliente Marques</div>
-          <div class="task-process"><i class="ti ti-check" style="font-size:11px;color:var(--green)"></i> Concluído 06/06</div>
-        </div>
-        <div class="task-card" style="opacity:0.6;border-left-color:var(--green)">
-          <div class="task-title" style="text-decoration:line-through">Consultar movimentação PJe — Rodrigues</div>
-          <div class="task-process"><i class="ti ti-check" style="font-size:11px;color:var(--green)"></i> Concluído 06/06</div>
-        </div>
+        <div class="task-col-body" id="col-concluida"
+          ondragover="kanbanDragOver(event)"
+          ondrop="kanbanDrop(event,'concluida')"
+          ondragleave="kanbanDragLeave(event)"></div>
       </div>
     </div>
   </div>
@@ -835,6 +721,102 @@
           <div><div class="colab-stat-num">3</div><div class="colab-stat-label">Tarefas</div></div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- ── CONFIGURAÇÕES ── -->
+  <div id="page-configuracoes" class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Configurações</div>
+        <div class="page-sub">Perfil, escritório e segurança</div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:20px;max-width:640px">
+
+      <!-- Perfil & Avatar -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="ti ti-user-circle"></i> Perfil</div>
+        </div>
+        <div style="padding:20px 24px">
+          <div style="display:flex;align-items:center;gap:20px;margin-bottom:24px">
+            <div style="position:relative;flex-shrink:0;cursor:pointer" onclick="document.getElementById('config-foto-input').click()" title="Clique para trocar a foto">
+              <div id="config-avatar" style="width:72px;height:72px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:26px;font-weight:700;color:#fff;background:#1a2e6b;overflow:hidden;transition:background .2s">?</div>
+              <div style="position:absolute;bottom:2px;right:2px;background:#1a2e6b;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;pointer-events:none">
+                <i class="ti ti-camera" style="font-size:10px;color:#fff"></i>
+              </div>
+              <input type="file" id="config-foto-input" accept="image/jpeg,image/png,image/webp" style="display:none" onchange="uploadFotoPerfil(this)">
+            </div>
+            <div>
+              <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--gray-700)">Cor do avatar</div>
+              <div id="config-color-picker" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+              <div id="config-foto-label" style="margin-top:10px"></div>
+            </div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">Nome completo</label>
+            <input type="text" id="config-nome" class="form-input" placeholder="Seu nome completo">
+          </div>
+          <div class="form-field" style="margin-top:14px">
+            <label class="form-label">E-mail</label>
+            <input type="email" id="config-email" class="form-input" disabled style="background:var(--gray-50);color:var(--gray-400);cursor:not-allowed">
+            <div style="font-size:11px;color:var(--gray-400);margin-top:4px">O e-mail não pode ser alterado por aqui.</div>
+          </div>
+        </div>
+        <div style="padding:14px 24px;border-top:1px solid var(--gray-100);display:flex;justify-content:flex-end">
+          <button class="btn-primary" onclick="salvarPerfil()"><i class="ti ti-check"></i> Salvar perfil</button>
+        </div>
+      </div>
+
+      <!-- Dados do Escritório -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="ti ti-building"></i> Dados do Escritório</div>
+        </div>
+        <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
+          <div class="form-field">
+            <label class="form-label">Nome do escritório</label>
+            <input type="text" id="config-escritorio" class="form-input" placeholder="Ex: Alves & Associados Advogados">
+          </div>
+          <div class="form-row">
+            <div class="form-field">
+              <label class="form-label">OAB</label>
+              <input type="text" id="config-oab" class="form-input" placeholder="Ex: SP 192.847">
+            </div>
+            <div class="form-field">
+              <label class="form-label">Telefone</label>
+              <input type="text" id="config-telefone" class="form-input" placeholder="(11) 99999-9999">
+            </div>
+          </div>
+        </div>
+        <div style="padding:14px 24px;border-top:1px solid var(--gray-100);display:flex;justify-content:flex-end">
+          <button class="btn-primary" onclick="salvarEscritorio()"><i class="ti ti-check"></i> Salvar escritório</button>
+        </div>
+      </div>
+
+      <!-- Segurança -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="ti ti-lock"></i> Segurança</div>
+        </div>
+        <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
+          <div class="form-field">
+            <label class="form-label">Nova senha</label>
+            <input type="password" id="config-senha-nova" class="form-input" placeholder="Mínimo 6 caracteres">
+          </div>
+          <div class="form-field">
+            <label class="form-label">Confirmar nova senha</label>
+            <input type="password" id="config-senha-confirma" class="form-input" placeholder="Repita a nova senha">
+          </div>
+          <div id="config-senha-erro" style="display:none;font-size:13px;color:var(--red);padding:8px 12px;background:#fdf0ef;border-radius:6px"></div>
+        </div>
+        <div style="padding:14px 24px;border-top:1px solid var(--gray-100);display:flex;justify-content:flex-end">
+          <button class="btn-primary" onclick="alterarSenha()"><i class="ti ti-lock-check"></i> Alterar senha</button>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -925,48 +907,50 @@
     <div class="modal-body">
       <div class="form-field">
         <label class="form-label">Tipo</label>
-        <select class="form-select">
-          <option>Prazo Processual</option><option>Audiência</option>
-          <option>Lembrete Manual</option><option>Reunião</option><option>Recorrente</option>
+        <select id="ev-tipo" class="form-select">
+          <option value="prazo_processual">Prazo Processual</option>
+          <option value="audiencia">Audiência</option>
+          <option value="lembrete">Lembrete Manual</option>
+          <option value="reuniao">Reunião</option>
         </select>
       </div>
       <div class="form-field">
         <label class="form-label">Descrição</label>
-        <input type="text" class="form-input" placeholder="Ex: Contestação, Recurso, Audiência...">
+        <input id="ev-titulo" type="text" class="form-input" placeholder="Ex: Contestação, Recurso, Audiência...">
       </div>
       <div class="form-field">
-        <label class="form-label">Processo</label>
-        <select class="form-select">
-          <option>1015728-45.2024 — Rodrigues vs Banco</option>
-          <option>0023841-12.2023 — Carlos Eduardo Marques</option>
-          <option>5571034-88.2024 — Inventário Souza Lima</option>
-          <option>7890123-56.2024 — Tech Solutions vs Prefeitura</option>
-          <option>2234567-90.2023 — Ana Paula Ferreira</option>
+        <label class="form-label">Processo <span style="font-size:11px;color:var(--gray-400);font-weight:400">(opcional)</span></label>
+        <select id="ev-processo" class="form-select">
+          <option value="">— Nenhum processo —</option>
         </select>
       </div>
       <div class="form-row">
         <div class="form-field">
           <label class="form-label">Data</label>
-          <input type="date" class="form-input" value="2025-06-10">
+          <input id="ev-data" type="date" class="form-input">
         </div>
         <div class="form-field">
           <label class="form-label">Urgência</label>
-          <select class="form-select">
-            <option>Alta — Prazo Fatal</option><option>Média</option><option>Baixa</option>
+          <select id="ev-urgencia" class="form-select">
+            <option value="alta">Alta — Prazo Fatal</option>
+            <option value="media">Média</option>
+            <option value="baixa" selected>Baixa</option>
           </select>
         </div>
       </div>
       <div class="form-field">
-        <label class="form-label">Notificar</label>
-        <select class="form-select">
-          <option>1 dia antes</option><option>3 dias antes</option>
-          <option>1 semana antes</option><option>Apenas no dia</option>
+        <label class="form-label">Notificar por e-mail</label>
+        <select id="ev-notificar" class="form-select">
+          <option value="1">1 dia antes</option>
+          <option value="3">3 dias antes</option>
+          <option value="7">1 semana antes</option>
+          <option value="0">Apenas no dia</option>
         </select>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeModal('modal-lembrete')">Cancelar</button>
-      <button class="btn-primary" onclick="closeModal('modal-lembrete');showToast('Prazo registrado com sucesso')"><i class="ti ti-check"></i> Salvar Prazo</button>
+      <button class="btn-primary" id="btn-salvar-evento" onclick="salvarEvento()"><i class="ti ti-check"></i> Salvar Prazo</button>
     </div>
   </div>
 </div>
@@ -980,40 +964,41 @@
     <div class="modal-body">
       <div class="form-field">
         <label class="form-label">Descrição da Tarefa</label>
-        <input type="text" class="form-input" placeholder="O que precisa ser feito?">
+        <input id="tar-titulo" type="text" class="form-input" placeholder="O que precisa ser feito?">
       </div>
       <div class="form-field">
-        <label class="form-label">Processo Relacionado</label>
-        <select class="form-select">
-          <option value="">Nenhum</option>
-          <option>1015728-45.2024 — Rodrigues vs Banco</option>
-          <option>0023841-12.2023 — Carlos Eduardo Marques</option>
-          <option>5571034-88.2024 — Inventário Souza Lima</option>
+        <label class="form-label">Processo Relacionado <span style="font-size:11px;color:var(--gray-400);font-weight:400">(opcional)</span></label>
+        <select id="tar-processo" class="form-select">
+          <option value="">— Nenhum processo —</option>
         </select>
       </div>
       <div class="form-row">
         <div class="form-field">
-          <label class="form-label">Atribuir a</label>
-          <select class="form-select">
-            <option>Dra. Marina Alves</option><option>Dr. Paulo Ramos</option>
-            <option>Dra. Lúcia Mendes</option><option>Carlos Ferreira</option>
+          <label class="form-label">Coluna</label>
+          <select id="tar-coluna" class="form-select">
+            <option value="a_fazer">A fazer</option>
+            <option value="em_andamento">Em andamento</option>
+            <option value="revisao">Revisão</option>
+            <option value="concluida">Concluída</option>
           </select>
         </div>
         <div class="form-field">
           <label class="form-label">Prazo</label>
-          <input type="date" class="form-input">
+          <input id="tar-prazo" type="date" class="form-input">
         </div>
       </div>
       <div class="form-field">
         <label class="form-label">Prioridade</label>
-        <select class="form-select">
-          <option>Urgente</option><option>Média</option><option>Baixa</option>
+        <select id="tar-prioridade" class="form-select">
+          <option value="urgente">Urgente</option>
+          <option value="media">Média</option>
+          <option value="baixa" selected>Baixa</option>
         </select>
       </div>
     </div>
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeModal('modal-tarefa')">Cancelar</button>
-      <button class="btn-primary" onclick="closeModal('modal-tarefa');showToast('Tarefa criada com sucesso')"><i class="ti ti-check"></i> Criar Tarefa</button>
+      <button class="btn-primary" id="btn-salvar-tarefa" onclick="salvarTarefa()"><i class="ti ti-check"></i> Criar Tarefa</button>
     </div>
   </div>
 </div>

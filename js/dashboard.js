@@ -5,7 +5,9 @@ const pages = {
   'processo-detalhe': 'Detalhe do Processo',
   'calendario': 'Calendário',
   'tarefas': 'Tarefas',
-  'colaboradores': 'Colaboradores'
+  'colaboradores': 'Colaboradores',
+  'configuracoes': 'Configurações',
+  'arquivados': 'Arquivados & Encerrados',
 };
 
 function showPage(id) {
@@ -19,8 +21,10 @@ function showPage(id) {
       n.classList.add('active');
     }
   });
-  if (id === 'calendario') buildFullCal();
-  if (id === 'arquivados') carregarArquivados();
+  if (id === 'calendario')    carregarEventos();
+  if (id === 'tarefas')       carregarTarefas();
+  if (id === 'arquivados')    carregarArquivados();
+  if (id === 'configuracoes') carregarConfiguracoes();
 }
 
 function showProcessDetail() {
@@ -40,6 +44,15 @@ function switchTab(id, btn) {
 // Modal
 function openModal(id) {
   document.getElementById(id).classList.add('open');
+  if (id === 'modal-lembrete') {
+    preencherProcessosModal('ev-processo');
+    const hoje = new Date().toISOString().slice(0, 10);
+    const evData = document.getElementById('ev-data');
+    if (evData && !evData.value) evData.value = hoje;
+  }
+  if (id === 'modal-tarefa') {
+    preencherProcessosModal('tar-processo');
+  }
 }
 
 function closeModal(id) {
@@ -61,8 +74,8 @@ function showToast(msg) {
 }
 
 // Mini Calendar
-let miniCalDate = new Date(2025, 5, 1);
-const eventDays = { 10: 'prazo', 13: 'prazo', 15: 'audiencia', 18: 'reuniao', 20: 'lembrete' };
+let miniCalDate = new Date();
+let _eventosDB  = [];
 
 function buildMiniCal() {
   const grid = document.getElementById('mini-cal-grid');
@@ -76,6 +89,15 @@ function buildMiniCal() {
   const last  = new Date(miniCalDate.getFullYear(), miniCalDate.getMonth() + 1, 0);
   const today = new Date();
 
+  const eventoDias = new Set(
+    _eventosDB
+      .filter(e => {
+        const d = new Date(e.data + 'T12:00:00');
+        return d.getFullYear() === miniCalDate.getFullYear() && d.getMonth() === miniCalDate.getMonth();
+      })
+      .map(e => new Date(e.data + 'T12:00:00').getDate())
+  );
+
   for (let i = 0; i < first.getDay(); i++) {
     const d = new Date(first);
     d.setDate(d.getDate() - (first.getDay() - i));
@@ -83,9 +105,9 @@ function buildMiniCal() {
   }
 
   for (let d = 1; d <= last.getDate(); d++) {
-    const isToday = miniCalDate.getFullYear() === today.getFullYear() &&
-                    miniCalDate.getMonth() === today.getMonth() && d === today.getDate();
-    const hasEvent = eventDays[d];
+    const isToday  = miniCalDate.getFullYear() === today.getFullYear() &&
+                     miniCalDate.getMonth() === today.getMonth() && d === today.getDate();
+    const hasEvent = eventoDias.has(d);
     html += `<div class="cal-day ${isToday ? 'today' : ''} ${hasEvent ? 'has-event' : ''}" onclick="showPage('calendario')">${d}</div>`;
   }
 
@@ -98,14 +120,13 @@ function changeCalMonth(dir) {
 }
 
 // Full Calendar
-let fullCalDate = new Date(2025, 5, 1);
+let fullCalDate = new Date();
 
-const fullEvents = {
-  10: [{ text: 'Contestação — Rodrigues', cls: 'event-prazo' }],
-  13: [{ text: 'Recurso — Marques',       cls: 'event-prazo' }],
-  15: [{ text: 'Audiência 14h — Ana Paula', cls: 'event-audiencia' }],
-  18: [{ text: 'Reunião — Inventário',    cls: 'event-reuniao' }],
-  20: [{ text: 'Manifestação — Tech',     cls: 'event-lembrete' }],
+const _tipoEvtCls = {
+  prazo_processual: 'event-prazo',
+  audiencia:        'event-audiencia',
+  lembrete:         'event-lembrete',
+  reuniao:          'event-reuniao',
 };
 
 function buildFullCal() {
@@ -120,6 +141,16 @@ function buildFullCal() {
   const last  = new Date(fullCalDate.getFullYear(), fullCalDate.getMonth() + 1, 0);
   const today = new Date();
 
+  const eventosPorDia = {};
+  for (const e of _eventosDB) {
+    const d = new Date(e.data + 'T12:00:00');
+    if (d.getFullYear() === fullCalDate.getFullYear() && d.getMonth() === fullCalDate.getMonth()) {
+      const day = d.getDate();
+      if (!eventosPorDia[day]) eventosPorDia[day] = [];
+      eventosPorDia[day].push(e);
+    }
+  }
+
   for (let i = 0; i < first.getDay(); i++) {
     const d = new Date(first);
     d.setDate(d.getDate() - (first.getDay() - i));
@@ -129,17 +160,22 @@ function buildFullCal() {
   for (let d = 1; d <= last.getDate(); d++) {
     const isToday = fullCalDate.getFullYear() === today.getFullYear() &&
                     fullCalDate.getMonth() === today.getMonth() && d === today.getDate();
-    const events = fullEvents[d] || [];
-    const evHtml = events.map(e => `<div class="fcal-event ${e.cls}">${e.text}</div>`).join('');
+    const events  = eventosPorDia[d] || [];
+    const evHtml  = events.map(e =>
+      `<div class="fcal-event ${_tipoEvtCls[e.tipo] || 'event-lembrete'}"
+            onclick="event.stopPropagation();excluirEvento('${e.id}')"
+            title="${e.titulo} (clique para excluir)">${e.titulo}</div>`
+    ).join('');
     html += `<div class="fcal-day ${isToday ? 'today' : ''}"><div class="fcal-day-num">${d}</div>${evHtml}</div>`;
   }
 
   grid.innerHTML = html;
+  renderizarEsteMes();
 }
 
 function changeFCalMonth(dir) {
   fullCalDate.setMonth(fullCalDate.getMonth() + dir);
-  buildFullCal();
+  carregarEventos();
 }
 
 // Init
@@ -447,6 +483,91 @@ function atualizarDashboard(processos, totalArquivados) {
       </div>
       <span class="badge badge-${areaMap[p.area] || 'civil'}">${p.area || 'Cível'}</span>
     </div>`).join('');
+
+  atualizarTimelineDash(processos);
+  atualizarPrazosDash();
+}
+
+function atualizarTimelineDash(processos) {
+  const wrap = document.getElementById('dash-atualizacoes-recentes');
+  if (!wrap) return;
+
+  const atualizacoes = [];
+  for (const p of processos) {
+    const movs = p.novos_movimentos?.length
+      ? p.novos_movimentos
+      : (p.movimentos_recentes || []).slice(0, 1);
+    for (const m of movs.slice(0, 2)) {
+      atualizacoes.push({ processo: p.apelido || p.nome, texto: m.nome, data: m.data, novo: !!p.novos_movimentos?.length });
+    }
+  }
+  atualizacoes.sort((a, b) => new Date(b.data) - new Date(a.data));
+
+  if (!atualizacoes.length) {
+    wrap.innerHTML = `
+      <div style="text-align:center;padding:28px 20px;color:var(--gray-400)">
+        <i class="ti ti-timeline" style="font-size:28px;display:block;margin-bottom:8px;opacity:0.35"></i>
+        <div style="font-size:13px;font-weight:500">Nenhuma atualização ainda</div>
+        <div style="font-size:12px;margin-top:4px;opacity:.75">As atualizações aparecem aqui quando um processo for sincronizado com o CNJ.</div>
+      </div>`;
+    return;
+  }
+
+  const fmt = iso => {
+    if (!iso) return '';
+    const d    = new Date(iso);
+    const diff = Math.floor((Date.now() - d) / 3600000);
+    if (diff < 1)  return 'Há menos de 1h';
+    if (diff < 24) return `Há ${diff}h`;
+    return d.toLocaleDateString('pt-BR', { day:'2-digit', month:'short' });
+  };
+
+  wrap.innerHTML = atualizacoes.slice(0, 5).map(a => `
+    <div class="timeline-item">
+      <div class="tl-dot ${a.novo ? 'gold' : 'navy'}"></div>
+      <div class="tl-content">
+        <div class="tl-text"><strong>${a.processo}</strong> — ${a.texto}</div>
+        <div class="tl-time">${fmt(a.data)} · CNJ DataJud</div>
+      </div>
+    </div>`).join('');
+}
+
+function atualizarPrazosDash() {
+  const wrap = document.getElementById('dash-prazos-recentes');
+  if (!wrap) return;
+
+  const hoje    = new Date();
+  const em30    = new Date(hoje); em30.setDate(em30.getDate() + 30);
+  const proximos = (_eventosDB || [])
+    .filter(e => { const d = new Date(e.data + 'T12:00:00'); return d >= hoje && d <= em30; })
+    .sort((a, b) => a.data.localeCompare(b.data))
+    .slice(0, 5);
+
+  if (!proximos.length) {
+    wrap.innerHTML = `
+      <div style="text-align:center;padding:28px 20px;color:var(--gray-400)">
+        <i class="ti ti-calendar-off" style="font-size:28px;display:block;margin-bottom:8px;opacity:0.35"></i>
+        <div style="font-size:13px;font-weight:500">Nenhum prazo nos próximos 30 dias</div>
+        <div style="font-size:12px;margin-top:4px;opacity:.75">Clique em "Programar Lembrete" para adicionar.</div>
+      </div>`;
+    return;
+  }
+
+  const urgCls = { alta: 'urgency-alta', media: 'urgency-media', baixa: 'urgency-baixa' };
+  wrap.innerHTML = proximos.map(e => {
+    const dt   = new Date(e.data + 'T12:00:00');
+    const dias = Math.ceil((dt - hoje) / 86400000);
+    const dia  = dt.toLocaleDateString('pt-BR', { day:'2-digit' });
+    const mes  = dt.toLocaleDateString('pt-BR', { month:'short' }).replace('.','');
+    const badgeCls = dias <= 3 ? 'dias-urgente' : dias <= 7 ? 'dias-aviso' : 'dias-ok';
+    return `
+      <div class="prazo-item">
+        <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
+        <div class="prazo-urgency ${urgCls[e.urgencia] || 'urgency-baixa'}"></div>
+        <div class="prazo-info"><div class="prazo-name">${e.titulo}</div><div class="prazo-type">${e.tipo}</div></div>
+        <span class="dias-badge ${badgeCls}">${dias === 0 ? 'Hoje' : dias + 'd'}</span>
+      </div>`;
+  }).join('');
 }
 
 function renderizarListaProcessos(lista) {
@@ -875,7 +996,7 @@ async function verNotificacoes() {
 
 async function fazerLogout() {
   await _supabase.auth.signOut();
-  window.location.href = 'login.html';
+  window.location.href = '/login';
 }
 
 // ── SYNC AUTOMÁTICO ───────────────────────────────────────────────────────
@@ -954,8 +1075,7 @@ window.addEventListener('DOMContentLoaded', () => {
           // Sync imediato ao abrir — garante dados frescos sem esperar 10min
           sincronizarTodos(true);
         });
-        const avatar = document.getElementById('sidebar-user-avatar');
-        if (avatar) avatar.textContent = (window._user.email || '?')[0].toUpperCase();
+        aplicarAvatarSidebar();
       }
     }
   }, 100);
@@ -1084,6 +1204,261 @@ async function carregarArquivados() {
   });
 }
 
+// ── CONFIGURAÇÕES / PERFIL ────────────────────────────────────────────────
+
+const AVATAR_CORES = ['#1a2e6b','#1565c0','#1a7a4a','#9c2b6a','#c0390f','#b07a00','#374151'];
+let _avatarCorAtual = '#1a2e6b';
+
+function aplicarAvatarSidebar() {
+  const avatar = document.getElementById('sidebar-user-avatar');
+  if (!avatar || !window._user) return;
+  const meta    = window._user.user_metadata || {};
+  const fotoUrl = meta.avatar_url;
+
+  if (fotoUrl) {
+    avatar.innerHTML        = `<img src="${fotoUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
+    avatar.style.background = 'transparent';
+    avatar.style.overflow   = 'hidden';
+  } else {
+    avatar.innerHTML = '';
+    const nome     = meta.full_name || meta.nome || window._user.email?.split('@')[0] || '';
+    const cor      = meta.avatar_color || '#1a2e6b';
+    const iniciais = nome.trim().split(' ').filter(Boolean).slice(0,2).map(p => p[0].toUpperCase()).join('')
+                     || (window._user.email || '?')[0].toUpperCase();
+    avatar.textContent      = iniciais;
+    avatar.style.background = cor;
+    avatar.style.overflow   = '';
+  }
+}
+
+function carregarConfiguracoes() {
+  const meta  = window._user?.user_metadata || {};
+  const nome  = meta.full_name || meta.nome || '';
+  const email = window._user?.email || '';
+  const cor   = meta.avatar_color || '#1a2e6b';
+
+  _avatarCorAtual = cor;
+
+  const nomeEl  = document.getElementById('config-nome');
+  const emailEl = document.getElementById('config-email');
+  if (nomeEl)  nomeEl.value  = nome;
+  if (emailEl) emailEl.value = email;
+
+  atualizarAvatarPreview(nome, cor);
+
+  const escEl = document.getElementById('config-escritorio');
+  const oabEl = document.getElementById('config-oab');
+  const telEl = document.getElementById('config-telefone');
+  if (escEl) escEl.value = meta.escritorio || '';
+  if (oabEl) oabEl.value = meta.oab        || '';
+  if (telEl) telEl.value = meta.telefone   || '';
+
+  const picker = document.getElementById('config-color-picker');
+  if (picker) {
+    picker.innerHTML = AVATAR_CORES.map(c => `
+      <div onclick="selecionarCorAvatar('${c}')" data-cor="${c}" style="
+        width:28px;height:28px;border-radius:50%;background:${c};cursor:pointer;
+        border:3px solid ${c === cor ? '#fff' : 'transparent'};
+        box-shadow:${c === cor ? '0 0 0 2px ' + c : 'none'};
+        transition:all .15s;flex-shrink:0"></div>`
+    ).join('');
+  }
+
+  atualizarFotoLabel();
+
+  const s1 = document.getElementById('config-senha-nova');
+  const s2 = document.getElementById('config-senha-confirma');
+  const se = document.getElementById('config-senha-erro');
+  if (s1) s1.value = '';
+  if (s2) s2.value = '';
+  if (se) se.style.display = 'none';
+}
+
+function selecionarCorAvatar(cor) {
+  _avatarCorAtual = cor;
+  document.querySelectorAll('#config-color-picker [data-cor]').forEach(el => {
+    const c = el.dataset.cor;
+    el.style.border     = `3px solid ${c === cor ? '#fff' : 'transparent'}`;
+    el.style.boxShadow  = c === cor ? `0 0 0 2px ${c}` : 'none';
+  });
+  const nome = document.getElementById('config-nome')?.value || '';
+  atualizarAvatarPreview(nome, cor);
+}
+
+function atualizarAvatarPreview(nome, cor) {
+  const el = document.getElementById('config-avatar');
+  if (!el) return;
+  const fotoUrl = window._user?.user_metadata?.avatar_url;
+  if (fotoUrl) {
+    el.innerHTML        = `<img src="${fotoUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
+    el.style.background = 'transparent';
+  } else {
+    el.innerHTML = '';
+    const iniciais = nome.trim().split(' ').filter(Boolean).slice(0,2).map(p => p[0].toUpperCase()).join('')
+                     || (window._user?.email || '?')[0].toUpperCase();
+    el.textContent      = iniciais;
+    el.style.background = cor;
+  }
+}
+
+async function uploadFotoPerfil(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+
+  if (file.size > 3 * 1024 * 1024) {
+    showToast('Foto muito grande. Máximo 3 MB.');
+    input.value = '';
+    return;
+  }
+
+  showToast('Enviando foto...');
+
+  const base64 = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  const { data: { session } } = await _supabase.auth.getSession();
+  if (!session) { showToast('Sessão expirada. Faça login novamente.'); return; }
+
+  const ext = file.name.split('.').pop().toLowerCase() || 'jpg';
+
+  const res = await fetch('/api/upload-avatar', {
+    method: 'POST',
+    headers: {
+      'Content-Type':  'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({ base64, contentType: file.type, ext }),
+  });
+
+  const data = await res.json();
+  input.value = '';
+
+  if (!res.ok) { showToast('Erro: ' + (data.erro || 'falha no upload')); return; }
+
+  const { error: metaErr } = await _supabase.auth.updateUser({ data: { avatar_url: data.url } });
+  if (metaErr) { showToast('Erro ao salvar foto: ' + metaErr.message); return; }
+
+  if (window._user) {
+    window._user.user_metadata = { ...window._user.user_metadata, avatar_url: data.url };
+  }
+
+  atualizarAvatarPreview(document.getElementById('config-nome')?.value || '', _avatarCorAtual);
+  aplicarAvatarSidebar();
+  atualizarFotoLabel();
+  showToast('Foto atualizada!');
+}
+
+async function removerFotoPerfil() {
+  const { error } = await _supabase.auth.updateUser({ data: { avatar_url: null } });
+  if (error) { showToast('Erro ao remover foto.'); return; }
+  if (window._user) {
+    window._user.user_metadata = { ...window._user.user_metadata, avatar_url: null };
+  }
+  atualizarAvatarPreview(document.getElementById('config-nome')?.value || '', _avatarCorAtual);
+  aplicarAvatarSidebar();
+  atualizarFotoLabel();
+  showToast('Foto removida.');
+}
+
+function atualizarFotoLabel() {
+  const label = document.getElementById('config-foto-label');
+  if (!label) return;
+  const temFoto = !!window._user?.user_metadata?.avatar_url;
+  label.innerHTML = temFoto
+    ? `<span style="font-size:12px;color:var(--gray-400)">
+         <span onclick="document.getElementById('config-foto-input').click()" style="color:var(--navy);font-weight:600;cursor:pointer">Trocar foto</span>
+         &nbsp;·&nbsp;
+         <span onclick="removerFotoPerfil()" style="color:var(--red);cursor:pointer">Remover</span>
+       </span>`
+    : `<span style="font-size:12px;color:var(--gray-400)">Clique na foto para enviar · JPG, PNG até 3 MB</span>`;
+}
+
+async function salvarPerfil() {
+  const nome = document.getElementById('config-nome')?.value.trim() || '';
+  if (!nome) { showToast('Preencha o nome.'); return; }
+
+  const { error } = await _supabase.auth.updateUser({
+    data: { full_name: nome, nome, avatar_color: _avatarCorAtual }
+  });
+
+  if (error) { showToast('Erro ao salvar: ' + error.message); return; }
+
+  if (window._user) {
+    window._user.user_metadata = {
+      ...window._user.user_metadata,
+      full_name: nome, nome, avatar_color: _avatarCorAtual
+    };
+  }
+
+  const nameEl = document.getElementById('sidebar-user-name');
+  if (nameEl) nameEl.textContent = nome;
+
+  aplicarAvatarSidebar();
+
+  const hora = new Date().getHours();
+  const saud = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
+  const greet = document.getElementById('dash-greeting');
+  if (greet) greet.textContent = `${saud}, ${nome}!`;
+
+  showToast('Perfil salvo com sucesso!');
+}
+
+async function salvarEscritorio() {
+  const escritorio = document.getElementById('config-escritorio')?.value.trim() || '';
+  const oab        = document.getElementById('config-oab')?.value.trim()        || '';
+  const telefone   = document.getElementById('config-telefone')?.value.trim()   || '';
+
+  const { error } = await _supabase.auth.updateUser({
+    data: { escritorio, oab, telefone }
+  });
+
+  if (error) { showToast('Erro ao salvar: ' + error.message); return; }
+
+  if (window._user) {
+    window._user.user_metadata = {
+      ...window._user.user_metadata,
+      escritorio, oab, telefone
+    };
+  }
+
+  showToast('Dados do escritório salvos!');
+}
+
+async function alterarSenha() {
+  const nova     = document.getElementById('config-senha-nova')?.value    || '';
+  const confirma = document.getElementById('config-senha-confirma')?.value || '';
+  const erroEl   = document.getElementById('config-senha-erro');
+
+  erroEl.style.display = 'none';
+
+  if (nova.length < 6) {
+    erroEl.textContent   = 'A senha deve ter pelo menos 6 caracteres.';
+    erroEl.style.display = 'block';
+    return;
+  }
+  if (nova !== confirma) {
+    erroEl.textContent   = 'As senhas não conferem.';
+    erroEl.style.display = 'block';
+    return;
+  }
+
+  const { error } = await _supabase.auth.updateUser({ password: nova });
+
+  if (error) {
+    erroEl.textContent   = 'Erro: ' + error.message;
+    erroEl.style.display = 'block';
+    return;
+  }
+
+  document.getElementById('config-senha-nova').value     = '';
+  document.getElementById('config-senha-confirma').value = '';
+  showToast('Senha alterada com sucesso!');
+}
+
 async function restaurarProcesso(evt, id, nome) {
   evt.stopPropagation();
   const { error } = await _supabase
@@ -1095,4 +1470,300 @@ async function restaurarProcesso(evt, id, nome) {
   showToast(`"${nome}" restaurado! Disponível novamente em Meus Processos.`);
   carregarArquivados();
   carregarProcessos();
+}
+
+// ── CALENDÁRIO: EVENTOS DO BANCO ──────────────────────────────────────────
+
+async function carregarEventos() {
+  if (!window._user) return;
+
+  const agora  = new Date();
+  const inicio = new Date(fullCalDate.getFullYear(), fullCalDate.getMonth(), 1).toISOString().slice(0, 10);
+  const fim    = new Date(fullCalDate.getFullYear(), fullCalDate.getMonth() + 1, 0).toISOString().slice(0, 10);
+
+  const { data, error } = await _supabase
+    .from('eventos')
+    .select('*')
+    .gte('data', inicio)
+    .lte('data', fim)
+    .order('data', { ascending: true });
+
+  if (!error && data) {
+    _eventosDB = data;
+  }
+
+  buildFullCal();
+  buildMiniCal();
+
+  // Badge: eventos nos próximos 7 dias
+  const em7 = new Date(agora); em7.setDate(em7.getDate() + 7);
+  const proximos = (_eventosDB).filter(e => {
+    const d = new Date(e.data + 'T12:00:00');
+    return d >= agora && d <= em7;
+  });
+  const badgeEv = document.getElementById('badge-eventos');
+  if (badgeEv) {
+    badgeEv.textContent   = proximos.length;
+    badgeEv.style.display = proximos.length ? 'inline-flex' : 'none';
+  }
+
+  // Atualiza prazos no dashboard
+  atualizarPrazosDash();
+}
+
+function renderizarEsteMes() {
+  const wrap = document.getElementById('cal-este-mes');
+  if (!wrap) return;
+
+  const doMes = _eventosDB.filter(e => {
+    const d = new Date(e.data + 'T12:00:00');
+    return d.getFullYear() === fullCalDate.getFullYear() && d.getMonth() === fullCalDate.getMonth();
+  });
+
+  if (!doMes.length) {
+    wrap.innerHTML = `<div style="text-align:center;padding:24px 16px;color:var(--gray-400);font-size:12px">
+      <i class="ti ti-calendar-off" style="font-size:22px;display:block;margin-bottom:6px;opacity:0.35"></i>
+      Nenhum evento este mês
+    </div>`;
+    return;
+  }
+
+  const tipoLabel = { prazo_processual: 'Prazo Fatal', audiencia: 'Audiência', lembrete: 'Lembrete', reuniao: 'Reunião' };
+  const urgCls    = { alta: 'urgency-alta', media: 'urgency-media', baixa: 'urgency-baixa' };
+
+  wrap.innerHTML = doMes.map(e => {
+    const dt  = new Date(e.data + 'T12:00:00');
+    const dia = dt.toLocaleDateString('pt-BR', { day:'2-digit' });
+    const mes = dt.toLocaleDateString('pt-BR', { month:'short' }).replace('.','');
+    const cls = _tipoEvtCls[e.tipo] || 'event-lembrete';
+    return `
+      <div class="prazo-item">
+        <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
+        <div class="prazo-urgency ${urgCls[e.urgencia] || 'urgency-baixa'}"></div>
+        <div class="prazo-info">
+          <div class="prazo-name">${e.titulo}</div>
+          <div class="prazo-type"><span class="badge ${cls}">${tipoLabel[e.tipo] || 'Lembrete'}</span></div>
+        </div>
+        <button onclick="excluirEvento('${e.id}')" title="Excluir"
+          style="background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:14px;padding:4px;line-height:1">
+          <i class="ti ti-trash"></i>
+        </button>
+      </div>`;
+  }).join('');
+}
+
+async function excluirEvento(id) {
+  if (!confirm('Excluir este evento?')) return;
+  const { error } = await _supabase.from('eventos').delete().eq('id', id);
+  if (error) { showToast('Erro ao excluir evento.'); return; }
+  showToast('Evento excluído.');
+  carregarEventos();
+}
+
+async function salvarEvento() {
+  const titulo   = document.getElementById('ev-titulo')?.value.trim()   || '';
+  const tipo     = document.getElementById('ev-tipo')?.value            || 'lembrete';
+  const data     = document.getElementById('ev-data')?.value            || '';
+  const proc     = document.getElementById('ev-processo')?.value        || '';
+  const urgencia = document.getElementById('ev-urgencia')?.value        || 'baixa';
+  const notif    = parseInt(document.getElementById('ev-notificar')?.value || '1', 10);
+
+  if (!titulo) { showToast('Preencha a descrição do evento.'); return; }
+  if (!data)   { showToast('Selecione uma data.'); return; }
+
+  const btn = document.getElementById('btn-salvar-evento');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Salvando...'; }
+
+  try {
+    const { data: { session } } = await _supabase.auth.getSession();
+    const res = await fetch('/api/salvar-evento', {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        titulo, tipo, data,
+        processo_id:     proc || null,
+        urgencia,
+        notificar_antes: notif,
+      }),
+    });
+
+    const json = await res.json();
+    if (!res.ok) { showToast('Erro: ' + (json.erro || 'falha ao salvar')); return; }
+
+    closeModal('modal-lembrete');
+    document.getElementById('ev-titulo').value = '';
+    showToast('Prazo registrado! Você receberá um e-mail de confirmação.');
+    carregarEventos();
+  } catch {
+    showToast('Erro de conexão. Tente novamente.');
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-check"></i> Salvar Prazo'; }
+  }
+}
+
+function abrirModalTipo(tipo) {
+  openModal('modal-lembrete');
+  const sel = document.getElementById('ev-tipo');
+  if (sel) sel.value = tipo;
+}
+
+function preencherProcessosModal(selectId) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  const procs = window._processosDB || [];
+  const opcoes = procs.map(p =>
+    `<option value="${p.id}">${p.numero ? p.numero + ' — ' : ''}${p.apelido || p.nome}</option>`
+  ).join('');
+  sel.innerHTML = `<option value="">— Nenhum processo —</option>${opcoes}`;
+}
+
+// ── KANBAN: TAREFAS DO BANCO ──────────────────────────────────────────────
+
+let _tarefasDB  = [];
+let _dragTaskId = null;
+
+async function carregarTarefas() {
+  if (!window._user) return;
+
+  const { data, error } = await _supabase
+    .from('tarefas')
+    .select('*')
+    .order('created_at', { ascending: true });
+
+  if (!error && data) _tarefasDB = data;
+
+  const total = _tarefasDB.length;
+  const sub   = document.getElementById('tarefas-sub');
+  if (sub) sub.textContent = total ? `${total} tarefa(s) no quadro` : 'Nenhuma tarefa ainda';
+
+  const procMap = {};
+  for (const p of (window._processosDB || [])) procMap[p.id] = p.apelido || p.nome;
+
+  renderizarKanban(_tarefasDB, procMap);
+}
+
+function renderizarKanban(tarefas, procMap) {
+  const colunas = ['a_fazer','em_andamento','revisao','concluida'];
+
+  for (const col of colunas) {
+    const el    = document.getElementById('col-' + col);
+    const badge = document.getElementById('col-count-' + col);
+    if (!el) continue;
+
+    const itens = tarefas.filter(t => t.coluna === col);
+    if (badge) badge.textContent = itens.length;
+
+    if (!itens.length) {
+      el.innerHTML = `<div style="text-align:center;padding:24px 12px;color:var(--gray-400);font-size:12px;opacity:0.7">
+        <i class="ti ti-inbox" style="display:block;font-size:20px;margin-bottom:6px"></i>
+        Nenhuma tarefa
+      </div>`;
+      continue;
+    }
+
+    el.innerHTML = itens.map(t => criarCardTarefa(t, procMap || {})).join('');
+  }
+}
+
+function criarCardTarefa(t, procMap) {
+  const priCls  = { urgente: '#dc2626', media: '#d97706', baixa: '#6b7280' };
+  const priLbl  = { urgente: 'Urgente', media: 'Média', baixa: 'Baixa' };
+  const cor     = priCls[t.prioridade]  || priCls.baixa;
+  const lbl     = priLbl[t.prioridade] || 'Baixa';
+  const proc    = t.processo_id && procMap[t.processo_id] ? `<div style="font-size:11px;color:var(--gray-400);margin-top:4px"><i class="ti ti-briefcase" style="font-size:10px"></i> ${procMap[t.processo_id]}</div>` : '';
+  const prazo   = t.prazo ? `<div style="font-size:11px;color:var(--gray-400);margin-top:4px"><i class="ti ti-calendar" style="font-size:10px"></i> ${new Date(t.prazo + 'T12:00:00').toLocaleDateString('pt-BR')}</div>` : '';
+
+  return `
+    <div class="task-card" draggable="true"
+      ondragstart="kanbanDragStart(event,'${t.id}')"
+      ondragend="kanbanDragEnd(event)">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
+        <div style="font-size:13px;font-weight:500;line-height:1.4;flex:1">${t.titulo}</div>
+        <button onclick="excluirTarefa('${t.id}')" title="Excluir"
+          style="background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:13px;padding:0;line-height:1;flex-shrink:0">
+          <i class="ti ti-x"></i>
+        </button>
+      </div>
+      ${proc}${prazo}
+      <div style="margin-top:8px">
+        <span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:8px;background:${cor}18;color:${cor}">${lbl}</span>
+      </div>
+    </div>`;
+}
+
+function kanbanDragStart(e, taskId) {
+  _dragTaskId = taskId;
+  e.currentTarget.style.opacity = '0.5';
+  e.dataTransfer.effectAllowed  = 'move';
+}
+
+function kanbanDragEnd(e) {
+  e.currentTarget.style.opacity = '';
+  document.querySelectorAll('.task-col-body').forEach(el => el.classList.remove('drag-over'));
+}
+
+function kanbanDragOver(e) {
+  e.preventDefault();
+  e.currentTarget.classList.add('drag-over');
+}
+
+function kanbanDragLeave(e) {
+  e.currentTarget.classList.remove('drag-over');
+}
+
+async function kanbanDrop(e, coluna) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  if (!_dragTaskId) return;
+
+  const { error } = await _supabase
+    .from('tarefas')
+    .update({ coluna, updated_at: new Date().toISOString() })
+    .eq('id', _dragTaskId);
+
+  _dragTaskId = null;
+  if (error) { showToast('Erro ao mover tarefa.'); return; }
+  carregarTarefas();
+}
+
+async function salvarTarefa() {
+  const titulo     = document.getElementById('tar-titulo')?.value.trim()   || '';
+  const processo   = document.getElementById('tar-processo')?.value        || '';
+  const coluna     = document.getElementById('tar-coluna')?.value          || 'a_fazer';
+  const prioridade = document.getElementById('tar-prioridade')?.value      || 'baixa';
+  const prazo      = document.getElementById('tar-prazo')?.value           || null;
+
+  if (!titulo) { showToast('Preencha a descrição da tarefa.'); return; }
+
+  const btn = document.getElementById('btn-salvar-tarefa');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Salvando...'; }
+
+  const { error } = await _supabase.from('tarefas').insert({
+    user_id:     window._user.id,
+    titulo,
+    processo_id: processo || null,
+    coluna,
+    prioridade,
+    prazo:       prazo || null,
+  });
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-check"></i> Criar Tarefa'; }
+
+  if (error) { showToast('Erro ao salvar tarefa: ' + error.message); return; }
+
+  closeModal('modal-tarefa');
+  document.getElementById('tar-titulo').value = '';
+  showToast('Tarefa criada!');
+  carregarTarefas();
+}
+
+async function excluirTarefa(id) {
+  if (!confirm('Excluir esta tarefa?')) return;
+  const { error } = await _supabase.from('tarefas').delete().eq('id', id);
+  if (error) { showToast('Erro ao excluir tarefa.'); return; }
+  showToast('Tarefa excluída.');
+  carregarTarefas();
 }

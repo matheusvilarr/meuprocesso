@@ -52,7 +52,7 @@ document.getElementById('loginForm').addEventListener('submit', async function (
   }
 
   btn.textContent = 'Redirecionando...';
-  window.location.href = 'dashboard.html';
+  window.location.href = '/dashboard';
 });
 
 function iconEye() {

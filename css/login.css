@@ -55,7 +55,7 @@ html, body {
 }
 
 .logo img {
-  height: 104px;
+  height: 208px;
   width: auto;
 }
 
@@ -244,5 +244,5 @@ html, body {
 /* ── RESPONSIVE ── */
 @media (max-width: 520px) {
   .card { padding: 36px 24px 32px; }
-  .logo img { height: 64px; }
+  .logo img { height: 128px; }
 }
