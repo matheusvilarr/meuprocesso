@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Entrar — Meu Processo</title>
+<link rel="icon" type="image/png" href="img/images/logo.png">
+<link rel="apple-touch-icon" href="img/images/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/login.css">
+</head>
+<body>
+
+<div class="page">
+  <div class="card">
+
+    <a href="index.html" class="logo">
+      <img src="img/images/logo.png" alt="Meu Processo">
+    </a>
+
+    <form class="form" id="loginForm" novalidate>
+
+      <div class="field">
+        <input
+          type="email"
+          id="email"
+          name="email"
+          placeholder="Digite seu e-mail"
+          autocomplete="email"
+          required
+        >
+        <div class="error-msg" id="emailError"></div>
+      </div>
+
+      <div class="field">
+        <input
+          type="password"
+          id="password"
+          name="password"
+          placeholder="Digite sua senha"
+          autocomplete="current-password"
+          required
+        >
+        <button type="button" class="toggle-pw" id="togglePw" aria-label="Mostrar senha">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        </button>
+        <div class="error-msg" id="passwordError"></div>
+      </div>
+
+      <div class="forgot">
+        <a href="#">Esqueceu sua senha?</a>
+      </div>
+
+      <button type="submit" class="btn-submit" id="btnSubmit">Entrar</button>
+
+    </form>
+
+    <div class="links">
+      <p class="register-line">
+        Não tem uma conta? <a href="#">Registre-se</a>
+      </p>
+      <a href="mailto:contato@meuprocesso.app.br" class="support-link">
+        Entre em contato com o suporte
+      </a>
+    </div>
+
+    <div class="divider"></div>
+
+    <p class="terms">
+      Ao entrar, você concorda com os
+      <a href="#">Termos de Uso</a> e a
+      <a href="#">Política de Privacidade</a> do Meu Processo.
+    </p>
+
+  </div>
+
+  <p class="footer-copy">© 2026 · Meu Processo · Versão 0.1</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="js/supabase-client.js"></script>
+<script src="js/login.js"></script>
+</body>
+</html>

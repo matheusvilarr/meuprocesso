@@ -1,0 +1,1243 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard — Meu Processo</title>
+<link rel="icon" type="image/png" href="img/images/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
+<link rel="stylesheet" href="css/dashboard.css">
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <a href="index.html" class="logo-mark">
+      <img src="img/images/logo.png" alt="Meu Processo" class="sidebar-logo-img">
+      <div>
+        <div class="logo-text">Meu Processo</div>
+        <div class="logo-sub">Gestão Jurídica</div>
+      </div>
+    </a>
+  </div>
+
+  <nav class="sidebar-nav">
+    <div class="nav-section">Principal</div>
+    <div class="nav-item active" onclick="showPage('dashboard')">
+      <i class="ti ti-layout-dashboard"></i>
+      Dashboard
+    </div>
+    <div class="nav-item" onclick="showPage('processos')">
+      <i class="ti ti-briefcase"></i>
+      Meus Processos
+      <span class="nav-badge" id="badge-processos" style="display:none">0</span>
+    </div>
+
+    <div class="nav-section">Organização</div>
+    <div class="nav-item" onclick="showPage('calendario')">
+      <i class="ti ti-calendar"></i>
+      Calendário
+      <span class="nav-badge">5</span>
+    </div>
+    <div class="nav-item" onclick="showPage('tarefas')">
+      <i class="ti ti-checklist"></i>
+      Tarefas
+    </div>
+    <div class="nav-item" onclick="showPage('colaboradores')">
+      <i class="ti ti-users"></i>
+      Colaboradores
+    </div>
+
+    <div class="nav-item" onclick="showPage('arquivados')">
+      <i class="ti ti-archive"></i>
+      Arquivados & Encerrados
+      <span class="nav-badge" id="badge-arquivados" style="display:none;background:rgba(255,255,255,.15)">0</span>
+    </div>
+
+    <div class="nav-section">Conta</div>
+    <div class="nav-item" onclick="showPage('configuracoes')">
+      <i class="ti ti-settings"></i>
+      Configurações
+    </div>
+    <div class="nav-item" onclick="showPage('ajuda')">
+      <i class="ti ti-help-circle"></i>
+      Ajuda
+    </div>
+    <div class="nav-item" onclick="fazerLogout()" style="color:#ff8a8a">
+      <i class="ti ti-logout"></i>
+      Sair
+    </div>
+  </nav>
+
+  <div class="sidebar-user">
+    <div class="user-avatar" id="sidebar-user-avatar">?</div>
+    <div class="user-info">
+      <div class="user-name" id="sidebar-user-name">Carregando...</div>
+      <div class="user-role" id="sidebar-user-email"></div>
+    </div>
+    <i class="ti ti-bell" id="notif-bell" style="color:rgba(255,255,255,0.3);cursor:pointer;font-size:16px;" onclick="verNotificacoes()" title="Notificações"></i>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- TOPBAR -->
+  <header class="topbar">
+    <div class="topbar-title" id="topbar-title">Dashboard</div>
+    <div class="topbar-search">
+      <i class="ti ti-search"></i>
+      <input type="text" placeholder="Buscar processo, cliente, número...">
+    </div>
+    <div class="topbar-actions">
+      <div class="icon-btn" title="Notificações">
+        <i class="ti ti-bell"></i>
+        <div class="notif-dot"></div>
+      </div>
+      <div class="icon-btn" title="Novo processo" onclick="openModal('modal-novo-processo')">
+        <i class="ti ti-plus"></i>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── DASHBOARD ── -->
+  <div id="page-dashboard" class="page active">
+    <div class="dash-header">
+      <div>
+        <div class="dash-greeting" id="dash-greeting">Olá!</div>
+        <div class="dash-sub" id="dash-sub">Carregando...</div>
+      </div>
+      <button class="btn-primary" onclick="openModal('modal-novo-processo')">
+        <i class="ti ti-plus"></i> Novo Processo
+      </button>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-card" onclick="showPage('processos')">
+        <div class="stat-icon navy"><i class="ti ti-briefcase"></i></div>
+        <div class="stat-num" id="stat-processos-ativos">—</div>
+        <div class="stat-label">Processos Ativos</div>
+        <div class="stat-change up" id="stat-processos-sub">—</div>
+      </div>
+      <div class="stat-card" onclick="showPage('processos')">
+        <div class="stat-icon gold"><i class="ti ti-bell-ringing"></i></div>
+        <div class="stat-num" id="stat-notificacoes">—</div>
+        <div class="stat-label">Atualizações CNJ</div>
+        <div class="stat-change" id="stat-notificacoes-sub">—</div>
+      </div>
+      <div class="stat-card" onclick="showPage('arquivados')">
+        <div class="stat-icon" style="background:var(--amber-light);color:var(--amber)"><i class="ti ti-archive"></i></div>
+        <div class="stat-num" id="stat-arquivados">—</div>
+        <div class="stat-label">Arquivados</div>
+        <div class="stat-change" id="stat-arquivados-sub">Sincronização pausada</div>
+      </div>
+      <div class="stat-card" onclick="showPage('calendario')">
+        <div class="stat-icon red"><i class="ti ti-alert-triangle"></i></div>
+        <div class="stat-num" id="stat-prazos">—</div>
+        <div class="stat-label">Prazos esta Semana</div>
+        <div class="stat-change" id="stat-prazos-sub">—</div>
+      </div>
+    </div>
+
+    <div class="dash-grid">
+      <div class="dash-left">
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-briefcase"></i> Processos Recentes</div>
+            <a class="card-link" onclick="showPage('processos')">Ver todos</a>
+          </div>
+          <div id="dash-processos-recentes">
+            <div style="text-align:center;padding:30px;color:var(--gray-400);font-size:13px">
+              <i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Carregando...
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-activity"></i> Últimas Atualizações</div>
+            <span style="font-size:12px;color:var(--gray-400)">Hoje</span>
+          </div>
+          <div class="timeline-item" onclick="showProcessDetail()">
+            <div class="tl-dot red"></div>
+            <div class="tl-content">
+              <div class="tl-text"><strong>Novo prazo</strong> adicionado em Rodrigues &amp; Cia vs. Banco Nacional — Contestação: 10/06</div>
+              <div class="tl-time">Há 2 horas · por você</div>
+            </div>
+          </div>
+          <div class="timeline-item" onclick="showProcessDetail()">
+            <div class="tl-dot navy"></div>
+            <div class="tl-content">
+              <div class="tl-text"><strong>Documento</strong> anexado por Dr. Paulo Ramos em Carlos Eduardo Marques — Petição Inicial.pdf</div>
+              <div class="tl-time">Há 4 horas · Dr. Paulo Ramos</div>
+            </div>
+          </div>
+          <div class="timeline-item" onclick="showProcessDetail()">
+            <div class="tl-dot gold"></div>
+            <div class="tl-content">
+              <div class="tl-text"><strong>Comentário</strong> em Inventário Souza Lima: "Aguardando certidão de óbito do cartório"</div>
+              <div class="tl-time">Ontem, 16h30 · Dra. Lúcia Mendes</div>
+            </div>
+          </div>
+          <div class="timeline-item" onclick="showProcessDetail()">
+            <div class="tl-dot green"></div>
+            <div class="tl-content">
+              <div class="tl-text"><strong>Status alterado</strong> em Tech Solutions ME vs. Prefeitura para Aguardando Decisão</div>
+              <div class="tl-time">Ontem, 14h10 · por você</div>
+            </div>
+          </div>
+          <div class="timeline-item" onclick="showProcessDetail()">
+            <div class="tl-dot navy"></div>
+            <div class="tl-content">
+              <div class="tl-text"><strong>Audiência agendada</strong> em Ana Paula Ferreira (Defesa) — 15/06/2025 às 14h</div>
+              <div class="tl-time">20/05, 09h00 · Tribunal</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="dash-right">
+
+        <div class="card">
+          <div class="mini-cal">
+            <div class="cal-nav">
+              <button class="cal-arrow" onclick="changeCalMonth(-1)"><i class="ti ti-chevron-left"></i></button>
+              <span class="cal-month" id="mini-cal-month">Junho 2025</span>
+              <button class="cal-arrow" onclick="changeCalMonth(1)"><i class="ti ti-chevron-right"></i></button>
+            </div>
+            <div class="cal-grid" id="mini-cal-grid"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-clock-hour-4"></i> Prazos Próximos</div>
+            <a class="card-link" onclick="showPage('calendario')">Calendário</a>
+          </div>
+          <div class="prazo-item" onclick="showProcessDetail()">
+            <div class="prazo-date"><div class="prazo-day">10</div><div class="prazo-month">Jun</div></div>
+            <div class="prazo-urgency urgency-alta"></div>
+            <div class="prazo-info">
+              <div class="prazo-name">Rodrigues &amp; Cia — Contestação</div>
+              <div class="prazo-type">Prazo processual fatal</div>
+            </div>
+            <span class="dias-badge dias-urgente">1 dia</span>
+          </div>
+          <div class="prazo-item" onclick="showProcessDetail()">
+            <div class="prazo-date"><div class="prazo-day">13</div><div class="prazo-month">Jun</div></div>
+            <div class="prazo-urgency urgency-media"></div>
+            <div class="prazo-info">
+              <div class="prazo-name">Marques — Recurso Ordinário</div>
+              <div class="prazo-type">Prazo recursal</div>
+            </div>
+            <span class="dias-badge dias-aviso">4 dias</span>
+          </div>
+          <div class="prazo-item" onclick="showProcessDetail()">
+            <div class="prazo-date"><div class="prazo-day">15</div><div class="prazo-month">Jun</div></div>
+            <div class="prazo-urgency urgency-baixa"></div>
+            <div class="prazo-info">
+              <div class="prazo-name">Ana Paula F. — Audiência</div>
+              <div class="prazo-type">Audiência de instrução</div>
+            </div>
+            <span class="dias-badge dias-ok">6 dias</span>
+          </div>
+          <div class="prazo-item" onclick="showProcessDetail()">
+            <div class="prazo-date"><div class="prazo-day">20</div><div class="prazo-month">Jun</div></div>
+            <div class="prazo-urgency urgency-baixa"></div>
+            <div class="prazo-info">
+              <div class="prazo-name">Tech Solutions — Manifestação</div>
+              <div class="prazo-type">Lembrete manual</div>
+            </div>
+            <span class="dias-badge dias-ok">11 dias</span>
+          </div>
+          <div style="padding:12px 20px">
+            <button class="btn-secondary" style="width:100%;justify-content:center" onclick="openModal('modal-lembrete')">
+              <i class="ti ti-bell-plus"></i> Programar Lembrete
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PROCESSOS ── -->
+  <div id="page-processos" class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Meus Processos</div>
+        <div class="page-sub">24 processos ativos · Organizado por pastas</div>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button class="btn-secondary"><i class="ti ti-filter"></i> Filtros</button>
+        <button class="btn-primary" onclick="openModal('modal-novo-processo')"><i class="ti ti-plus"></i> Novo Processo</button>
+      </div>
+    </div>
+
+    <!-- Barra de status de sincronização -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding:8px 14px;background:var(--gray-50);border-radius:var(--radius);font-size:12px">
+      <span id="sync-status-bar" style="display:flex;align-items:center;gap:6px;color:var(--gray-400)">
+        <i class="ti ti-cloud"></i> Sincronização com CNJ DataJud
+      </span>
+      <button class="btn-secondary" style="font-size:11px;padding:4px 12px" onclick="sincronizarTodos()">
+        <i class="ti ti-refresh"></i> Sincronizar agora
+      </button>
+    </div>
+
+    <div class="filter-bar">
+      <div class="filter-search">
+        <i class="ti ti-search" style="color:var(--gray-400);font-size:16px"></i>
+        <input type="text" placeholder="Número, cliente ou assunto...">
+      </div>
+      <select class="filter-select">
+        <option>Todas as áreas</option>
+        <option>Cível</option>
+        <option>Trabalhista</option>
+        <option>Criminal</option>
+        <option>Tributário</option>
+        <option>Família</option>
+      </select>
+      <select class="filter-select">
+        <option>Todos os status</option>
+        <option>Ativo</option>
+        <option>Aguardando</option>
+        <option>Suspenso</option>
+        <option>Encerrado</option>
+      </select>
+      <select class="filter-select">
+        <option>Todos os advogados</option>
+        <option>Dra. Marina Alves</option>
+        <option>Dr. Paulo Ramos</option>
+        <option>Dra. Lúcia Mendes</option>
+      </select>
+      <button class="btn-secondary" onclick="openModal('modal-busca-tribunal')" style="white-space:nowrap">
+        <i class="ti ti-database-search"></i> Buscar no tribunal
+      </button>
+    </div>
+
+    <div class="process-grid" id="lista-processos-db">
+      <!-- cards injetados pelo dashboard.js -->
+      <div id="processos-empty" style="grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--gray-400);display:none">
+        <i class="ti ti-briefcase" style="font-size:48px;display:block;margin-bottom:12px;opacity:0.3"></i>
+        <div style="font-size:15px;font-weight:600">Nenhum processo cadastrado</div>
+        <div style="font-size:13px;margin-top:6px">Clique em <strong>Novo Processo</strong> para adicionar ou pesquise pelo número CNJ</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── DETALHE DE PROCESSO ── -->
+  <div id="page-processo-detalhe" class="page">
+    <div class="detail-back" onclick="showPage('processos')">
+      <i class="ti ti-arrow-left"></i> Voltar para Processos
+    </div>
+
+    <!-- Header dinâmico (populado pelo JS) -->
+    <div class="detail-header" id="detalhe-header">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+        <div class="detail-tags" id="detalhe-tags"></div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span id="detalhe-sync-badge" style="display:none"></span>
+          <button class="btn-secondary" style="font-size:11px;padding:5px 12px" id="detalhe-btn-sync"
+            onclick="sincronizarDetalhe()" style="display:none">
+            <i class="ti ti-refresh"></i> Sincronizar
+          </button>
+        </div>
+      </div>
+
+      <!-- Apelido editável -->
+      <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+        <div class="detail-title" id="detalhe-apelido-display" style="cursor:pointer;flex:1"
+          onclick="editarApelido()" title="Clique para editar o apelido"></div>
+        <i class="ti ti-pencil" style="color:var(--gray-400);font-size:14px;cursor:pointer;flex-shrink:0"
+          onclick="editarApelido()" title="Editar apelido"></i>
+      </div>
+      <input type="text" id="detalhe-apelido-input" class="form-input"
+        style="display:none;margin-top:4px;font-size:18px;font-weight:600"
+        placeholder="Apelido do processo"
+        onblur="salvarApelido()" onkeydown="if(event.key==='Enter')salvarApelido()">
+
+      <div style="font-size:13px;color:var(--gray-400);margin-top:2px" id="detalhe-numero-orgao"></div>
+
+      <div class="detail-grid" id="detalhe-grid" style="margin-top:16px"></div>
+    </div>
+
+    <div class="detail-layout">
+      <div class="detail-left">
+        <div class="card">
+          <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('movimentacoes-cnj',this)"><i class="ti ti-timeline"></i> Movimentações CNJ</button>
+            <button class="tab-btn" onclick="switchTab('documentos',this)"><i class="ti ti-files"></i> Documentos</button>
+            <button class="tab-btn" onclick="switchTab('comentarios',this)"><i class="ti ti-message"></i> Comentários</button>
+            <button class="tab-btn" onclick="switchTab('historico',this)"><i class="ti ti-history"></i> Histórico</button>
+            <button class="tab-btn" onclick="switchTab('links',this)"><i class="ti ti-link"></i> Links</button>
+          </div>
+
+          <!-- TAB: MOVIMENTAÇÕES CNJ + NOTAS -->
+          <div id="tab-movimentacoes-cnj" class="tab-content active">
+
+            <!-- Adicionar nota manual -->
+            <div style="padding:16px 20px;border-bottom:1px solid var(--gray-100);display:flex;gap:8px;align-items:flex-start">
+              <div style="flex:1">
+                <textarea id="nota-input" class="form-input" rows="2"
+                  placeholder="Adicionar anotação à timeline (ex: Audiência marcada, ligação com cliente, documento recebido...)"
+                  style="resize:none;font-size:13px;line-height:1.5"></textarea>
+              </div>
+              <button class="btn-primary" style="padding:8px 14px;font-size:13px;flex-shrink:0;margin-top:0"
+                onclick="adicionarNota()">
+                <i class="ti ti-send"></i> Registrar
+              </button>
+            </div>
+
+            <div id="timeline-cnj-wrap" style="padding:20px"></div>
+          </div>
+
+          <div id="tab-documentos" class="tab-content">
+            <div style="padding:12px 20px;border-bottom:1px solid var(--gray-100);display:flex;justify-content:flex-end">
+              <button class="btn-secondary" onclick="showToast('Documento anexado com sucesso')"><i class="ti ti-upload"></i> Anexar Arquivo</button>
+            </div>
+            <div class="doc-item">
+              <div class="doc-icon pdf"><i class="ti ti-file-type-pdf"></i></div>
+              <div class="doc-info">
+                <div class="doc-name">Petição Inicial - Rodrigues vs Banco.pdf</div>
+                <div class="doc-meta">Adicionado por Dra. Marina Alves · 12/03/2024 · 842 KB</div>
+              </div>
+              <div class="doc-actions">
+                <button class="doc-btn" title="Baixar"><i class="ti ti-download"></i></button>
+                <button class="doc-btn" title="Visualizar"><i class="ti ti-eye"></i></button>
+              </div>
+            </div>
+            <div class="doc-item">
+              <div class="doc-icon word"><i class="ti ti-file-type-doc"></i></div>
+              <div class="doc-info">
+                <div class="doc-name">Procuração ad judicia.docx</div>
+                <div class="doc-meta">Adicionado por Dra. Marina Alves · 12/03/2024 · 124 KB</div>
+              </div>
+              <div class="doc-actions">
+                <button class="doc-btn"><i class="ti ti-download"></i></button>
+                <button class="doc-btn"><i class="ti ti-eye"></i></button>
+              </div>
+            </div>
+            <div class="doc-item">
+              <div class="doc-icon pdf"><i class="ti ti-file-type-pdf"></i></div>
+              <div class="doc-info">
+                <div class="doc-name">Despacho Judicial 14/05/2025.pdf</div>
+                <div class="doc-meta">Adicionado por Dr. Paulo Ramos · 14/05/2025 · 218 KB</div>
+              </div>
+              <div class="doc-actions">
+                <button class="doc-btn"><i class="ti ti-download"></i></button>
+                <button class="doc-btn"><i class="ti ti-eye"></i></button>
+              </div>
+            </div>
+            <div class="doc-item">
+              <div class="doc-icon img"><i class="ti ti-photo"></i></div>
+              <div class="doc-info">
+                <div class="doc-name">Extrato bancário - prova documental.jpg</div>
+                <div class="doc-meta">Adicionado por Dra. Marina Alves · 22/04/2025 · 1.2 MB</div>
+              </div>
+              <div class="doc-actions">
+                <button class="doc-btn"><i class="ti ti-download"></i></button>
+                <button class="doc-btn"><i class="ti ti-eye"></i></button>
+              </div>
+            </div>
+          </div>
+
+          <div id="tab-comentarios" class="tab-content">
+            <div class="comment-item">
+              <div class="comment-avatar" style="background:#1a2e6b">MA</div>
+              <div class="comment-body">
+                <div class="comment-meta">
+                  <span class="comment-author">Dra. Marina Alves</span>
+                  <span class="comment-time">Hoje, 08h45</span>
+                </div>
+                <div class="comment-text">O prazo de contestação vence amanhã. Precisamos finalizar o documento esta tarde. Paulo, pode revisar os argumentos da seção 3?</div>
+              </div>
+            </div>
+            <div class="comment-item">
+              <div class="comment-avatar" style="background:#1565c0">PR</div>
+              <div class="comment-body">
+                <div class="comment-meta">
+                  <span class="comment-author">Dr. Paulo Ramos</span>
+                  <span class="comment-time">Hoje, 10h20</span>
+                </div>
+                <div class="comment-text">Claro, Marina. Estou revisando agora. Há uma jurisprudência recente do STJ que reforça nossa tese sobre cobranças indevidas — vou incluir a citação.</div>
+              </div>
+            </div>
+            <div class="comment-item">
+              <div class="comment-avatar" style="background:#1a2e6b">MA</div>
+              <div class="comment-body">
+                <div class="comment-meta">
+                  <span class="comment-author">Dra. Marina Alves</span>
+                  <span class="comment-time">Hoje, 11h05</span>
+                </div>
+                <div class="comment-text">Ótimo! Também precisamos do cálculo atualizado do valor do dano. Pedi ao cliente ontem mas não recebi ainda. Vou ligar agora.</div>
+              </div>
+            </div>
+            <div class="comment-input-area">
+              <div class="comment-avatar" style="background:#1a2e6b;flex-shrink:0">MA</div>
+              <textarea class="comment-input" placeholder="Adicionar comentário para a equipe..."></textarea>
+              <button class="btn-primary" onclick="showToast('Comentário publicado')"><i class="ti ti-send"></i></button>
+            </div>
+          </div>
+
+          <div id="tab-historico" class="tab-content">
+            <div class="timeline-item">
+              <div class="tl-dot red"></div>
+              <div class="tl-content">
+                <div class="tl-text"><strong>Prazo adicionado:</strong> Contestação — 10/06/2025</div>
+                <div class="tl-time">09/06/2025, 08h30 · Dra. Marina Alves</div>
+              </div>
+            </div>
+            <div class="timeline-item">
+              <div class="tl-dot navy"></div>
+              <div class="tl-content">
+                <div class="tl-text"><strong>Documento anexado:</strong> Despacho Judicial 14/05/2025.pdf</div>
+                <div class="tl-time">14/05/2025 · Dr. Paulo Ramos</div>
+              </div>
+            </div>
+            <div class="timeline-item">
+              <div class="tl-dot gold"></div>
+              <div class="tl-content">
+                <div class="tl-text"><strong>Audiência realizada</strong> — Remetido para instrução probatória</div>
+                <div class="tl-time">02/04/2025 · Sistema</div>
+              </div>
+            </div>
+            <div class="timeline-item">
+              <div class="tl-dot green"></div>
+              <div class="tl-content">
+                <div class="tl-text"><strong>Status alterado</strong> para Ativo — Petição inicial recebida</div>
+                <div class="tl-time">12/03/2024 · Dra. Marina Alves</div>
+              </div>
+            </div>
+            <div class="timeline-item">
+              <div class="tl-dot navy"></div>
+              <div class="tl-content">
+                <div class="tl-text"><strong>Processo criado</strong> na plataforma Meu Processo</div>
+                <div class="tl-time">12/03/2024 · Dra. Marina Alves</div>
+              </div>
+            </div>
+          </div>
+
+          <div id="tab-links" class="tab-content">
+            <div style="padding:12px 20px;border-bottom:1px solid var(--gray-100);display:flex;justify-content:flex-end">
+              <button class="btn-secondary" onclick="showToast('Link salvo')"><i class="ti ti-link-plus"></i> Adicionar Link</button>
+            </div>
+            <div class="doc-item">
+              <div class="doc-icon link"><i class="ti ti-world"></i></div>
+              <div class="doc-info">
+                <div class="doc-name">Consulta PJe — 1015728-45.2024</div>
+                <div class="doc-meta">pje.tjsp.jus.br · Adicionado em 12/03/2024</div>
+              </div>
+              <div class="doc-actions">
+                <button class="doc-btn"><i class="ti ti-external-link"></i></button>
+                <button class="doc-btn"><i class="ti ti-copy"></i></button>
+              </div>
+            </div>
+            <div class="doc-item">
+              <div class="doc-icon link"><i class="ti ti-world"></i></div>
+              <div class="doc-info">
+                <div class="doc-name">Jurisprudência STJ — REsp 1.234.567</div>
+                <div class="doc-meta">stj.jus.br · Adicionado em 15/05/2025 · Dr. Paulo Ramos</div>
+              </div>
+              <div class="doc-actions">
+                <button class="doc-btn"><i class="ti ti-external-link"></i></button>
+                <button class="doc-btn"><i class="ti ti-copy"></i></button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="dash-right">
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-clock"></i> Prazos do Processo</div>
+            <button class="btn-secondary" style="font-size:12px;padding:5px 10px" onclick="openModal('modal-lembrete')"><i class="ti ti-plus"></i></button>
+          </div>
+          <div class="prazo-item">
+            <div class="prazo-date"><div class="prazo-day">10</div><div class="prazo-month">Jun</div></div>
+            <div class="prazo-urgency urgency-alta"></div>
+            <div class="prazo-info"><div class="prazo-name">Contestação</div><div class="prazo-type">Prazo fatal</div></div>
+            <span class="dias-badge dias-urgente">1 dia</span>
+          </div>
+          <div class="prazo-item">
+            <div class="prazo-date"><div class="prazo-day">20</div><div class="prazo-month">Jun</div></div>
+            <div class="prazo-urgency urgency-baixa"></div>
+            <div class="prazo-info"><div class="prazo-name">Manifestação Provas</div><div class="prazo-type">Lembrete interno</div></div>
+            <span class="dias-badge dias-ok">11 dias</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-title"><i class="ti ti-users"></i> Responsáveis</div></div>
+          <div style="padding:16px 20px;display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div class="comment-avatar" style="background:#1a2e6b;width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:white;flex-shrink:0">MA</div>
+              <div>
+                <div style="font-size:13px;font-weight:500">Dra. Marina Alves</div>
+                <div style="font-size:11px;color:var(--gray-400)">Responsável principal</div>
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px">
+              <div class="comment-avatar" style="background:#1565c0;width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:white;flex-shrink:0">PR</div>
+              <div>
+                <div style="font-size:13px;font-weight:500">Dr. Paulo Ramos</div>
+                <div style="font-size:11px;color:var(--gray-400)">Colaborador</div>
+              </div>
+            </div>
+            <button class="btn-secondary" style="width:100%;justify-content:center"><i class="ti ti-user-plus"></i> Adicionar colaborador</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-title"><i class="ti ti-info-circle"></i> Informações</div></div>
+          <div style="padding:16px 20px;display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:var(--gray-400)">Documentos</span><span style="font-weight:500">4 arquivos</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:var(--gray-400)">Comentários</span><span style="font-weight:500">3 mensagens</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:var(--gray-400)">Links salvos</span><span style="font-weight:500">2 links</span></div>
+            <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:var(--gray-400)">Última atualização</span><span style="font-weight:500">Hoje</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CALENDÁRIO ── -->
+  <div id="page-calendario" class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Calendário de Prazos</div>
+        <div class="page-sub">Prazos, audiências e lembretes</div>
+      </div>
+      <div style="display:flex;gap:10px">
+        <button class="btn-secondary"><i class="ti ti-bell-plus"></i> Lembrete Recorrente</button>
+        <button class="btn-primary" onclick="openModal('modal-lembrete')"><i class="ti ti-plus"></i> Novo Prazo</button>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 300px;gap:20px">
+      <div class="full-cal">
+        <div class="full-cal-header">
+          <button class="cal-arrow" style="width:32px;height:32px" onclick="changeFCalMonth(-1)"><i class="ti ti-chevron-left"></i></button>
+          <span class="full-cal-month" id="full-cal-month">Junho 2025</span>
+          <button class="cal-arrow" style="width:32px;height:32px" onclick="changeFCalMonth(1)"><i class="ti ti-chevron-right"></i></button>
+        </div>
+        <div id="full-cal-grid" class="full-cal-grid"></div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card">
+          <div class="card-header"><div class="card-title"><i class="ti ti-list"></i> Este Mês</div></div>
+          <div class="prazo-item">
+            <div class="prazo-date"><div class="prazo-day">10</div><div class="prazo-month">Jun</div></div>
+            <div class="prazo-urgency urgency-alta"></div>
+            <div class="prazo-info"><div class="prazo-name">Contestação — Rodrigues</div><div class="prazo-type"><span class="badge event-prazo">Prazo Fatal</span></div></div>
+          </div>
+          <div class="prazo-item">
+            <div class="prazo-date"><div class="prazo-day">13</div><div class="prazo-month">Jun</div></div>
+            <div class="prazo-urgency urgency-media"></div>
+            <div class="prazo-info"><div class="prazo-name">Recurso — Marques</div><div class="prazo-type"><span class="badge event-prazo">Prazo Recursal</span></div></div>
+          </div>
+          <div class="prazo-item">
+            <div class="prazo-date"><div class="prazo-day">15</div><div class="prazo-month">Jun</div></div>
+            <div class="prazo-urgency urgency-baixa"></div>
+            <div class="prazo-info"><div class="prazo-name">Audiência — Ana Paula F.</div><div class="prazo-type"><span class="badge event-audiencia">Audiência 14h</span></div></div>
+          </div>
+          <div class="prazo-item">
+            <div class="prazo-date"><div class="prazo-day">18</div><div class="prazo-month">Jun</div></div>
+            <div class="prazo-urgency urgency-baixa"></div>
+            <div class="prazo-info"><div class="prazo-name">Reunião — Inventário Lima</div><div class="prazo-type"><span class="badge event-reuniao">Reunião 10h</span></div></div>
+          </div>
+          <div class="prazo-item">
+            <div class="prazo-date"><div class="prazo-day">20</div><div class="prazo-month">Jun</div></div>
+            <div class="prazo-urgency urgency-baixa"></div>
+            <div class="prazo-info"><div class="prazo-name">Manifestação — Tech Solutions</div><div class="prazo-type"><span class="badge event-lembrete">Lembrete</span></div></div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:16px 20px">
+          <div style="font-size:12px;font-weight:600;color:var(--navy);margin-bottom:12px;text-transform:uppercase;letter-spacing:0.05em">Legenda</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div style="display:flex;align-items:center;gap:8px;font-size:12px"><span style="width:12px;height:12px;border-radius:3px;background:var(--red);flex-shrink:0"></span> Prazo processual</div>
+            <div style="display:flex;align-items:center;gap:8px;font-size:12px"><span style="width:12px;height:12px;border-radius:3px;background:var(--blue);flex-shrink:0"></span> Audiência</div>
+            <div style="display:flex;align-items:center;gap:8px;font-size:12px"><span style="width:12px;height:12px;border-radius:3px;background:var(--gold);flex-shrink:0"></span> Lembrete manual</div>
+            <div style="display:flex;align-items:center;gap:8px;font-size:12px"><span style="width:12px;height:12px;border-radius:3px;background:var(--green);flex-shrink:0"></span> Reunião</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TAREFAS ── -->
+  <div id="page-tarefas" class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Tarefas</div>
+        <div class="page-sub">11 pendentes · 4 concluídas hoje</div>
+      </div>
+      <button class="btn-primary" onclick="openModal('modal-tarefa')"><i class="ti ti-plus"></i> Nova Tarefa</button>
+    </div>
+
+    <div class="task-cols">
+      <div class="task-col">
+        <div class="task-col-header">
+          <span class="task-col-title"><i class="ti ti-circle" style="color:var(--gray-400)"></i> A fazer</span>
+          <span class="task-col-count">5</span>
+        </div>
+        <div class="task-card urgente" onclick="showToast('Tarefa aberta')">
+          <div class="task-title">Redigir contestação completa — Rodrigues vs Banco</div>
+          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 1015728-45.2024</div>
+          <div class="task-due"><i class="ti ti-clock" style="font-size:11px;color:var(--red)"></i><span style="color:var(--red)">Hoje até 18h</span></div>
+        </div>
+        <div class="task-card media">
+          <div class="task-title">Calcular danos atualizados com INPC</div>
+          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 1015728-45.2024</div>
+          <div class="task-due"><i class="ti ti-clock" style="font-size:11px"></i> Até 09/06</div>
+        </div>
+        <div class="task-card baixa">
+          <div class="task-title">Solicitar certidão de óbito — Inventário</div>
+          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 5571034-88.2024</div>
+          <div class="task-due"><i class="ti ti-clock" style="font-size:11px"></i> Sem prazo</div>
+        </div>
+        <div class="task-card baixa">
+          <div class="task-title">Revisar cláusulas contratuais Tech Solutions</div>
+          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 7890123-56.2024</div>
+          <div class="task-due"><i class="ti ti-clock" style="font-size:11px"></i> Até 15/06</div>
+        </div>
+        <div class="task-card baixa">
+          <div class="task-title">Contato com perito judicial — confirmação</div>
+          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 0023841-12.2023</div>
+          <div class="task-due"><i class="ti ti-clock" style="font-size:11px"></i> Até 12/06</div>
+        </div>
+      </div>
+
+      <div class="task-col">
+        <div class="task-col-header">
+          <span class="task-col-title"><i class="ti ti-loader" style="color:var(--gold)"></i> Em andamento</span>
+          <span class="task-col-count">3</span>
+        </div>
+        <div class="task-card media">
+          <div class="task-title">Revisar petição inicial — Paulo Ramos</div>
+          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 1015728-45.2024</div>
+          <div class="task-due"><i class="ti ti-user" style="font-size:11px"></i> Dr. Paulo Ramos</div>
+        </div>
+        <div class="task-card baixa">
+          <div class="task-title">Preparar rol de testemunhas — Ana Paula</div>
+          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 2234567-90.2023</div>
+          <div class="task-due"><i class="ti ti-clock" style="font-size:11px"></i> Até 13/06</div>
+        </div>
+        <div class="task-card baixa">
+          <div class="task-title">Notificar cliente sobre audiência 15/06</div>
+          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 2234567-90.2023</div>
+          <div class="task-due"><i class="ti ti-user" style="font-size:11px"></i> Dra. Marina Alves</div>
+        </div>
+      </div>
+
+      <div class="task-col">
+        <div class="task-col-header">
+          <span class="task-col-title"><i class="ti ti-eye" style="color:var(--blue)"></i> Revisão</span>
+          <span class="task-col-count">3</span>
+        </div>
+        <div class="task-card baixa">
+          <div class="task-title">Proposta de acordo — Alves Construtora</div>
+          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 4456789-11.2022</div>
+          <div class="task-due"><i class="ti ti-user" style="font-size:11px"></i> Dra. Marina Alves</div>
+        </div>
+        <div class="task-card media">
+          <div class="task-title">Memorial de cálculo — Marques</div>
+          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 0023841-12.2023</div>
+          <div class="task-due"><i class="ti ti-clock" style="font-size:11px"></i> Até 10/06</div>
+        </div>
+        <div class="task-card baixa">
+          <div class="task-title">Minuta de embargos de declaração</div>
+          <div class="task-process"><i class="ti ti-briefcase" style="font-size:11px"></i> 7890123-56.2024</div>
+          <div class="task-due"><i class="ti ti-user" style="font-size:11px"></i> Dra. Lúcia Mendes</div>
+        </div>
+      </div>
+
+      <div class="task-col">
+        <div class="task-col-header">
+          <span class="task-col-title"><i class="ti ti-circle-check" style="color:var(--green)"></i> Concluídas</span>
+          <span class="task-col-count">4</span>
+        </div>
+        <div class="task-card" style="opacity:0.6;border-left-color:var(--green)">
+          <div class="task-title" style="text-decoration:line-through">Protocolar petição — Tech Solutions</div>
+          <div class="task-process"><i class="ti ti-check" style="font-size:11px;color:var(--green)"></i> Concluído hoje às 9h</div>
+        </div>
+        <div class="task-card" style="opacity:0.6;border-left-color:var(--green)">
+          <div class="task-title" style="text-decoration:line-through">Agendar reunião com herdeiros — Inventário</div>
+          <div class="task-process"><i class="ti ti-check" style="font-size:11px;color:var(--green)"></i> Concluído ontem</div>
+        </div>
+        <div class="task-card" style="opacity:0.6;border-left-color:var(--green)">
+          <div class="task-title" style="text-decoration:line-through">Enviar documentos ao cliente Marques</div>
+          <div class="task-process"><i class="ti ti-check" style="font-size:11px;color:var(--green)"></i> Concluído 06/06</div>
+        </div>
+        <div class="task-card" style="opacity:0.6;border-left-color:var(--green)">
+          <div class="task-title" style="text-decoration:line-through">Consultar movimentação PJe — Rodrigues</div>
+          <div class="task-process"><i class="ti ti-check" style="font-size:11px;color:var(--green)"></i> Concluído 06/06</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── COLABORADORES ── -->
+  <div id="page-colaboradores" class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Colaboradores</div>
+        <div class="page-sub">Equipe do escritório</div>
+      </div>
+      <button class="btn-primary" onclick="showToast('Convite enviado por e-mail')"><i class="ti ti-user-plus"></i> Convidar Advogado</button>
+    </div>
+
+    <div class="colab-grid">
+      <div class="colab-card">
+        <div class="colab-avatar" style="background:#1a2e6b">MA</div>
+        <div class="colab-name">Dra. Marina Alves</div>
+        <div class="colab-role">Advogada Titular</div>
+        <div class="colab-oab">OAB/SP 192.847</div>
+        <div class="colab-stats">
+          <div><div class="colab-stat-num">18</div><div class="colab-stat-label">Processos</div></div>
+          <div><div class="colab-stat-num">7</div><div class="colab-stat-label">Tarefas</div></div>
+        </div>
+      </div>
+      <div class="colab-card">
+        <div class="colab-avatar" style="background:#1565c0">PR</div>
+        <div class="colab-name">Dr. Paulo Ramos</div>
+        <div class="colab-role">Advogado Associado</div>
+        <div class="colab-oab">OAB/SP 241.033</div>
+        <div class="colab-stats">
+          <div><div class="colab-stat-num">6</div><div class="colab-stat-label">Processos</div></div>
+          <div><div class="colab-stat-num">4</div><div class="colab-stat-label">Tarefas</div></div>
+        </div>
+      </div>
+      <div class="colab-card">
+        <div class="colab-avatar" style="background:#1a7a4a">LM</div>
+        <div class="colab-name">Dra. Lúcia Mendes</div>
+        <div class="colab-role">Advogada Associada</div>
+        <div class="colab-oab">OAB/RJ 178.552</div>
+        <div class="colab-stats">
+          <div><div class="colab-stat-num">4</div><div class="colab-stat-label">Processos</div></div>
+          <div><div class="colab-stat-num">2</div><div class="colab-stat-label">Tarefas</div></div>
+        </div>
+      </div>
+      <div class="colab-card">
+        <div class="colab-avatar" style="background:#9c2b6a">CF</div>
+        <div class="colab-name">Carlos Ferreira</div>
+        <div class="colab-role">Estagiário</div>
+        <div class="colab-oab" style="color:var(--gray-400)">Estagiário OAB</div>
+        <div class="colab-stats">
+          <div><div class="colab-stat-num">2</div><div class="colab-stat-label">Processos</div></div>
+          <div><div class="colab-stat-num">3</div><div class="colab-stat-label">Tarefas</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PAGE: ARQUIVADOS & ENCERRADOS ── -->
+  <div id="page-arquivados" class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title"><i class="ti ti-archive" style="color:var(--amber)"></i> Arquivados &amp; Encerrados</div>
+        <div class="page-sub">Processos removidos da lista principal — sincronização pausada</div>
+      </div>
+    </div>
+
+    <div class="process-grid" id="lista-arquivados-db" style="margin-top:0">
+      <!-- cards injetados pelo JS -->
+      <div id="arquivados-empty" style="grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--gray-400);display:none">
+        <i class="ti ti-archive" style="font-size:48px;display:block;margin-bottom:12px;opacity:0.3"></i>
+        <div style="font-size:15px;font-weight:600">Nenhum processo arquivado</div>
+        <div style="font-size:13px;margin-top:6px">Use o ícone <i class="ti ti-archive"></i> nos cards para arquivar processos</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+
+<!-- ── MODALS ── -->
+
+<div class="modal-backdrop" id="modal-novo-processo" onclick="closeModalOutside(event,'modal-novo-processo')">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Novo Processo</span>
+      <span class="modal-close" onclick="closeModal('modal-novo-processo')"><i class="ti ti-x"></i></span>
+    </div>
+    <div class="modal-body">
+      <div class="form-field">
+        <label class="form-label">Número do Processo</label>
+        <input type="text" id="np-numero" class="form-input" placeholder="0000000-00.0000.0.00.0000">
+      </div>
+      <div class="form-field">
+        <label class="form-label">Nome / Assunto</label>
+        <input type="text" id="np-nome" class="form-input" placeholder="Ex: João da Silva vs Empresa X">
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label class="form-label">Área do Direito</label>
+          <select id="np-area" class="form-select">
+            <option>Cível</option><option>Trabalhista</option><option>Criminal</option>
+            <option>Tributário</option><option>Família</option><option>Previdenciário</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label class="form-label">Tribunal</label>
+          <input type="text" id="np-tribunal" class="form-input" placeholder="Ex: TJSP, TRT-2">
+        </div>
+      </div>
+      <div class="form-field">
+        <label class="form-label">Cliente</label>
+        <input type="text" id="np-cliente" class="form-input" placeholder="Nome do cliente">
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label class="form-label">Valor da Causa</label>
+          <input type="text" id="np-valor" class="form-input" placeholder="R$ 0,00">
+        </div>
+        <div class="form-field">
+          <label class="form-label">Parte Contrária</label>
+          <input type="text" id="np-parte-contraria" class="form-input" placeholder="Nome da parte contrária">
+        </div>
+      </div>
+      <!-- campos ocultos preenchidos pelo DataJud -->
+      <input type="hidden" id="np-datajud-index">
+      <input type="hidden" id="np-classe">
+      <input type="hidden" id="np-orgao-julgador">
+      <input type="hidden" id="np-data-ajuizamento">
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-novo-processo')">Cancelar</button>
+      <button class="btn-primary" id="btn-criar-processo" onclick="salvarProcesso()"><i class="ti ti-check"></i> Criar Processo</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-lembrete" onclick="closeModalOutside(event,'modal-lembrete')">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Novo Prazo / Lembrete</span>
+      <span class="modal-close" onclick="closeModal('modal-lembrete')"><i class="ti ti-x"></i></span>
+    </div>
+    <div class="modal-body">
+      <div class="form-field">
+        <label class="form-label">Tipo</label>
+        <select class="form-select">
+          <option>Prazo Processual</option><option>Audiência</option>
+          <option>Lembrete Manual</option><option>Reunião</option><option>Recorrente</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label class="form-label">Descrição</label>
+        <input type="text" class="form-input" placeholder="Ex: Contestação, Recurso, Audiência...">
+      </div>
+      <div class="form-field">
+        <label class="form-label">Processo</label>
+        <select class="form-select">
+          <option>1015728-45.2024 — Rodrigues vs Banco</option>
+          <option>0023841-12.2023 — Carlos Eduardo Marques</option>
+          <option>5571034-88.2024 — Inventário Souza Lima</option>
+          <option>7890123-56.2024 — Tech Solutions vs Prefeitura</option>
+          <option>2234567-90.2023 — Ana Paula Ferreira</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label class="form-label">Data</label>
+          <input type="date" class="form-input" value="2025-06-10">
+        </div>
+        <div class="form-field">
+          <label class="form-label">Urgência</label>
+          <select class="form-select">
+            <option>Alta — Prazo Fatal</option><option>Média</option><option>Baixa</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-field">
+        <label class="form-label">Notificar</label>
+        <select class="form-select">
+          <option>1 dia antes</option><option>3 dias antes</option>
+          <option>1 semana antes</option><option>Apenas no dia</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-lembrete')">Cancelar</button>
+      <button class="btn-primary" onclick="closeModal('modal-lembrete');showToast('Prazo registrado com sucesso')"><i class="ti ti-check"></i> Salvar Prazo</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-tarefa" onclick="closeModalOutside(event,'modal-tarefa')">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Nova Tarefa</span>
+      <span class="modal-close" onclick="closeModal('modal-tarefa')"><i class="ti ti-x"></i></span>
+    </div>
+    <div class="modal-body">
+      <div class="form-field">
+        <label class="form-label">Descrição da Tarefa</label>
+        <input type="text" class="form-input" placeholder="O que precisa ser feito?">
+      </div>
+      <div class="form-field">
+        <label class="form-label">Processo Relacionado</label>
+        <select class="form-select">
+          <option value="">Nenhum</option>
+          <option>1015728-45.2024 — Rodrigues vs Banco</option>
+          <option>0023841-12.2023 — Carlos Eduardo Marques</option>
+          <option>5571034-88.2024 — Inventário Souza Lima</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label class="form-label">Atribuir a</label>
+          <select class="form-select">
+            <option>Dra. Marina Alves</option><option>Dr. Paulo Ramos</option>
+            <option>Dra. Lúcia Mendes</option><option>Carlos Ferreira</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label class="form-label">Prazo</label>
+          <input type="date" class="form-input">
+        </div>
+      </div>
+      <div class="form-field">
+        <label class="form-label">Prioridade</label>
+        <select class="form-select">
+          <option>Urgente</option><option>Média</option><option>Baixa</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-tarefa')">Cancelar</button>
+      <button class="btn-primary" onclick="closeModal('modal-tarefa');showToast('Tarefa criada com sucesso')"><i class="ti ti-check"></i> Criar Tarefa</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Busca no tribunal (DataJud CNJ) -->
+<div class="modal-backdrop" id="modal-busca-tribunal" onclick="closeModalOutside(event,'modal-busca-tribunal')">
+  <div class="modal" style="max-width:560px;width:100%">
+    <div class="modal-header">
+      <span class="modal-title"><i class="ti ti-database-search" style="font-size:15px;margin-right:6px"></i> Buscar no tribunal</span>
+      <span class="modal-close" onclick="closeModal('modal-busca-tribunal')"><i class="ti ti-x"></i></span>
+    </div>
+    <div class="modal-body">
+
+      <!-- Tabs de tipo de busca -->
+      <div style="display:flex;gap:4px;background:var(--gray-100);border-radius:8px;padding:4px;margin-bottom:16px">
+        <button class="busca-tab active" onclick="selecionarTipoBusca('numero',this)"   style="flex:1">Número CNJ</button>
+        <button class="busca-tab"        onclick="selecionarTipoBusca('oab',this)"       style="flex:1">OAB</button>
+        <button class="busca-tab"        onclick="selecionarTipoBusca('advogado',this)"  style="flex:1">Nome advogado</button>
+        <button class="busca-tab"        onclick="selecionarTipoBusca('cliente',this)"   style="flex:1">Nome cliente</button>
+        <button class="busca-tab"        onclick="selecionarTipoBusca('cpf',this)"       style="flex:1">CPF / CNPJ</button>
+      </div>
+
+      <!-- Seletor de tribunal (oculto na busca por número) -->
+      <div id="busca-tribunal-wrap" style="display:none;margin-bottom:12px">
+        <label class="form-label">Tribunal</label>
+        <select id="busca-tribunal-select" class="form-select">
+          <optgroup label="── Estadual (TJ) ──">
+            <option value="api_publica_tjsp">TJSP — São Paulo</option>
+            <option value="api_publica_tjrj">TJRJ — Rio de Janeiro</option>
+            <option value="api_publica_tjmg">TJMG — Minas Gerais</option>
+            <option value="api_publica_tjrs">TJRS — Rio Grande do Sul</option>
+            <option value="api_publica_tjpr">TJPR — Paraná</option>
+            <option value="api_publica_tjsc">TJSC — Santa Catarina</option>
+            <option value="api_publica_tjba">TJBA — Bahia</option>
+            <option value="api_publica_tjdft">TJDFT — Distrito Federal</option>
+            <option value="api_publica_tjgo">TJGO — Goiás</option>
+            <option value="api_publica_tjpe">TJPE — Pernambuco</option>
+            <option value="api_publica_tjce">TJCE — Ceará</option>
+            <option value="api_publica_tjma">TJMA — Maranhão</option>
+            <option value="api_publica_tjam">TJAM — Amazonas</option>
+            <option value="api_publica_tjmt">TJMT — Mato Grosso</option>
+            <option value="api_publica_tjms">TJMS — Mato Grosso do Sul</option>
+            <option value="api_publica_tjes">TJES — Espírito Santo</option>
+            <option value="api_publica_tjpa">TJPA — Pará</option>
+            <option value="api_publica_tjpb">TJPB — Paraíba</option>
+            <option value="api_publica_tjrn">TJRN — Rio Grande do Norte</option>
+            <option value="api_publica_tjpi">TJPI — Piauí</option>
+            <option value="api_publica_tjal">TJAL — Alagoas</option>
+            <option value="api_publica_tjse">TJSE — Sergipe</option>
+            <option value="api_publica_tjro">TJRO — Rondônia</option>
+            <option value="api_publica_tjto">TJTO — Tocantins</option>
+            <option value="api_publica_tjac">TJAC — Acre</option>
+            <option value="api_publica_tjap">TJAP — Amapá</option>
+            <option value="api_publica_tjrr">TJRR — Roraima</option>
+          </optgroup>
+          <optgroup label="── Trabalho (TRT) ──">
+            <option value="api_publica_trt1">TRT-1 — Rio de Janeiro</option>
+            <option value="api_publica_trt2">TRT-2 — São Paulo</option>
+            <option value="api_publica_trt3">TRT-3 — Minas Gerais</option>
+            <option value="api_publica_trt4">TRT-4 — Rio Grande do Sul</option>
+            <option value="api_publica_trt5">TRT-5 — Bahia</option>
+            <option value="api_publica_trt6">TRT-6 — Pernambuco</option>
+            <option value="api_publica_trt7">TRT-7 — Ceará</option>
+            <option value="api_publica_trt8">TRT-8 — Pará/Amapá</option>
+            <option value="api_publica_trt9">TRT-9 — Paraná</option>
+            <option value="api_publica_trt10">TRT-10 — DF/Tocantins</option>
+            <option value="api_publica_trt11">TRT-11 — AM/RR</option>
+            <option value="api_publica_trt12">TRT-12 — Santa Catarina</option>
+            <option value="api_publica_trt13">TRT-13 — Paraíba</option>
+            <option value="api_publica_trt14">TRT-14 — RO/AC</option>
+            <option value="api_publica_trt15">TRT-15 — Campinas</option>
+            <option value="api_publica_trt16">TRT-16 — Maranhão</option>
+            <option value="api_publica_trt17">TRT-17 — Espírito Santo</option>
+            <option value="api_publica_trt18">TRT-18 — Goiás</option>
+            <option value="api_publica_trt19">TRT-19 — Alagoas</option>
+            <option value="api_publica_trt20">TRT-20 — Sergipe</option>
+            <option value="api_publica_trt21">TRT-21 — Rio Grande do Norte</option>
+            <option value="api_publica_trt22">TRT-22 — Piauí</option>
+            <option value="api_publica_trt23">TRT-23 — Mato Grosso</option>
+            <option value="api_publica_trt24">TRT-24 — Mato Grosso do Sul</option>
+          </optgroup>
+          <optgroup label="── Federal (TRF) ──">
+            <option value="api_publica_trf1">TRF-1 — Centro-Oeste/Norte</option>
+            <option value="api_publica_trf2">TRF-2 — RJ/ES</option>
+            <option value="api_publica_trf3">TRF-3 — SP/MS</option>
+            <option value="api_publica_trf4">TRF-4 — Sul</option>
+            <option value="api_publica_trf5">TRF-5 — Nordeste</option>
+            <option value="api_publica_trf6">TRF-6 — MG</option>
+          </optgroup>
+          <optgroup label="── Superior ──">
+            <option value="api_publica_stj">STJ</option>
+            <option value="api_publica_stf">STF</option>
+            <option value="api_publica_tst">TST</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <!-- Seletor de UF da OAB (apenas na aba OAB) -->
+      <div id="busca-oab-uf-wrap" style="display:none;margin-bottom:12px">
+        <label class="form-label">UF da OAB</label>
+        <select id="busca-oab-uf-select" class="form-select">
+          <option value="">— Selecione o estado —</option>
+          <option value="AC">AC — Acre</option>
+          <option value="AL">AL — Alagoas</option>
+          <option value="AM">AM — Amazonas</option>
+          <option value="AP">AP — Amapá</option>
+          <option value="BA">BA — Bahia</option>
+          <option value="CE">CE — Ceará</option>
+          <option value="DF">DF — Distrito Federal</option>
+          <option value="ES">ES — Espírito Santo</option>
+          <option value="GO">GO — Goiás</option>
+          <option value="MA">MA — Maranhão</option>
+          <option value="MG">MG — Minas Gerais</option>
+          <option value="MS">MS — Mato Grosso do Sul</option>
+          <option value="MT">MT — Mato Grosso</option>
+          <option value="PA">PA — Pará</option>
+          <option value="PB">PB — Paraíba</option>
+          <option value="PE">PE — Pernambuco</option>
+          <option value="PI">PI — Piauí</option>
+          <option value="PR">PR — Paraná</option>
+          <option value="RJ">RJ — Rio de Janeiro</option>
+          <option value="RN">RN — Rio Grande do Norte</option>
+          <option value="RO">RO — Rondônia</option>
+          <option value="RR">RR — Roraima</option>
+          <option value="RS">RS — Rio Grande do Sul</option>
+          <option value="SC">SC — Santa Catarina</option>
+          <option value="SE">SE — Sergipe</option>
+          <option value="SP">SP — São Paulo</option>
+          <option value="TO">TO — Tocantins</option>
+        </select>
+      </div>
+
+      <!-- Aviso API restrita (aparece para OAB / nome / CPF) -->
+      <div id="busca-aviso-restrito" style="display:none;background:#fef9ec;border:1px solid #f0d060;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.6;color:#7a5c00">
+        <div style="font-weight:600;margin-bottom:6px"><i class="ti ti-lock" style="margin-right:4px"></i> Acesso restrito no DataJud</div>
+        <div>A API pública do CNJ não disponibiliza dados de <strong>partes, advogados ou documentos</strong> por questões de LGPD.</div>
+        <div style="margin-top:8px">Para usar esta busca você precisa solicitar acesso à <strong>API restrita</strong> do DataJud:</div>
+        <a href="https://datajud-wiki.cnj.jus.br/api-publica/acesso" target="_blank"
+           style="display:inline-flex;align-items:center;gap:4px;margin-top:8px;color:var(--navy);font-weight:600;font-size:12px">
+          <i class="ti ti-external-link"></i> datajud-wiki.cnj.jus.br — Solicitar acesso
+        </a>
+        <div style="margin-top:8px;padding-top:8px;border-top:1px solid #f0d060;font-size:12px;color:#a07800">
+          Enquanto isso, use a aba <strong>Número CNJ</strong> para buscar processos pelo número completo.
+        </div>
+      </div>
+
+      <!-- Campo de input dinâmico -->
+      <div id="busca-input-area">
+      <div class="form-field" style="margin-bottom:8px">
+        <label class="form-label" id="busca-label">Número do processo (CNJ)</label>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="busca-input" class="form-input"
+            placeholder="0000000-00.0000.0.00.0000"
+            oninput="limparResultadoBusca()"
+            onkeydown="if(event.key==='Enter') buscarProcesso()">
+          <button class="btn-primary" id="busca-btn" onclick="buscarProcesso()" style="white-space:nowrap;min-width:90px">
+            <i class="ti ti-search"></i> Buscar
+          </button>
+        </div>
+        <div id="busca-hint" style="font-size:11px;color:var(--gray-400);margin-top:4px">
+          O tribunal é detectado automaticamente pelo número.
+        </div>
+      </div>
+      </div>
+
+      <div id="busca-erro" style="display:none;font-size:13px;color:var(--red);margin-top:6px;padding:8px 12px;background:#fdf0ef;border-radius:6px"></div>
+
+      <!-- Lista de resultados -->
+      <div id="busca-resultados-wrap" style="display:none;margin-top:16px;max-height:360px;overflow-y:auto;display:flex;flex-direction:column;gap:10px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-busca-tribunal')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Arquivar processo -->
+<div class="modal-backdrop" id="modal-arquivar" onclick="closeModalOutside(event,'modal-arquivar')">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-header">
+      <span class="modal-title" style="display:flex;align-items:center;gap:8px">
+        <i class="ti ti-archive" style="color:var(--amber)"></i> Arquivar processo
+      </span>
+      <span class="modal-close" onclick="closeModal('modal-arquivar')"><i class="ti ti-x"></i></span>
+    </div>
+    <div class="modal-body">
+      <div style="background:var(--amber-light);border-left:4px solid var(--amber);border-radius:var(--radius);padding:16px;margin-bottom:16px">
+        <div style="font-weight:700;color:var(--amber);margin-bottom:8px;font-size:14px">
+          <i class="ti ti-alert-triangle"></i> Antes de arquivar, saiba o que muda:
+        </div>
+        <ul style="font-size:13px;color:var(--gray-800);line-height:1.8;padding-left:18px">
+          <li>O processo <strong>sai da lista principal</strong> e do Dashboard</li>
+          <li>As <strong>notificações de novas movimentações serão pausadas</strong></li>
+          <li>A <strong>sincronização automática com o CNJ DataJud</strong> será interrompida</li>
+          <li>Prazos e tarefas vinculados <strong>não serão mais exibidos</strong> no calendário</li>
+        </ul>
+      </div>
+      <div style="background:var(--green-light);border-left:4px solid var(--green);border-radius:var(--radius);padding:12px;font-size:13px;color:var(--gray-800)">
+        <i class="ti ti-rotate-clockwise" style="color:var(--green)"></i>
+        <strong>Isso é reversível.</strong> O processo ficará disponível em
+        <strong>Arquivados &amp; Encerrados</strong> e pode ser restaurado a qualquer momento.
+      </div>
+      <div style="margin-top:14px;font-size:13px;color:var(--gray-600)" id="arquivar-nome-processo"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-arquivar')">Cancelar</button>
+      <button class="btn-primary" id="btn-confirmar-arquivar"
+        style="background:var(--amber);border-color:var(--amber)"
+        onclick="confirmarArquivar()">
+        <i class="ti ti-archive"></i> Arquivar mesmo assim
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast">
+  <i class="ti ti-circle-check"></i>
+  <span id="toast-msg">Ação realizada</span>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="js/supabase-client.js"></script>
+<script src="js/auth-guard.js"></script>
+<script src="js/dashboard.js"></script>
+</body>
+</html>
