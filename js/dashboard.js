@@ -8,6 +8,7 @@ const pages = {
   'colaboradores': 'Colaboradores',
   'configuracoes': 'Configurações',
   'arquivados': 'Arquivados & Encerrados',
+  'ajuda': 'Ajuda',
 };
 
 function showPage(id) {
@@ -21,7 +22,10 @@ function showPage(id) {
       n.classList.add('active');
     }
   });
-  if (id === 'calendario')    carregarEventos();
+  if (id === 'calendario') {
+    fullCalDate = new Date(miniCalDate.getFullYear(), miniCalDate.getMonth(), 1);
+    carregarEventos();
+  }
   if (id === 'tarefas')       carregarTarefas();
   if (id === 'arquivados')    carregarArquivados();
   if (id === 'configuracoes') carregarConfiguracoes();
@@ -49,9 +53,17 @@ function openModal(id) {
     const hoje = new Date().toISOString().slice(0, 10);
     const evData = document.getElementById('ev-data');
     if (evData && !evData.value) evData.value = hoje;
+    // Reseta estado de lock (só abrirModalPrazoProcesso o ativa)
+    _resetarLockProcessoModal();
   }
   if (id === 'modal-tarefa') {
     preencherProcessosModal('tar-processo');
+  }
+  if (id === 'modal-busca-tribunal') {
+    _loteResultados = [];
+    const inputEl = document.getElementById('busca-input');
+    if (inputEl) { inputEl.value = ''; inputEl.style.height = '62px'; }
+    limparResultadoBusca();
   }
 }
 
@@ -198,44 +210,59 @@ function selecionarTipoBusca(tipo, btn) {
   document.querySelectorAll('.busca-tab').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
 
-  const cfg = BUSCA_CONFIG[tipo];
-  document.getElementById('busca-label').textContent       = cfg.label;
-  document.getElementById('busca-input').placeholder       = cfg.placeholder;
-  document.getElementById('busca-hint').textContent        = cfg.hint;
+  const cfg       = BUSCA_CONFIG[tipo];
+  const inputArea = document.getElementById('busca-input-area');
+  const inputEl   = document.getElementById('busca-input');
+
+  document.getElementById('busca-label').textContent            = cfg.label;
+  if (inputEl) {
+    inputEl.placeholder = cfg.placeholder;
+    inputEl.value       = '';
+    inputEl.style.height = '62px';
+  }
+  document.getElementById('busca-hint').textContent             = cfg.hint;
   document.getElementById('busca-tribunal-wrap').style.display  = cfg.tribunal ? 'block' : 'none';
-  document.getElementById('busca-oab-uf-wrap').style.display    = cfg.uf      ? 'block' : 'none';
-  document.getElementById('busca-input').value = '';
+  document.getElementById('busca-oab-uf-wrap').style.display    = cfg.uf       ? 'block' : 'none';
 
   const avisoEl = document.getElementById('busca-aviso-restrito');
-  const inputArea = document.getElementById('busca-input-area');
   if (cfg.restrito) {
-    avisoEl.style.display  = 'block';
+    avisoEl.style.display   = 'block';
     inputArea.style.display = 'none';
   } else {
-    avisoEl.style.display  = 'none';
+    avisoEl.style.display   = 'none';
     inputArea.style.display = 'block';
   }
   limparResultadoBusca();
 }
 
 async function buscarProcesso() {
-  const input    = document.getElementById('busca-input').value.trim();
+  const rawInput = document.getElementById('busca-input').value.trim();
   const btn      = document.getElementById('busca-btn');
   const tribunal = document.getElementById('busca-tribunal-select').value;
   const uf       = document.getElementById('busca-oab-uf-select').value;
 
   limparResultadoBusca();
 
-  if (!input) { mostrarErroBusca('Preencha o campo de busca.'); return; }
+  if (!rawInput) { mostrarErroBusca('Preencha o campo de busca.'); return; }
 
-  // Monta a URL
+  // Detecta múltiplos números CNJ (apenas na aba número)
+  if (_tipoBusca === 'numero') {
+    const linhas = rawInput.split(/[\n\r,;]+/).map(l => l.trim()).filter(Boolean);
+    const numerosValidos = linhas.map(l => l.replace(/\D/g, '')).filter(n => n.length === 20);
+    if (numerosValidos.length > 1) {
+      await _buscarLoteInterno(numerosValidos, btn);
+      return;
+    }
+  }
+
+  // Busca individual
   let url;
   if (_tipoBusca === 'numero') {
-    url = `/api/buscar-processo?tipo=numero&numero=${encodeURIComponent(input)}`;
+    url = `/api/buscar-processo?tipo=numero&numero=${encodeURIComponent(rawInput)}`;
   } else {
     if (!tribunal) { mostrarErroBusca('Selecione o tribunal.'); return; }
     if (_tipoBusca === 'oab' && !uf) { mostrarErroBusca('Selecione a UF da OAB.'); return; }
-    url = `/api/buscar-processo?tipo=${_tipoBusca}&q=${encodeURIComponent(input)}&tribunal=${tribunal}`;
+    url = `/api/buscar-processo?tipo=${_tipoBusca}&q=${encodeURIComponent(rawInput)}&tribunal=${tribunal}`;
     if (_tipoBusca === 'oab') url += `&uf=${encodeURIComponent(uf)}`;
   }
 
@@ -245,15 +272,78 @@ async function buscarProcesso() {
   try {
     const res  = await fetch(url);
     const data = await res.json();
-
     if (!res.ok) { mostrarErroBusca(data.erro || 'Nenhum resultado.'); return; }
-
     exibirResultados(data.resultados || []);
   } catch {
     mostrarErroBusca('Erro de conexão. Tente novamente.');
   } finally {
     btn.innerHTML = '<i class="ti ti-search"></i> Buscar';
     btn.disabled  = false;
+  }
+}
+
+async function _buscarLoteInterno(numerosValidos, btn) {
+  _loteResultados = [];
+
+  const progressEl    = document.getElementById('lote-progress');
+  const progressBar   = document.getElementById('lote-progress-bar');
+  const progressText  = document.getElementById('lote-progress-text');
+  const progressCount = document.getElementById('lote-progress-count');
+  const resultadosEl  = document.getElementById('lote-resultados');
+  const importarWrap  = document.getElementById('lote-importar-wrap');
+
+  progressEl.style.display   = 'block';
+  resultadosEl.style.display = 'flex';
+  resultadosEl.innerHTML     = '';
+  importarWrap.style.display = 'none';
+  if (btn) { btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i>'; btn.disabled = true; }
+
+  const total = numerosValidos.length;
+
+  for (let i = 0; i < total; i++) {
+    const numFormatado = formatarNumero(numerosValidos[i]);
+    progressText.textContent  = `Buscando: ${numFormatado}`;
+    progressCount.textContent = `${i + 1}/${total}`;
+    progressBar.style.width   = `${(i / total) * 100}%`;
+
+    const item = { numero: numFormatado, status: 'buscando', data: null, selecionado: true };
+    _loteResultados.push(item);
+    renderizarLoteResultados();
+
+    try {
+      const res  = await fetch(`/api/buscar-processo?tipo=numero&numero=${encodeURIComponent(numFormatado)}`);
+      const json = await res.json();
+      if (res.ok && json.resultados?.length) {
+        item.status = 'encontrado';
+        item.data   = json.resultados[0];
+      } else {
+        item.status = 'nao_encontrado';
+      }
+    } catch {
+      item.status = 'erro';
+    }
+
+    renderizarLoteResultados();
+    resultadosEl.scrollTop = resultadosEl.scrollHeight;
+  }
+
+  progressBar.style.width   = '100%';
+  progressText.textContent  = 'Busca concluída!';
+  progressCount.textContent = `${total}/${total}`;
+  if (btn) { btn.innerHTML = '<i class="ti ti-search"></i> Buscar'; btn.disabled = false; }
+
+  const encontrados    = _loteResultados.filter(r => r.status === 'encontrado').length;
+  const naoEncontrados = _loteResultados.filter(r => r.status === 'nao_encontrado').length;
+
+  if (encontrados > 0) {
+    importarWrap.style.display = 'block';
+    atualizarLoteLabel();
+  } else {
+    mostrarErroBusca(
+      naoEncontrados === total
+        ? `Nenhum dos ${total} processos foi localizado no DataJud. Os números podem ainda não estar disponíveis online.`
+        : 'Nenhum processo encontrado.'
+    );
   }
 }
 
@@ -335,6 +425,20 @@ async function salvarProcesso() {
   const cliente = document.getElementById('np-cliente').value.trim();
 
   if (!nome) { showToast('Preencha o nome / assunto do processo.'); return; }
+
+  // Verifica duplicata pelo número
+  if (numero) {
+    const jaExiste = (window._processosDB || []).some(p => p.numero === numero);
+    if (!jaExiste) {
+      const { count } = await _supabase
+        .from('processos').select('id', { count: 'exact', head: true })
+        .eq('user_id', window._user?.id).eq('numero', numero);
+      if (count > 0) { showToast('Este processo já está cadastrado.'); return; }
+    } else {
+      showToast('Este processo já está cadastrado.');
+      return;
+    }
+  }
 
   btn.disabled    = true;
   btn.textContent = 'Salvando...';
@@ -562,7 +666,7 @@ function atualizarPrazosDash() {
     const mes  = dt.toLocaleDateString('pt-BR', { month:'short' }).replace('.','');
     const badgeCls = dias <= 3 ? 'dias-urgente' : dias <= 7 ? 'dias-aviso' : 'dias-ok';
     return `
-      <div class="prazo-item">
+      <div class="prazo-item" onclick="irParaCalendarioMes(${dt.getFullYear()},${dt.getMonth()})">
         <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
         <div class="prazo-urgency ${urgCls[e.urgencia] || 'urgency-baixa'}"></div>
         <div class="prazo-info"><div class="prazo-name">${e.titulo}</div><div class="prazo-type">${tipoLabel[e.tipo] || 'Lembrete'}</div></div>
@@ -577,6 +681,9 @@ function renderizarListaProcessos(lista) {
   if (!grid) return;
 
   grid.querySelectorAll('.process-card[data-db]').forEach(el => el.remove());
+
+  const sub = document.getElementById('processos-sub-header');
+  if (sub) sub.textContent = lista.length ? `${lista.length} processo(s) ativo(s)` : 'Nenhum processo cadastrado';
 
   if (!lista.length) {
     if (empty) empty.style.display = 'block';
@@ -619,7 +726,8 @@ function renderizarListaProcessos(lista) {
           </button>
         </div>
       </div>
-      <div class="pc-title">${p.nome}</div>
+      <div class="pc-title">${p.apelido || p.nome}</div>
+      ${p.apelido ? `<div style="font-size:11px;color:var(--gray-400);margin-top:-2px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.nome}</div>` : ''}
       <div class="pc-client">
         <i class="ti ti-user" style="font-size:12px"></i>
         ${p.cliente || 'Cliente não informado'}
@@ -651,6 +759,126 @@ function renderizarListaProcessos(lista) {
   });
 
   cards.forEach(c => grid.appendChild(c));
+}
+
+function filtrarProcessos() {
+  const q      = (document.getElementById('filter-texto')?.value   || '').toLowerCase().trim();
+  const area   = (document.getElementById('filter-area')?.value    || '');
+  const status = (document.getElementById('filter-status')?.value  || '');
+
+  let lista = window._processosDB || [];
+
+  if (q) {
+    lista = lista.filter(p =>
+      (p.numero  || '').toLowerCase().includes(q) ||
+      (p.nome    || '').toLowerCase().includes(q) ||
+      (p.apelido || '').toLowerCase().includes(q) ||
+      (p.cliente || '').toLowerCase().includes(q) ||
+      (p.classe  || '').toLowerCase().includes(q)
+    );
+  }
+  if (area)   lista = lista.filter(p => (p.area   || 'Cível') === area);
+  if (status) lista = lista.filter(p => (p.status || 'Ativo') === status);
+
+  renderizarListaProcessos(lista);
+}
+
+function topbarSearch(q) {
+  const drop = document.getElementById('topbar-search-drop');
+  if (!drop) return;
+  const term = (q || '').toLowerCase().trim();
+  if (!term) { drop.style.display = 'none'; return; }
+
+  const resultados = (window._processosDB || []).filter(p =>
+    (p.numero  || '').toLowerCase().includes(term) ||
+    (p.nome    || '').toLowerCase().includes(term) ||
+    (p.apelido || '').toLowerCase().includes(term) ||
+    (p.cliente || '').toLowerCase().includes(term)
+  ).slice(0, 6);
+
+  if (!resultados.length) {
+    drop.innerHTML = `<div style="padding:12px 16px;font-size:13px;color:var(--gray-400)">Nenhum resultado encontrado</div>`;
+    drop.style.display = 'block';
+    return;
+  }
+
+  drop.innerHTML = resultados.map(p => `
+    <div onmousedown="topbarSearchSelect('${p.id}')"
+      style="padding:10px 16px;cursor:pointer;border-bottom:1px solid var(--gray-100);display:flex;flex-direction:column;gap:2px"
+      onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background=''">
+      <div style="font-size:13px;font-weight:600;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.apelido || p.nome}</div>
+      <div style="font-size:11px;color:var(--gray-400)">${p.numero || '—'}${p.cliente ? ' · ' + p.cliente : ''}</div>
+    </div>
+  `).join('');
+  drop.style.display = 'block';
+}
+
+function topbarSearchSelect(id) {
+  const drop  = document.getElementById('topbar-search-drop');
+  const input = document.getElementById('topbar-search-input');
+  if (drop)  drop.style.display = 'none';
+  if (input) input.value = '';
+  abrirProcesso(id);
+}
+
+function filtrarTarefas(q) {
+  const term = (q || '').toLowerCase().trim();
+  const procMap = {};
+  for (const p of (window._processosDB || [])) procMap[p.id] = p.apelido || p.nome;
+
+  const lista = term
+    ? (_tarefasDB || []).filter(t =>
+        (t.titulo || '').toLowerCase().includes(term) ||
+        (t.processo_id && (procMap[t.processo_id] || '').toLowerCase().includes(term))
+      )
+    : (_tarefasDB || []);
+
+  renderizarKanban(lista, procMap);
+}
+
+function filtrarCalendario(q) {
+  const wrap = document.getElementById('cal-este-mes');
+  if (!wrap) return;
+  const term = (q || '').toLowerCase().trim();
+
+  const doMes = _eventosDB.filter(e => {
+    const d = new Date(e.data + 'T12:00:00');
+    if (d.getFullYear() !== fullCalDate.getFullYear() || d.getMonth() !== fullCalDate.getMonth()) return false;
+    if (!term) return true;
+    return (e.titulo || '').toLowerCase().includes(term) || (e.tipo || '').toLowerCase().includes(term);
+  });
+
+  if (!doMes.length) {
+    const msg = term ? 'Nenhum evento encontrado' : 'Nenhum evento este mês';
+    wrap.innerHTML = `<div style="text-align:center;padding:24px 16px;color:var(--gray-400);font-size:12px">
+      <i class="ti ti-calendar-off" style="font-size:22px;display:block;margin-bottom:6px;opacity:0.35"></i>
+      ${msg}
+    </div>`;
+    return;
+  }
+
+  const tipoLabel = { prazo_processual: 'Prazo Fatal', audiencia: 'Audiência', lembrete: 'Lembrete', reuniao: 'Reunião' };
+  const urgCls    = { alta: 'urgency-alta', media: 'urgency-media', baixa: 'urgency-baixa' };
+
+  wrap.innerHTML = doMes.map(e => {
+    const dt  = new Date(e.data + 'T12:00:00');
+    const dia = dt.toLocaleDateString('pt-BR', { day: '2-digit' });
+    const mes = dt.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
+    const cls = _tipoEvtCls[e.tipo] || 'event-lembrete';
+    return `
+      <div class="prazo-item">
+        <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
+        <div class="prazo-urgency ${urgCls[e.urgencia] || 'urgency-baixa'}"></div>
+        <div class="prazo-info">
+          <div class="prazo-name">${e.titulo}</div>
+          <div class="prazo-type"><span class="badge ${cls}">${tipoLabel[e.tipo] || 'Lembrete'}</span></div>
+        </div>
+        <button onclick="excluirEvento('${e.id}')" title="Excluir"
+          style="background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:14px;padding:4px;line-height:1">
+          <i class="ti ti-trash"></i>
+        </button>
+      </div>`;
+  }).join('');
 }
 
 async function verificarProcessoAgora(evt, id, datajudIndex, numero) {
@@ -719,6 +947,7 @@ async function abrirProcesso(id) {
 
   showPage('processo-detalhe');
   popularDetalhe(proc);
+  carregarPrazosProcesso(proc.id);
 }
 
 function popularDetalhe(proc) {
@@ -1081,6 +1310,7 @@ window.addEventListener('DOMContentLoaded', () => {
           iniciarSyncAutomatico();
           sincronizarTodos(true);
         });
+        carregarEventosDashboard();
         aplicarAvatarSidebar();
       }
     }
@@ -1096,6 +1326,14 @@ function mostrarErroBusca(msg) {
 function limparResultadoBusca() {
   document.getElementById('busca-erro').style.display            = 'none';
   document.getElementById('busca-resultados-wrap').style.display = 'none';
+  const loteProgress  = document.getElementById('lote-progress');
+  const loteResultados = document.getElementById('lote-resultados');
+  const loteImportar  = document.getElementById('lote-importar-wrap');
+  const loteBar       = document.getElementById('lote-progress-bar');
+  if (loteProgress)   loteProgress.style.display   = 'none';
+  if (loteResultados) { loteResultados.style.display = 'none'; loteResultados.innerHTML = ''; }
+  if (loteImportar)   loteImportar.style.display    = 'none';
+  if (loteBar)        loteBar.style.width            = '0%';
   window._buscaResultados = [];
 }
 
@@ -1179,7 +1417,8 @@ async function carregarArquivados() {
           <span class="pc-status" style="background:var(--gray-200);color:var(--gray-600)">Arquivado</span>
         </div>
       </div>
-      <div class="pc-title">${p.nome}</div>
+      <div class="pc-title">${p.apelido || p.nome}</div>
+      ${p.apelido ? `<div style="font-size:11px;color:var(--gray-400);margin-top:-2px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.nome}</div>` : ''}
       <div class="pc-client">
         <i class="ti ti-user" style="font-size:12px"></i>
         ${p.cliente || 'Cliente não informado'}
@@ -1480,6 +1719,29 @@ async function restaurarProcesso(evt, id, nome) {
 
 // ── CALENDÁRIO: EVENTOS DO BANCO ──────────────────────────────────────────
 
+async function carregarEventosDashboard() {
+  if (!window._user) return;
+  const hoje = new Date().toISOString().slice(0, 10);
+  const em90 = new Date(); em90.setDate(em90.getDate() + 90);
+  const { data } = await _supabase
+    .from('eventos')
+    .select('*')
+    .gte('data', hoje)
+    .lte('data', em90.toISOString().slice(0, 10))
+    .order('data', { ascending: true });
+  if (data) _eventosDB = data;
+  atualizarPrazosDash();
+  buildMiniCal();
+
+  const em7 = new Date(); em7.setDate(em7.getDate() + 7);
+  const proximos = data?.filter(e => new Date(e.data + 'T12:00:00') <= em7) || [];
+  const badgeEv = document.getElementById('badge-eventos');
+  if (badgeEv) {
+    badgeEv.textContent   = proximos.length;
+    badgeEv.style.display = proximos.length ? 'inline-flex' : 'none';
+  }
+}
+
 async function carregarEventos() {
   if (!window._user) return;
 
@@ -1518,44 +1780,9 @@ async function carregarEventos() {
 }
 
 function renderizarEsteMes() {
-  const wrap = document.getElementById('cal-este-mes');
-  if (!wrap) return;
-
-  const doMes = _eventosDB.filter(e => {
-    const d = new Date(e.data + 'T12:00:00');
-    return d.getFullYear() === fullCalDate.getFullYear() && d.getMonth() === fullCalDate.getMonth();
-  });
-
-  if (!doMes.length) {
-    wrap.innerHTML = `<div style="text-align:center;padding:24px 16px;color:var(--gray-400);font-size:12px">
-      <i class="ti ti-calendar-off" style="font-size:22px;display:block;margin-bottom:6px;opacity:0.35"></i>
-      Nenhum evento este mês
-    </div>`;
-    return;
-  }
-
-  const tipoLabel = { prazo_processual: 'Prazo Fatal', audiencia: 'Audiência', lembrete: 'Lembrete', reuniao: 'Reunião' };
-  const urgCls    = { alta: 'urgency-alta', media: 'urgency-media', baixa: 'urgency-baixa' };
-
-  wrap.innerHTML = doMes.map(e => {
-    const dt  = new Date(e.data + 'T12:00:00');
-    const dia = dt.toLocaleDateString('pt-BR', { day:'2-digit' });
-    const mes = dt.toLocaleDateString('pt-BR', { month:'short' }).replace('.','');
-    const cls = _tipoEvtCls[e.tipo] || 'event-lembrete';
-    return `
-      <div class="prazo-item">
-        <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
-        <div class="prazo-urgency ${urgCls[e.urgencia] || 'urgency-baixa'}"></div>
-        <div class="prazo-info">
-          <div class="prazo-name">${e.titulo}</div>
-          <div class="prazo-type"><span class="badge ${cls}">${tipoLabel[e.tipo] || 'Lembrete'}</span></div>
-        </div>
-        <button onclick="excluirEvento('${e.id}')" title="Excluir"
-          style="background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:14px;padding:4px;line-height:1">
-          <i class="ti ti-trash"></i>
-        </button>
-      </div>`;
-  }).join('');
+  const input = document.getElementById('cal-search-input');
+  if (input) input.value = '';
+  filtrarCalendario('');
 }
 
 async function excluirEvento(id) {
@@ -1611,6 +1838,98 @@ async function salvarEvento() {
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-check"></i> Salvar Prazo'; }
   }
+}
+
+async function carregarPrazosProcesso(processoId) {
+  const wrap = document.getElementById('detalhe-prazos-lista');
+  if (!wrap) return;
+
+  wrap.innerHTML = `<div style="text-align:center;padding:20px;color:var(--gray-400);font-size:12px">
+    <i class="ti ti-loader-2" style="animation:spin .8s linear infinite;display:block;margin-bottom:6px"></i>Carregando...
+  </div>`;
+
+  const { data, error } = await _supabase
+    .from('eventos')
+    .select('*')
+    .eq('processo_id', processoId)
+    .order('data', { ascending: true });
+
+  if (error || !data || !data.length) {
+    wrap.innerHTML = `<div style="text-align:center;padding:24px 16px;color:var(--gray-400)">
+      <i class="ti ti-calendar-off" style="font-size:24px;display:block;margin-bottom:8px;opacity:0.3"></i>
+      <div style="font-size:12px;opacity:.7">Nenhum prazo vinculado.<br>Use o botão + para adicionar.</div>
+    </div>`;
+    return;
+  }
+
+  const urgCls    = { alta:'urgency-alta', media:'urgency-media', baixa:'urgency-baixa' };
+  const tipoLabel = { prazo_processual:'Prazo Processual', audiencia:'Audiência', lembrete:'Lembrete', reuniao:'Reunião' };
+  const hoje      = new Date();
+
+  wrap.innerHTML = data.map(e => {
+    const dt   = new Date(e.data + 'T12:00:00');
+    const dias = Math.ceil((dt - hoje) / 86400000);
+    const dia  = dt.toLocaleDateString('pt-BR', { day:'2-digit' });
+    const mes  = dt.toLocaleDateString('pt-BR', { month:'short' }).replace('.','');
+    const badgeCls = dias < 0 ? 'dias-urgente' : dias <= 3 ? 'dias-urgente' : dias <= 7 ? 'dias-aviso' : 'dias-ok';
+    const label    = dias < 0 ? `${Math.abs(dias)}d atrás` : dias === 0 ? 'Hoje' : `${dias}d`;
+    return `
+      <div class="prazo-item" onclick="irParaCalendarioMes(${dt.getFullYear()},${dt.getMonth()})">
+        <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
+        <div class="prazo-urgency ${urgCls[e.urgencia] || 'urgency-baixa'}"></div>
+        <div class="prazo-info">
+          <div class="prazo-name">${e.titulo}</div>
+          <div class="prazo-type">${tipoLabel[e.tipo] || 'Lembrete'}</div>
+        </div>
+        <span class="dias-badge ${badgeCls}">${label}</span>
+      </div>`;
+  }).join('');
+}
+
+function _resetarLockProcessoModal() {
+  document.getElementById('ev-processo-locked').style.display     = 'none';
+  document.getElementById('ev-processo-toggle-wrap').style.display = 'none';
+  document.getElementById('ev-processo').style.display            = 'block';
+  document.getElementById('ev-processo-span-opcional').style.display = 'inline';
+  const tog = document.getElementById('ev-processo-toggle');
+  if (tog) tog.checked = false;
+}
+
+function abrirModalPrazoProcesso() {
+  openModal('modal-lembrete');
+  if (!_processoAtual) return;
+
+  // Trava o campo no processo atual
+  const sel    = document.getElementById('ev-processo');
+  const locked = document.getElementById('ev-processo-locked');
+  const nome   = document.getElementById('ev-processo-locked-nome');
+  const toggle = document.getElementById('ev-processo-toggle-wrap');
+  const opc    = document.getElementById('ev-processo-span-opcional');
+
+  if (sel)    { sel.value = _processoAtual.id; sel.style.display = 'none'; }
+  if (locked) locked.style.display = 'flex';
+  if (nome)   nome.textContent = (_processoAtual.apelido || _processoAtual.nome) +
+                                  (_processoAtual.numero ? '  ·  ' + _processoAtual.numero : '');
+  if (toggle) toggle.style.display = 'flex';
+  if (opc)    opc.style.display = 'none';
+}
+
+function toggleProcessoOutro(checked) {
+  const sel    = document.getElementById('ev-processo');
+  const locked = document.getElementById('ev-processo-locked');
+  if (checked) {
+    if (locked) locked.style.display = 'none';
+    if (sel)    { sel.style.display = 'block'; sel.value = _processoAtual?.id || ''; }
+  } else {
+    if (locked) locked.style.display = 'flex';
+    if (sel)    { sel.style.display = 'none'; if (_processoAtual) sel.value = _processoAtual.id; }
+  }
+}
+
+function irParaCalendarioMes(ano, mes) {
+  miniCalDate = new Date(ano, mes, 1);
+  fullCalDate = new Date(ano, mes, 1);
+  showPage('calendario');
 }
 
 function abrirModalTipo(tipo) {
@@ -1779,4 +2098,128 @@ async function excluirTarefa(id) {
   if (error) { showToast('Erro ao excluir tarefa.'); return; }
   showToast('Tarefa excluída.');
   carregarTarefas();
+}
+
+// ── IMPORTAÇÃO EM LOTE ────────────────────────────────────────────────────
+
+let _loteResultados = [];
+
+function renderizarLoteResultados() {
+  const wrap = document.getElementById('lote-resultados');
+  if (!wrap) return;
+
+  const icons = {
+    buscando:       `<i class="ti ti-loader-2" style="animation:spin .8s linear infinite;color:var(--gray-400);font-size:15px"></i>`,
+    encontrado:     `<i class="ti ti-circle-check" style="color:var(--green);font-size:15px"></i>`,
+    nao_encontrado: `<i class="ti ti-circle-x" style="color:var(--red);font-size:15px"></i>`,
+    erro:           `<i class="ti ti-alert-triangle" style="color:var(--amber);font-size:15px"></i>`,
+  };
+  const bgs = {
+    buscando:       'var(--gray-50)',
+    encontrado:     'var(--green-light)',
+    nao_encontrado: 'var(--red-light)',
+    erro:           'var(--amber-light)',
+  };
+
+  wrap.innerHTML = _loteResultados.map((r, i) => {
+    const isFound = r.status === 'encontrado';
+    const sublabel = {
+      buscando:       'Buscando no DataJud...',
+      encontrado:     r.data?.classe || r.data?.tribunal || 'Encontrado',
+      nao_encontrado: 'Não localizado no DataJud',
+      erro:           'Erro de conexão — tente novamente',
+    }[r.status] || r.status;
+
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;border:1px solid var(--gray-200);background:${bgs[r.status] || 'var(--gray-50)'}">
+        ${isFound
+          ? `<input type="checkbox" ${r.selecionado ? 'checked' : ''}
+               onchange="_loteResultados[${i}].selecionado=this.checked;atualizarLoteLabel()"
+               style="width:14px;height:14px;cursor:pointer;flex-shrink:0;accent-color:var(--navy)">`
+          : `<div style="width:14px;flex-shrink:0"></div>`}
+        <div style="flex:1;min-width:0;overflow:hidden">
+          <div style="font-size:12px;font-weight:600;font-family:monospace;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.numero}</div>
+          <div style="font-size:11px;color:var(--gray-600);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${sublabel}</div>
+        </div>
+        <div style="flex-shrink:0">${icons[r.status] || ''}</div>
+      </div>`;
+  }).join('');
+}
+
+function atualizarLoteLabel() {
+  const encontrados    = _loteResultados.filter(r => r.status === 'encontrado').length;
+  const selecionados   = _loteResultados.filter(r => r.selecionado && r.status === 'encontrado').length;
+  const naoEncontrados = _loteResultados.filter(r => r.status === 'nao_encontrado').length;
+  const label = document.getElementById('lote-importar-label');
+  if (!label) return;
+  label.textContent = `${selecionados} de ${encontrados} selecionado(s)`;
+  if (naoEncontrados) label.textContent += ` · ${naoEncontrados} não localizado(s)`;
+}
+
+function loteToggleTodos() {
+  const encontrados = _loteResultados.filter(r => r.status === 'encontrado');
+  const algumDesmarcado = encontrados.some(r => !r.selecionado);
+  encontrados.forEach(r => { r.selecionado = algumDesmarcado; });
+  renderizarLoteResultados();
+  atualizarLoteLabel();
+}
+
+async function importarLoteSelecionados() {
+  const selecionados = _loteResultados.filter(r => r.selecionado && r.status === 'encontrado' && r.data);
+  if (!selecionados.length) { showToast('Selecione pelo menos um processo.'); return; }
+
+  const btn = document.querySelector('#lote-importar-wrap .btn-primary');
+  if (btn) { btn.disabled = true; btn.innerHTML = `<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Importando ${selecionados.length}...`; }
+
+  // Busca todos os números já cadastrados de uma vez (evita N queries)
+  const { data: existentes } = await _supabase
+    .from('processos').select('numero').eq('user_id', window._user?.id);
+  const numerosExistentes = new Set((existentes || []).map(p => p.numero).filter(Boolean));
+
+  let importados = 0;
+  let duplicados = 0;
+  let erros      = 0;
+
+  for (const r of selecionados) {
+    const d    = r.data;
+    const movs = d.movimentos || [];
+
+    if (d.numero && numerosExistentes.has(d.numero)) {
+      duplicados++;
+      continue;
+    }
+
+    const clientePart = (d.partes || []).find(p => /autor|requerente|reclamante/i.test(p.tipo));
+
+    const { error } = await _supabase.from('processos').insert({
+      user_id:             window._user?.id,
+      numero:              d.numero             || '',
+      nome:                d.classe             || d.numero || '',
+      cliente:             clientePart?.nome    || '',
+      area:                'Cível',
+      tribunal:            d.tribunal           || '',
+      parte_contraria:     '',
+      datajud_index:       d._datajudIndex      || null,
+      classe:              d.classe             || null,
+      orgao_julgador:      d.orgaoJulgador      || null,
+      data_ajuizamento:    d.dataAjuizamento    || null,
+      movimentos_recentes: movs.length ? movs   : null,
+      movimentos_hash:     movs.length ? movs.map(m => m.data + m.nome).join('|') : null,
+      ultima_verificacao:  movs.length ? new Date().toISOString() : null,
+    });
+
+    if (error) { erros++; console.error('Erro ao importar', d.numero, error); }
+    else importados++;
+  }
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-cloud-download"></i> Importar selecionados'; }
+
+  closeModal('modal-busca-tribunal');
+
+  const partes = [];
+  if (importados)  partes.push(`${importados} importado(s)`);
+  if (duplicados)  partes.push(`${duplicados} já cadastrado(s)`);
+  if (erros)       partes.push(`${erros} com falha`);
+  showToast(partes.length ? partes.join(' · ') + '.' : 'Nenhum processo importado.');
+  carregarProcessos();
 }

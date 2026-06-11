@@ -91,9 +91,13 @@
   <!-- TOPBAR -->
   <header class="topbar">
     <div class="topbar-title" id="topbar-title">Dashboard</div>
-    <div class="topbar-search">
+    <div class="topbar-search" style="position:relative">
       <i class="ti ti-search"></i>
-      <input type="text" placeholder="Buscar processo, cliente, número...">
+      <input id="topbar-search-input" type="text" placeholder="Buscar processo, cliente, número..."
+        oninput="topbarSearch(this.value)"
+        onkeydown="if(event.key==='Escape'){this.value='';topbarSearch('')}"
+        onblur="setTimeout(()=>{const d=document.getElementById('topbar-search-drop');if(d)d.style.display='none'},180)">
+      <div id="topbar-search-drop" style="display:none;position:absolute;top:calc(100% + 6px);left:0;right:0;background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.1);z-index:200;overflow:hidden"></div>
     </div>
     <div class="topbar-actions">
       <div class="icon-btn" title="Notificações">
@@ -113,9 +117,14 @@
         <div class="dash-greeting" id="dash-greeting">Olá!</div>
         <div class="dash-sub" id="dash-sub">Carregando...</div>
       </div>
-      <button class="btn-primary" onclick="openModal('modal-novo-processo')">
-        <i class="ti ti-plus"></i> Novo Processo
-      </button>
+      <div style="display:flex;gap:10px">
+        <button class="btn-secondary" onclick="openModal('modal-novo-processo')">
+          <i class="ti ti-plus"></i> Manual
+        </button>
+        <button class="btn-primary" onclick="openModal('modal-busca-tribunal')">
+          <i class="ti ti-database-search"></i> Buscar no Tribunal
+        </button>
+      </div>
     </div>
 
     <div class="stats-row">
@@ -140,7 +149,7 @@
       <div class="stat-card" onclick="showPage('calendario')">
         <div class="stat-icon red"><i class="ti ti-alert-triangle"></i></div>
         <div class="stat-num" id="stat-prazos">—</div>
-        <div class="stat-label">Prazos esta Semana</div>
+        <div class="stat-label">Prazos nesta Semana</div>
         <div class="stat-change" id="stat-prazos-sub">—</div>
       </div>
     </div>
@@ -205,11 +214,11 @@
     <div class="page-header">
       <div>
         <div class="page-title">Meus Processos</div>
-        <div class="page-sub">24 processos ativos · Organizado por pastas</div>
+        <div class="page-sub" id="processos-sub-header">Seus processos ativos</div>
       </div>
       <div style="display:flex;gap:10px">
-        <button class="btn-secondary"><i class="ti ti-filter"></i> Filtros</button>
-        <button class="btn-primary" onclick="openModal('modal-novo-processo')"><i class="ti ti-plus"></i> Novo Processo</button>
+        <button class="btn-secondary" onclick="openModal('modal-novo-processo')"><i class="ti ti-plus"></i> Cadastro manual</button>
+        <button class="btn-primary" onclick="openModal('modal-busca-tribunal')"><i class="ti ti-database-search"></i> Buscar no Tribunal</button>
       </div>
     </div>
 
@@ -226,32 +235,24 @@
     <div class="filter-bar">
       <div class="filter-search">
         <i class="ti ti-search" style="color:var(--gray-400);font-size:16px"></i>
-        <input type="text" placeholder="Número, cliente ou assunto...">
+        <input id="filter-texto" type="text" placeholder="Número, cliente ou assunto..." oninput="filtrarProcessos()">
       </div>
-      <select class="filter-select">
-        <option>Todas as áreas</option>
+      <select id="filter-area" class="filter-select" onchange="filtrarProcessos()">
+        <option value="">Todas as áreas</option>
         <option>Cível</option>
         <option>Trabalhista</option>
         <option>Criminal</option>
         <option>Tributário</option>
         <option>Família</option>
+        <option>Previdenciário</option>
       </select>
-      <select class="filter-select">
-        <option>Todos os status</option>
+      <select id="filter-status" class="filter-select" onchange="filtrarProcessos()">
+        <option value="">Todos os status</option>
         <option>Ativo</option>
         <option>Aguardando</option>
         <option>Suspenso</option>
         <option>Encerrado</option>
       </select>
-      <select class="filter-select">
-        <option>Todos os advogados</option>
-        <option>Dra. Marina Alves</option>
-        <option>Dr. Paulo Ramos</option>
-        <option>Dra. Lúcia Mendes</option>
-      </select>
-      <button class="btn-secondary" onclick="openModal('modal-busca-tribunal')" style="white-space:nowrap">
-        <i class="ti ti-database-search"></i> Buscar no tribunal
-      </button>
     </div>
 
     <div class="process-grid" id="lista-processos-db">
@@ -368,12 +369,9 @@
         <div class="card">
           <div class="card-header">
             <div class="card-title"><i class="ti ti-clock"></i> Prazos do Processo</div>
-            <button class="btn-secondary" style="font-size:12px;padding:5px 10px" onclick="openModal('modal-lembrete')"><i class="ti ti-plus"></i> Novo</button>
+            <button class="btn-secondary" style="font-size:12px;padding:5px 10px" onclick="abrirModalPrazoProcesso()"><i class="ti ti-plus"></i> Novo</button>
           </div>
-          <div style="text-align:center;padding:24px 16px;color:var(--gray-400)">
-            <i class="ti ti-calendar-off" style="font-size:24px;display:block;margin-bottom:8px;opacity:0.3"></i>
-            <div style="font-size:12px;opacity:.7">Nenhum prazo vinculado a este processo.<br>Use o botão + para adicionar.</div>
-          </div>
+          <div id="detalhe-prazos-lista"></div>
         </div>
 
         <div class="card">
@@ -421,7 +419,15 @@
 
       <div style="display:flex;flex-direction:column;gap:16px">
         <div class="card">
-          <div class="card-header"><div class="card-title"><i class="ti ti-list"></i> Este Mês</div></div>
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-list"></i> Este Mês</div>
+          </div>
+          <div style="padding:8px 16px 0">
+            <div class="filter-search" style="height:30px;padding:0 8px">
+              <i class="ti ti-search" style="color:var(--gray-400);font-size:13px"></i>
+              <input id="cal-search-input" type="text" placeholder="Filtrar eventos..." style="font-size:12px" oninput="filtrarCalendario(this.value)">
+            </div>
+          </div>
           <div id="cal-este-mes" style="padding:4px 0"></div>
         </div>
 
@@ -479,6 +485,13 @@
       <button class="btn-primary" onclick="openModal('modal-tarefa')"><i class="ti ti-plus"></i> Nova Tarefa</button>
     </div>
 
+    <div class="filter-bar" style="margin-bottom:16px">
+      <div class="filter-search">
+        <i class="ti ti-search" style="color:var(--gray-400);font-size:16px"></i>
+        <input id="tarefas-search-input" type="text" placeholder="Buscar tarefa ou processo..." oninput="filtrarTarefas(this.value)">
+      </div>
+    </div>
+
     <div class="task-cols">
       <div class="task-col">
         <div class="task-col-header">
@@ -533,49 +546,37 @@
         <div class="page-title">Colaboradores</div>
         <div class="page-sub">Equipe do escritório</div>
       </div>
-      <button class="btn-primary" onclick="showToast('Convite enviado por e-mail')"><i class="ti ti-user-plus"></i> Convidar Advogado</button>
+      <button class="btn-primary" onclick="openModal('modal-convite')"><i class="ti ti-user-plus"></i> Convidar Advogado</button>
     </div>
 
-    <div class="colab-grid">
-      <div class="colab-card">
-        <div class="colab-avatar" style="background:#1a2e6b">MA</div>
-        <div class="colab-name">Dra. Marina Alves</div>
-        <div class="colab-role">Advogada Titular</div>
-        <div class="colab-oab">OAB/SP 192.847</div>
-        <div class="colab-stats">
-          <div><div class="colab-stat-num">18</div><div class="colab-stat-label">Processos</div></div>
-          <div><div class="colab-stat-num">7</div><div class="colab-stat-label">Tarefas</div></div>
-        </div>
+    <div style="max-width:480px;margin:60px auto;text-align:center;color:var(--gray-400)">
+      <i class="ti ti-users" style="font-size:52px;display:block;margin-bottom:16px;opacity:0.25"></i>
+      <div style="font-size:16px;font-weight:600;color:var(--navy);margin-bottom:8px">Colaboradores em breve</div>
+      <div style="font-size:13px;line-height:1.6;margin-bottom:24px">
+        Em breve você poderá convidar advogados e estagiários para colaborar em processos e tarefas do seu escritório.
       </div>
-      <div class="colab-card">
-        <div class="colab-avatar" style="background:#1565c0">PR</div>
-        <div class="colab-name">Dr. Paulo Ramos</div>
-        <div class="colab-role">Advogado Associado</div>
-        <div class="colab-oab">OAB/SP 241.033</div>
-        <div class="colab-stats">
-          <div><div class="colab-stat-num">6</div><div class="colab-stat-label">Processos</div></div>
-          <div><div class="colab-stat-num">4</div><div class="colab-stat-label">Tarefas</div></div>
-        </div>
+      <button class="btn-secondary" onclick="openModal('modal-convite')">
+        <i class="ti ti-bell"></i> Quero ser avisado quando disponível
+      </button>
+    </div>
+  </div>
+
+  <!-- Modal convite (coming soon) -->
+  <div class="modal-backdrop" id="modal-convite" onclick="closeModalOutside(event,'modal-convite')">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-user-plus"></i> Convidar Colaborador</span>
+        <button class="modal-close" onclick="closeModal('modal-convite')"><i class="ti ti-x"></i></button>
       </div>
-      <div class="colab-card">
-        <div class="colab-avatar" style="background:#1a7a4a">LM</div>
-        <div class="colab-name">Dra. Lúcia Mendes</div>
-        <div class="colab-role">Advogada Associada</div>
-        <div class="colab-oab">OAB/RJ 178.552</div>
-        <div class="colab-stats">
-          <div><div class="colab-stat-num">4</div><div class="colab-stat-label">Processos</div></div>
-          <div><div class="colab-stat-num">2</div><div class="colab-stat-label">Tarefas</div></div>
+      <div style="padding:32px 24px;text-align:center">
+        <i class="ti ti-tools" style="font-size:40px;color:var(--navy);opacity:0.3;display:block;margin-bottom:16px"></i>
+        <div style="font-size:15px;font-weight:600;color:var(--navy);margin-bottom:8px">Funcionalidade em desenvolvimento</div>
+        <div style="font-size:13px;color:var(--gray-600);line-height:1.6;margin-bottom:20px">
+          A gestão de equipes está sendo construída. Enquanto isso, entre em contato para saber mais ou sugerir melhorias:
         </div>
-      </div>
-      <div class="colab-card">
-        <div class="colab-avatar" style="background:#9c2b6a">CF</div>
-        <div class="colab-name">Carlos Ferreira</div>
-        <div class="colab-role">Estagiário</div>
-        <div class="colab-oab" style="color:var(--gray-400)">Estagiário OAB</div>
-        <div class="colab-stats">
-          <div><div class="colab-stat-num">2</div><div class="colab-stat-label">Processos</div></div>
-          <div><div class="colab-stat-num">3</div><div class="colab-stat-label">Tarefas</div></div>
-        </div>
+        <a href="mailto:atendimento@meuprocesso.app.br" style="display:inline-flex;align-items:center;gap:6px;background:var(--navy);color:#fff;padding:10px 20px;border-radius:var(--radius);font-size:13px;font-weight:500;text-decoration:none">
+          <i class="ti ti-mail"></i> atendimento@meuprocesso.app.br
+        </a>
       </div>
     </div>
   </div>
@@ -695,6 +696,77 @@
     </div>
   </div>
 
+  <!-- ── AJUDA ── -->
+  <div id="page-ajuda" class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Ajuda</div>
+        <div class="page-sub">Central de suporte</div>
+      </div>
+    </div>
+
+    <div style="max-width:600px;display:flex;flex-direction:column;gap:20px">
+
+      <div class="card" style="padding:32px;text-align:center">
+        <i class="ti ti-tools" style="font-size:48px;color:var(--navy);opacity:0.25;display:block;margin-bottom:16px"></i>
+        <div style="font-size:18px;font-family:'Playfair Display',serif;font-weight:500;color:var(--navy);margin-bottom:8px">
+          Central de ajuda em desenvolvimento
+        </div>
+        <div style="font-size:13px;color:var(--gray-600);line-height:1.7;margin-bottom:28px">
+          Estamos construindo tutoriais, guias e documentação para o Meu Processo.<br>
+          Em breve você encontrará tudo aqui.
+        </div>
+        <div style="background:var(--gray-50);border-radius:var(--radius);padding:20px;text-align:left">
+          <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:6px">
+            <i class="ti ti-mail" style="margin-right:4px"></i> Precisa de ajuda agora?
+          </div>
+          <div style="font-size:13px;color:var(--gray-600);margin-bottom:12px;line-height:1.6">
+            Fale diretamente com nossa equipe — respondemos em até 1 dia útil.
+          </div>
+          <a href="mailto:atendimento@meuprocesso.app.br"
+            style="display:inline-flex;align-items:center;gap:7px;background:var(--navy);color:#fff;padding:10px 18px;border-radius:var(--radius);font-size:13px;font-weight:500;text-decoration:none">
+            <i class="ti ti-mail"></i> atendimento@meuprocesso.app.br
+          </a>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><div class="card-title"><i class="ti ti-help-circle"></i> Dúvidas frequentes</div></div>
+        <div style="padding:0 4px 8px">
+
+          <details style="border-bottom:1px solid var(--gray-100);padding:14px 20px;cursor:pointer">
+            <summary style="font-size:13px;font-weight:500;color:var(--navy);list-style:none;display:flex;align-items:center;justify-content:space-between">
+              Como adicionar um processo? <i class="ti ti-chevron-down" style="font-size:13px;color:var(--gray-400)"></i>
+            </summary>
+            <div style="font-size:13px;color:var(--gray-600);line-height:1.6;margin-top:10px;padding-left:4px">
+              Clique em <strong>Novo Processo</strong> (ícone + na barra superior) ou pesquise o número CNJ na aba <strong>Meus Processos</strong>. Cole vários números ao mesmo tempo para importar em lote.
+            </div>
+          </details>
+
+          <details style="border-bottom:1px solid var(--gray-100);padding:14px 20px;cursor:pointer">
+            <summary style="font-size:13px;font-weight:500;color:var(--navy);list-style:none;display:flex;align-items:center;justify-content:space-between">
+              Posso acompanhar prazos automaticamente? <i class="ti ti-chevron-down" style="font-size:13px;color:var(--gray-400)"></i>
+            </summary>
+            <div style="font-size:13px;color:var(--gray-600);line-height:1.6;margin-top:10px;padding-left:4px">
+              Sim. Processos com integração ao <strong>CNJ DataJud</strong> são sincronizados automaticamente. O sistema avisa quando há movimentações novas.
+            </div>
+          </details>
+
+          <details style="padding:14px 20px;cursor:pointer">
+            <summary style="font-size:13px;font-weight:500;color:var(--navy);list-style:none;display:flex;align-items:center;justify-content:space-between">
+              Como redefinir minha senha? <i class="ti ti-chevron-down" style="font-size:13px;color:var(--gray-400)"></i>
+            </summary>
+            <div style="font-size:13px;color:var(--gray-600);line-height:1.6;margin-top:10px;padding-left:4px">
+              Na tela de login, clique em <strong>Esqueceu sua senha?</strong> e informe seu e-mail. Você receberá um link para criar uma nova senha.
+            </div>
+          </details>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+
 </div><!-- /main -->
 
 <!-- ── MODALS ── -->
@@ -775,7 +847,20 @@
         <input id="ev-titulo" type="text" class="form-input" placeholder="Ex: Contestação, Recurso, Audiência...">
       </div>
       <div class="form-field">
-        <label class="form-label">Processo <span style="font-size:11px;color:var(--gray-400);font-weight:400">(opcional)</span></label>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+          <label class="form-label" style="margin-bottom:0">
+            Processo
+            <span id="ev-processo-span-opcional" style="font-size:11px;color:var(--gray-400);font-weight:400"> (opcional)</span>
+          </label>
+          <label id="ev-processo-toggle-wrap" style="display:none;align-items:center;gap:5px;font-size:11px;color:var(--gray-400);cursor:pointer;font-weight:400">
+            <input type="checkbox" id="ev-processo-toggle" onchange="toggleProcessoOutro(this.checked)" style="cursor:pointer;accent-color:var(--navy)">
+            Vincular a outro
+          </label>
+        </div>
+        <div id="ev-processo-locked" style="display:none;padding:8px 12px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);font-size:13px;color:var(--navy);font-weight:500;align-items:center;gap:8px">
+          <i class="ti ti-lock" style="font-size:13px;color:var(--gray-400);flex-shrink:0"></i>
+          <span id="ev-processo-locked-nome" style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
+        </div>
         <select id="ev-processo" class="form-select">
           <option value="">— Nenhum processo —</option>
         </select>
@@ -1005,25 +1090,49 @@
       <div id="busca-input-area">
       <div class="form-field" style="margin-bottom:8px">
         <label class="form-label" id="busca-label">Número do processo (CNJ)</label>
-        <div style="display:flex;gap:8px">
-          <input type="text" id="busca-input" class="form-input"
-            placeholder="0000000-00.0000.0.00.0000"
-            oninput="limparResultadoBusca()"
-            onkeydown="if(event.key==='Enter') buscarProcesso()">
-          <button class="btn-primary" id="busca-btn" onclick="buscarProcesso()" style="white-space:nowrap;min-width:90px">
+        <div style="display:flex;gap:8px;align-items:flex-start">
+          <textarea id="busca-input" class="form-input"
+            placeholder="0000000-00.0000.0.00.0000&#10;Para vários processos, cole um por linha"
+            oninput="limparResultadoBusca();this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px'"
+            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();buscarProcesso()}"
+            style="resize:none;height:62px;overflow:hidden;line-height:1.5;font-size:13px;font-family:monospace"></textarea>
+          <button class="btn-primary" id="busca-btn" onclick="buscarProcesso()" style="white-space:nowrap;min-width:90px;flex-shrink:0">
             <i class="ti ti-search"></i> Buscar
           </button>
         </div>
         <div id="busca-hint" style="font-size:11px;color:var(--gray-400);margin-top:4px">
-          O tribunal é detectado automaticamente pelo número.
+          Tribunal detectado automaticamente. Para vários, cole um número por linha.
         </div>
       </div>
       </div>
 
       <div id="busca-erro" style="display:none;font-size:13px;color:var(--red);margin-top:6px;padding:8px 12px;background:#fdf0ef;border-radius:6px"></div>
 
-      <!-- Lista de resultados -->
-      <div id="busca-resultados-wrap" style="display:none;margin-top:16px;max-height:360px;overflow-y:auto;display:flex;flex-direction:column;gap:10px"></div>
+      <!-- Progresso e resultados do modo lote (automático) -->
+      <div id="lote-progress" style="display:none;margin-top:12px">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px">
+          <span id="lote-progress-text" style="color:var(--gray-600)">Buscando...</span>
+          <span id="lote-progress-count" style="color:var(--gray-400)">0/0</span>
+        </div>
+        <div style="height:4px;background:var(--gray-100);border-radius:4px;overflow:hidden">
+          <div id="lote-progress-bar" style="height:100%;background:var(--navy);width:0%;transition:width .3s;border-radius:4px"></div>
+        </div>
+      </div>
+
+      <div id="lote-resultados" style="display:none;flex-direction:column;gap:6px;max-height:280px;overflow-y:auto;margin-top:12px"></div>
+
+      <div id="lote-importar-wrap" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--gray-100)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <span id="lote-importar-label" style="font-size:13px;font-weight:600;color:var(--navy)"></span>
+          <button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="loteToggleTodos()">Marcar todos</button>
+        </div>
+        <button class="btn-primary" style="width:100%;justify-content:center" onclick="importarLoteSelecionados()">
+          <i class="ti ti-cloud-download"></i> Importar selecionados
+        </button>
+      </div>
+
+      <!-- Lista de resultados (busca individual) -->
+      <div id="busca-resultados-wrap" style="display:none;margin-top:16px;max-height:360px;overflow-y:auto;flex-direction:column;gap:10px"></div>
     </div>
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeModal('modal-busca-tribunal')">Fechar</button>

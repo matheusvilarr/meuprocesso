@@ -391,11 +391,12 @@ body {
   padding: 12px 20px;
   border-bottom: 1px solid var(--gray-100);
   display: flex; align-items: center; gap: 12px;
-  cursor: pointer; transition: background 0.12s;
+  cursor: default; transition: background 0.12s;
 }
+.prazo-item[onclick] { cursor: pointer; }
+.prazo-item[onclick]:hover { background: var(--gray-50); }
 
 .prazo-item:last-child { border-bottom: none; }
-.prazo-item:hover { background: var(--gray-50); }
 
 .prazo-date { width: 44px; text-align: center; flex-shrink: 0; }
 .prazo-day   { font-size: 20px; font-weight: 600; color: var(--navy); line-height: 1; }

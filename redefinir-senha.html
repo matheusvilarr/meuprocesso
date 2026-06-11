@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nova Senha — Meu Processo</title>
+<link rel="icon" type="image/png" href="img/images/logo.png">
+<link rel="apple-touch-icon" href="img/images/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/login.css">
+</head>
+<body>
+
+<div class="page">
+  <div class="card">
+
+    <a href="/" class="logo">
+      <img src="img/images/logo.png" alt="Meu Processo">
+    </a>
+
+    <div id="loading-step" style="text-align:center;padding:20px 0;color:#4b5563;font-size:13px">
+      Verificando link...
+    </div>
+
+    <div id="form-step" style="display:none">
+      <p style="font-size:14px;color:#4b5563;text-align:center;margin-bottom:24px;line-height:1.6">
+        Escolha sua nova senha.
+      </p>
+
+      <form class="form" id="newPwForm" novalidate>
+        <div class="field" style="position:relative">
+          <input type="password" id="password" name="password" placeholder="Nova senha (mínimo 8 caracteres)" required>
+          <button type="button" class="toggle-pw" id="togglePw" aria-label="Mostrar senha">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+          <div class="error-msg" id="passwordError"></div>
+        </div>
+        <div class="field">
+          <input type="password" id="password2" name="password2" placeholder="Confirme a nova senha" required>
+          <div class="error-msg" id="password2Error"></div>
+        </div>
+        <button type="submit" class="btn-submit" id="btnSubmit">Salvar nova senha</button>
+      </form>
+    </div>
+
+    <div id="invalid-step" style="display:none;text-align:center;padding:8px 0">
+      <div style="font-size:36px;margin-bottom:12px">⚠️</div>
+      <div style="font-size:15px;font-weight:600;color:#1a2e6b;margin-bottom:8px">Link inválido ou expirado</div>
+      <p style="font-size:13px;color:#4b5563;line-height:1.6;margin-bottom:16px">
+        Solicite um novo link de redefinição ou entre em contato:
+      </p>
+      <a href="/esqueci-senha" style="display:inline-flex;align-items:center;gap:5px;background:#1a2e6b;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:500;text-decoration:none;margin-bottom:12px">
+        Solicitar novo link
+      </a><br>
+      <a href="mailto:atendimento@meuprocesso.app.br" style="font-size:12px;color:#6b7280">atendimento@meuprocesso.app.br</a>
+    </div>
+
+    <div id="success-step" style="display:none;text-align:center;padding:8px 0">
+      <div style="font-size:40px;margin-bottom:12px">✅</div>
+      <div style="font-size:15px;font-weight:600;color:#1a2e6b;margin-bottom:8px">Senha redefinida!</div>
+      <p style="font-size:13px;color:#4b5563;line-height:1.6;margin-bottom:20px">
+        Sua senha foi alterada com sucesso.
+      </p>
+      <a href="/login" style="display:inline-flex;align-items:center;gap:5px;background:#1a2e6b;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:500;text-decoration:none">
+        Entrar
+      </a>
+    </div>
+
+    <div class="links" style="margin-top:20px">
+      <a href="/login" class="support-link" style="display:inline-flex;align-items:center;gap:5px">
+        ← Voltar ao login
+      </a>
+    </div>
+
+  </div>
+
+  <p class="footer-copy">© 2026 · Meu Processo · Versão 0.1</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="js/supabase-client.js"></script>
+<script>
+document.getElementById('togglePw').addEventListener('click', function () {
+  const input = document.getElementById('password');
+  input.type = input.type === 'password' ? 'text' : 'password';
+});
+
+(async function init() {
+  const { data: { session }, error } = await _supabase.auth.getSession();
+
+  document.getElementById('loading-step').style.display = 'none';
+
+  if (error || !session) {
+    document.getElementById('invalid-step').style.display = 'block';
+    return;
+  }
+
+  document.getElementById('form-step').style.display = 'block';
+})();
+
+document.getElementById('newPwForm').addEventListener('submit', async function (e) {
+  e.preventDefault();
+
+  const pw      = document.getElementById('password').value;
+  const pw2     = document.getElementById('password2').value;
+  const btn     = document.getElementById('btnSubmit');
+  const pwErr   = document.getElementById('passwordError');
+  const pw2Err  = document.getElementById('password2Error');
+
+  pwErr.classList.remove('show');
+  pw2Err.classList.remove('show');
+  document.getElementById('password').classList.remove('error');
+  document.getElementById('password2').classList.remove('error');
+
+  let ok = true;
+  if (!pw || pw.length < 8) {
+    pwErr.textContent = 'A senha deve ter pelo menos 8 caracteres.';
+    pwErr.classList.add('show');
+    document.getElementById('password').classList.add('error');
+    ok = false;
+  }
+  if (pw !== pw2) {
+    pw2Err.textContent = 'As senhas não coincidem.';
+    pw2Err.classList.add('show');
+    document.getElementById('password2').classList.add('error');
+    ok = false;
+  }
+  if (!ok) return;
+
+  btn.classList.add('loading');
+  btn.textContent = 'Salvando...';
+
+  const { error } = await _supabase.auth.updateUser({ password: pw });
+
+  if (error) {
+    pwErr.textContent = 'Erro ao redefinir senha. Tente novamente.';
+    pwErr.classList.add('show');
+    document.getElementById('password').classList.add('error');
+    btn.classList.remove('loading');
+    btn.textContent = 'Salvar nova senha';
+    return;
+  }
+
+  document.getElementById('form-step').style.display    = 'none';
+  document.getElementById('success-step').style.display = 'block';
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Redefinir Senha — Meu Processo</title>
+<link rel="icon" type="image/png" href="img/images/logo.png">
+<link rel="apple-touch-icon" href="img/images/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/login.css">
+</head>
+<body>
+
+<div class="page">
+  <div class="card">
+
+    <a href="/" class="logo">
+      <img src="img/images/logo.png" alt="Meu Processo">
+    </a>
+
+    <div id="form-step">
+      <p style="font-size:14px;color:#4b5563;text-align:center;margin-bottom:24px;line-height:1.6">
+        Informe seu e-mail e enviaremos um link para você criar uma nova senha.
+      </p>
+
+      <form class="form" id="resetForm" novalidate>
+        <div class="field">
+          <input type="email" id="email" name="email" placeholder="Digite seu e-mail" autocomplete="email" required>
+          <div class="error-msg" id="emailError"></div>
+        </div>
+        <button type="submit" class="btn-submit" id="btnSubmit">Enviar link de redefinição</button>
+      </form>
+    </div>
+
+    <div id="success-step" style="display:none;text-align:center;padding:8px 0">
+      <div style="font-size:40px;margin-bottom:12px">✉️</div>
+      <div style="font-size:15px;font-weight:600;color:#1a2e6b;margin-bottom:8px">E-mail enviado!</div>
+      <p style="font-size:13px;color:#4b5563;line-height:1.6;margin-bottom:20px">
+        Verifique sua caixa de entrada. O link expira em 1 hora.<br>
+        Não recebeu? Confira o spam ou entre em contato:
+      </p>
+      <a href="mailto:atendimento@meuprocesso.app.br" style="font-size:13px;color:#1a2e6b;font-weight:500">
+        atendimento@meuprocesso.app.br
+      </a>
+    </div>
+
+    <div class="links" style="margin-top:20px">
+      <a href="/login" class="support-link" style="display:inline-flex;align-items:center;gap:5px">
+        ← Voltar ao login
+      </a>
+    </div>
+
+  </div>
+
+  <p class="footer-copy">© 2026 · Meu Processo · Versão 0.1</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="js/supabase-client.js"></script>
+<script>
+document.getElementById('resetForm').addEventListener('submit', async function (e) {
+  e.preventDefault();
+
+  const email    = document.getElementById('email').value.trim();
+  const btn      = document.getElementById('btnSubmit');
+  const emailErr = document.getElementById('emailError');
+
+  emailErr.classList.remove('show');
+  document.getElementById('email').classList.remove('error');
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    emailErr.textContent = 'Digite um e-mail válido.';
+    emailErr.classList.add('show');
+    document.getElementById('email').classList.add('error');
+    return;
+  }
+
+  btn.classList.add('loading');
+  btn.textContent = 'Enviando...';
+
+  const { error } = await _supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin + '/redefinir-senha',
+  });
+
+  if (error) {
+    emailErr.textContent = 'Erro ao enviar e-mail. Tente novamente.';
+    emailErr.classList.add('show');
+    document.getElementById('email').classList.add('error');
+    btn.classList.remove('loading');
+    btn.textContent = 'Enviar link de redefinição';
+    return;
+  }
+
+  document.getElementById('form-step').style.display    = 'none';
+  document.getElementById('success-step').style.display = 'block';
+});
+</script>
+</body>
+</html>
