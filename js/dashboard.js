@@ -9,6 +9,7 @@ const pages = {
   'configuracoes': 'Configurações',
   'arquivados': 'Arquivados & Encerrados',
   'ajuda': 'Ajuda',
+  'tjdft': 'TJDFT',
 };
 
 function showPage(id) {
@@ -29,6 +30,7 @@ function showPage(id) {
   if (id === 'tarefas')       carregarTarefas();
   if (id === 'arquivados')    carregarArquivados();
   if (id === 'configuracoes') carregarConfiguracoes();
+  if (id === 'tjdft')         verificarBackendPython();
 }
 
 function showProcessDetail() {
@@ -255,7 +257,13 @@ async function buscarProcesso() {
     }
   }
 
-  // Busca individual
+  // Processo TJDFT (código .8.07.) — usa scraper PJe local
+  if (_tipoBusca === 'numero' && /\.8\.07\./.test(rawInput)) {
+    await _buscarPJeTJDFT(rawInput, btn);
+    return;
+  }
+
+  // Busca individual via DataJud CNJ
   let url;
   if (_tipoBusca === 'numero') {
     url = `/api/buscar-processo?tipo=numero&numero=${encodeURIComponent(rawInput)}`;
@@ -280,6 +288,76 @@ async function buscarProcesso() {
     btn.innerHTML = '<i class="ti ti-search"></i> Buscar';
     btn.disabled  = false;
   }
+}
+
+async function _buscarPJeTJDFT(numero, btn) {
+  btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> PJe...';
+  btn.disabled  = true;
+
+  try {
+    const res = await fetch('http://localhost:8000/pje', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ numero_processo: numero }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      mostrarErroBusca(err.detail || 'Processo não encontrado no PJe TJDFT.');
+      return;
+    }
+
+    const d = await res.json();
+
+    // Transforma partes: "NOME - OAB ... - CPF ... (TIPO)" → { nome, tipo }
+    const partes = (d.partes || []).map(p => {
+      const m = p.participante.match(/^(.+?)\s*-\s*(?:OAB\s+\S+\s*-\s*)?CPF:[^(]+\(([^)]+)\)$/);
+      return m ? { nome: m[1].trim(), tipo: m[2].trim() } : { nome: p.participante, tipo: '' };
+    });
+
+    // Transforma movimentações: "DD/MM/YYYY HH:MM:SS" → ISO
+    const movimentos = (d.movimentacoes || []).map(m => {
+      const [datePart, timePart] = m.data.split(' ');
+      const [dd, mm, yyyy] = datePart.split('/');
+      return { data: `${yyyy}-${mm}-${dd}T${timePart}`, nome: m.andamento };
+    });
+
+    exibirResultados([{
+      numero:          d.numero,
+      classe:          _pjeExtrairClasse(d.movimentacoes),
+      tribunal:        'TJDFT',
+      orgaoJulgador:   _pjeExtrairMagistrado(d.movimentacoes),
+      dataAjuizamento: null,
+      partes,
+      movimentos,
+      _fonte:          'pje_tjdft',
+    }]);
+
+  } catch (err) {
+    const msg = err.message?.includes('Failed to fetch')
+      ? 'Servidor Python não encontrado. No terminal: cd scripts && python api.py'
+      : `Erro: ${err.message}`;
+    mostrarErroBusca(msg);
+  } finally {
+    btn.innerHTML = '<i class="ti ti-search"></i> Buscar';
+    btn.disabled  = false;
+  }
+}
+
+function _pjeExtrairClasse(movs) {
+  for (const m of (movs || [])) {
+    const match = m.andamento.match(/para\s+([A-ZÁÀÃÂÉÊÍÓÔÕÚÜ\s]+?)\s*\(\d+\)/);
+    if (match) return match[1].trim();
+  }
+  return '';
+}
+
+function _pjeExtrairMagistrado(movs) {
+  for (const m of (movs || [])) {
+    const match = m.andamento.match(/Magistrado\(a\)\s+(.+)/);
+    if (match) return match[1].trim();
+  }
+  return '';
 }
 
 async function _buscarLoteInterno(numerosValidos, btn) {
@@ -362,7 +440,9 @@ function exibirResultados(lista) {
           <div style="font-size:13px;font-weight:600;color:var(--navy)">${d.numero || '—'}</div>
           <div style="font-size:12px;color:var(--gray-500);margin-top:2px">${d.classe || ''}</div>
         </div>
-        <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#e8edf5;color:var(--navy);white-space:nowrap;flex-shrink:0">${d.tribunal || ''}</span>
+        <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;${d._fonte==='pje_tjdft'?'background:#fef3e2;color:#b45309':'background:#e8edf5;color:var(--navy)'};white-space:nowrap;flex-shrink:0">
+          ${d._fonte==='pje_tjdft'?'<i class="ti ti-scale" style="font-size:10px;margin-right:2px"></i>':''}${d.tribunal || ''}
+        </span>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;margin-bottom:10px">
         <div><span style="color:var(--gray-400)">Órgão: </span><span style="font-weight:500">${d.orgaoJulgador || '—'}</span></div>
@@ -2222,4 +2302,120 @@ async function importarLoteSelecionados() {
   if (erros)       partes.push(`${erros} com falha`);
   showToast(partes.length ? partes.join(' · ') + '.' : 'Nenhum processo importado.');
   carregarProcessos();
+}
+
+// ─── TJDFT ────────────────────────────────────────────────────────────────────
+
+const PYTHON_API = 'http://localhost:8000';
+
+async function verificarBackendPython() {
+  const badge = document.getElementById('tjdft-status-badge');
+  if (!badge) return;
+  try {
+    const res = await fetch(`${PYTHON_API}/health`, { signal: AbortSignal.timeout(2000) });
+    if (res.ok) {
+      badge.innerHTML = `<span style="width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0"></span> Servidor Python conectado`;
+      badge.style.background = '#f0fdf4';
+      badge.style.color = 'var(--green)';
+      return;
+    }
+  } catch (_) {}
+  badge.innerHTML = `<span style="width:7px;height:7px;border-radius:50%;background:var(--gray-400);flex-shrink:0"></span> Servidor Python desconectado`;
+  badge.style.background = 'var(--gray-100)';
+  badge.style.color = 'var(--gray-500)';
+}
+
+async function rodarMonitorDJe() {
+  const oab      = document.getElementById('dje-oab')?.value.trim();
+  const dataVal  = document.getElementById('dje-data')?.value || new Date().toISOString().slice(0, 10);
+  if (!oab) { showToast('Informe o número da OAB.'); return; }
+
+  const wrap  = document.getElementById('dje-resultado');
+  const title = document.getElementById('dje-resultado-titulo');
+  const lista = document.getElementById('dje-resultado-lista');
+
+  const dtLabel = new Date(dataVal + 'T12:00:00').toLocaleDateString('pt-BR');
+  title.textContent = `Baixando DJe de ${dtLabel}…`;
+  lista.innerHTML   = '';
+  wrap.style.display = 'block';
+
+  try {
+    const res  = await fetch(`${PYTHON_API}/dje`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ oab, data: dataVal }),
+      signal:  AbortSignal.timeout(120000),
+    });
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.detail || 'Erro no servidor');
+
+    const itens = data.resultados || [];
+    title.textContent = `${itens.length} intimação(ões) encontrada(s) para ${oab}`;
+
+    if (!itens.length) {
+      lista.innerHTML = `<div style="text-align:center;padding:16px;color:var(--gray-400);font-size:12px">Nenhuma intimação encontrada.</div>`;
+      return;
+    }
+
+    lista.innerHTML = itens.map(it => `
+      <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);padding:10px 12px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="font-size:11px;font-weight:600;color:var(--navy)">${it.numero_processo || 'Processo não identificado'}</span>
+          <span style="font-size:10px;color:var(--gray-400)">pág. ${it.pagina}</span>
+        </div>
+        <div style="font-size:11px;color:var(--gray-600);line-height:1.5;max-height:80px;overflow-y:auto;white-space:pre-wrap">${it.bloco_texto}</div>
+      </div>`).join('');
+
+  } catch (e) {
+    title.textContent = '';
+    lista.innerHTML = `<div style="color:var(--red);font-size:12px;padding:8px">
+      ❌ ${e.message.includes('fetch') ? 'Servidor Python não está rodando em localhost:8000' : e.message}
+    </div>`;
+  }
+}
+
+async function rodarScraperPJe() {
+  const numero = document.getElementById('pje-numero')?.value.trim();
+  if (!numero) { showToast('Informe o número do processo.'); return; }
+
+  const wrap  = document.getElementById('pje-resultado');
+  const title = document.getElementById('pje-resultado-titulo');
+  const tbody = document.getElementById('pje-tabela-body');
+
+  title.textContent = 'Buscando andamentos…';
+  tbody.innerHTML   = '';
+  wrap.style.display = 'block';
+
+  try {
+    const res  = await fetch(`${PYTHON_API}/pje`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ numero_processo: numero }),
+      signal:  AbortSignal.timeout(60000),
+    });
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.detail || 'Erro no servidor');
+
+    const historico = data.historico || [];
+    title.textContent = `${historico.length} andamento(s) encontrado(s)`;
+
+    if (!historico.length) {
+      tbody.innerHTML = `<tr><td colspan="2" style="text-align:center;padding:16px;color:var(--gray-400);font-size:12px">Nenhum andamento encontrado.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = historico.map(h => `
+      <tr style="border-bottom:1px solid var(--gray-100)">
+        <td style="padding:7px 10px;color:var(--gray-500);white-space:nowrap">${h.data}</td>
+        <td style="padding:7px 10px;color:var(--navy)">${h.andamento}</td>
+      </tr>`).join('');
+
+  } catch (e) {
+    title.textContent = '';
+    tbody.innerHTML = `<tr><td colspan="2" style="color:var(--red);font-size:12px;padding:10px">
+      ❌ ${e.message.includes('fetch') ? 'Servidor Python não está rodando em localhost:8000' : e.message}
+    </td></tr>`;
+  }
 }
