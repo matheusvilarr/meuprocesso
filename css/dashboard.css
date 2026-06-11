@@ -53,8 +53,9 @@ body {
 }
 
 .sidebar-logo {
-  padding: 18px 20px 10px;
+  padding: 14px 20px 10px;
   border-bottom: 1px solid rgba(255,255,255,0.08);
+  flex-shrink: 0;
 }
 
 .logo-mark {
@@ -67,7 +68,7 @@ body {
 }
 
 .sidebar-logo-img {
-  height: 162px;
+  height: 110px;
   width: auto;
   flex-shrink: 0;
   border-radius: 8px;
