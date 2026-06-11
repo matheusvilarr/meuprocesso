@@ -46,6 +46,10 @@
       <i class="ti ti-checklist"></i>
       Tarefas
     </div>
+    <div class="nav-item" onclick="showPage('tjdft')">
+      <i class="ti ti-scale"></i>
+      TJDFT
+    </div>
     <div class="nav-item" onclick="showPage('colaboradores')">
       <i class="ti ti-users"></i>
       Colaboradores
@@ -693,6 +697,129 @@
         <i class="ti ti-archive" style="font-size:48px;display:block;margin-bottom:12px;opacity:0.3"></i>
         <div style="font-size:15px;font-weight:600">Nenhum processo arquivado</div>
         <div style="font-size:13px;margin-top:6px">Use o ícone <i class="ti ti-archive"></i> nos cards para arquivar processos</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TJDFT ── -->
+  <div id="page-tjdft" class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">TJDFT</div>
+        <div class="page-sub">Monitor do Diário e Busca no PJe</div>
+      </div>
+      <div id="tjdft-status-badge" style="display:flex;align-items:center;gap:6px;font-size:12px;padding:6px 12px;border-radius:20px;background:var(--gray-100);color:var(--gray-500)">
+        <span style="width:7px;height:7px;border-radius:50%;background:var(--gray-400);flex-shrink:0"></span>
+        Servidor Python desconectado
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+      <!-- ── Card 1: Monitor DJe ── -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="ti ti-file-text"></i> Monitor do Diário (DJe)</div>
+        </div>
+        <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
+          <div style="font-size:12px;color:var(--gray-500);line-height:1.6;background:var(--gray-50);border-radius:var(--radius);padding:10px 12px">
+            Baixa o PDF do dia automaticamente do TJDFT e varre em busca do seu número de OAB.
+          </div>
+
+          <div class="form-row">
+            <div class="form-field" style="flex:1">
+              <label class="form-label">Número da OAB</label>
+              <input id="dje-oab" type="text" class="form-input" placeholder="OAB/DF 12345">
+            </div>
+            <div class="form-field" style="width:140px">
+              <label class="form-label">Data</label>
+              <input id="dje-data" type="date" class="form-input">
+            </div>
+          </div>
+
+          <button class="btn-primary" style="width:100%;justify-content:center" onclick="rodarMonitorDJe()">
+            <i class="ti ti-search"></i> Buscar Intimações de Hoje
+          </button>
+
+          <div id="dje-resultado" style="display:none">
+            <div style="font-size:12px;font-weight:600;color:var(--navy);margin-bottom:8px" id="dje-resultado-titulo"></div>
+            <div id="dje-resultado-lista" style="display:flex;flex-direction:column;gap:8px;max-height:300px;overflow-y:auto"></div>
+          </div>
+
+          <div style="border-top:1px solid var(--gray-100);padding-top:12px;margin-top:4px">
+            <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">Executar localmente</div>
+            <code style="font-size:11px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:6px;padding:8px 10px;display:block;color:var(--navy);line-height:1.7">
+              cd scripts<br>
+              pip install -r requirements.txt<br>
+              python monitor_dje.py "OAB/DF 12345"<br>
+              python monitor_dje.py "OAB/DF 12345" 2024-06-11
+            </code>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Card 2: Scraper PJe ── -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title"><i class="ti ti-world-search"></i> Busca no PJe TJDFT</div>
+        </div>
+        <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
+          <div style="font-size:12px;color:var(--gray-500);line-height:1.6;background:var(--gray-50);border-radius:var(--radius);padding:10px 12px">
+            Acessa o portal público do PJe e extrai o histórico completo de andamentos do processo.
+          </div>
+
+          <div class="form-field">
+            <label class="form-label">Número do Processo (CNJ)</label>
+            <input id="pje-numero" type="text" class="form-input" placeholder="0000000-00.0000.8.07.0001">
+          </div>
+
+          <button class="btn-primary" style="width:100%;justify-content:center" onclick="rodarScraperPJe()">
+            <i class="ti ti-download"></i> Buscar Histórico
+          </button>
+
+          <div id="pje-resultado" style="display:none">
+            <div style="font-size:12px;font-weight:600;color:var(--navy);margin-bottom:8px" id="pje-resultado-titulo"></div>
+            <div style="overflow-x:auto">
+              <table style="width:100%;border-collapse:collapse;font-size:12px">
+                <thead>
+                  <tr style="background:var(--gray-50)">
+                    <th style="text-align:left;padding:8px 10px;border-bottom:1px solid var(--gray-200);color:var(--navy);font-weight:600;width:100px">Data</th>
+                    <th style="text-align:left;padding:8px 10px;border-bottom:1px solid var(--gray-200);color:var(--navy);font-weight:600">Andamento</th>
+                  </tr>
+                </thead>
+                <tbody id="pje-tabela-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div style="border-top:1px solid var(--gray-100);padding-top:12px;margin-top:4px">
+            <div style="font-size:11px;font-weight:600;color:var(--gray-500);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em">Executar localmente</div>
+            <code style="font-size:11px;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:6px;padding:8px 10px;display:block;color:var(--navy);line-height:1.7">
+              cd scripts<br>
+              playwright install chromium<br>
+              python scraper_pje.py "0000000-00.0000.8.07.0001"
+            </code>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Info sobre o backend Python ── -->
+    <div class="card" style="margin-top:20px;border-left:3px solid var(--gold)">
+      <div style="padding:16px 20px;display:flex;align-items:flex-start;gap:12px">
+        <i class="ti ti-info-circle" style="font-size:20px;color:var(--gold);flex-shrink:0;margin-top:1px"></i>
+        <div>
+          <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:4px">Integração com Python</div>
+          <div style="font-size:12px;color:var(--gray-600);line-height:1.7">
+            Os scripts <code style="background:var(--gray-100);padding:1px 5px;border-radius:4px">monitor_dje.py</code> e
+            <code style="background:var(--gray-100);padding:1px 5px;border-radius:4px">scraper_pje.py</code>
+            estão em <strong>scripts/</strong> e já funcionam via linha de comando.<br>
+            Para integração completa no dashboard, suba um microserviço Python (FastAPI) na porta <strong>8000</strong>
+            expondo <code style="background:var(--gray-100);padding:1px 5px;border-radius:4px">POST /dje</code> e
+            <code style="background:var(--gray-100);padding:1px 5px;border-radius:4px">POST /pje</code>.
+          </div>
+        </div>
       </div>
     </div>
   </div>
