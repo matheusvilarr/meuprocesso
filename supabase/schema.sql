@@ -61,11 +61,12 @@ create table public.tarefas (
   id          uuid        primary key default gen_random_uuid(),
   user_id     uuid        references auth.users not null,
   processo_id uuid        references public.processos on delete set null,
-  descricao   text        not null,
-  status      text        default 'A fazer',
-  prioridade  text        default 'Média',
-  data_prazo  date,
-  created_at  timestamptz default now()
+  titulo      text        not null,
+  coluna      text        default 'a_fazer',  -- a_fazer | em_andamento | revisao | concluida
+  prioridade  text        default 'baixa',    -- baixa | media | urgente
+  prazo       date,
+  created_at  timestamptz default now(),
+  updated_at  timestamptz default now()
 );
 
 -- COLABORADORES

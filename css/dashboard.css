@@ -53,31 +53,25 @@ body {
 }
 
 .sidebar-logo {
-  padding: 20px 24px 16px;
+  padding: 18px 20px 10px;
   border-bottom: 1px solid rgba(255,255,255,0.08);
 }
 
 .logo-mark {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 0;
   text-decoration: none;
+  cursor: pointer;
 }
 
 .sidebar-logo-img {
-  height: 54px;
+  height: 162px;
   width: auto;
   flex-shrink: 0;
-  border-radius: 4px;
-}
-
-.logo-text {
-  font-family: 'Inter', sans-serif;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--white);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  border-radius: 8px;
+  margin-bottom: 4px;
 }
 
 .logo-sub {
@@ -85,7 +79,22 @@ body {
   color: rgba(255,255,255,0.4);
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  margin-top: 1px;
+  text-align: center;
+  margin-top: 2px;
+}
+
+.logo-version {
+  font-size: 9px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.25);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  text-align: center;
+  margin-top: 4px;
+  margin-bottom: 2px;
+  padding: 2px 8px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 20px;
 }
 
 .sidebar-nav {
@@ -490,6 +499,7 @@ body {
 }
 
 .process-card:hover { border-color: var(--gray-200); box-shadow: var(--shadow-md); transform: translateY(-2px); border-left-color: var(--navy); }
+.process-card:hover .btn-edit-apelido-card { opacity: 1 !important; }
 
 .pc-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 10px; }
 .pc-num { font-size: 11px; font-weight: 600; color: var(--navy); background: #e8edf5; padding: 3px 8px; border-radius: 4px; }

@@ -30,7 +30,7 @@ function showPage(id) {
   if (id === 'tarefas')       carregarTarefas();
   if (id === 'arquivados')    carregarArquivados();
   if (id === 'configuracoes') carregarConfiguracoes();
-  if (id === 'tjdft')         verificarBackendPython();
+  if (id === 'tjdft') { verificarBackendPython(); inicializarDatesDJe(); }
 }
 
 function showProcessDetail() {
@@ -200,11 +200,11 @@ buildMiniCal();
 let _tipoBusca = 'numero';
 
 const BUSCA_CONFIG = {
-  numero:   { label: 'Número do processo (CNJ)', placeholder: '0000000-00.0000.0.00.0000', hint: 'O tribunal é detectado automaticamente pelo número.', tribunal: false, uf: false, restrito: false },
-  oab:      { label: 'Número da OAB',            placeholder: 'Ex: 123456',               hint: '',  tribunal: true,  uf: true,  restrito: true },
-  advogado: { label: 'Nome do advogado',          placeholder: 'Ex: João Silva',            hint: '',  tribunal: true,  uf: false, restrito: true },
-  cliente:  { label: 'Nome do cliente / parte',   placeholder: 'Ex: Empresa XYZ Ltda',     hint: '',  tribunal: true,  uf: false, restrito: true },
-  cpf:      { label: 'CPF ou CNPJ',              placeholder: 'Somente números',           hint: '',  tribunal: true,  uf: false, restrito: true },
+  numero:   { label: 'Número do processo (CNJ)', placeholder: '0000000-00.0000.0.00.0000\nPara vários, cole um por linha', hint: 'O tribunal é detectado automaticamente. Para vários, cole um número por linha.', tribunal: false, uf: false },
+  oab:      { label: 'Número da OAB',            placeholder: 'Ex: 59360',                hint: 'Informe apenas o número. Selecione a UF e o tribunal.',  tribunal: true,  uf: true  },
+  advogado: { label: 'Nome do advogado',          placeholder: 'Ex: João Silva',            hint: 'Selecione o tribunal para buscar.',                       tribunal: true,  uf: false },
+  cliente:  { label: 'Nome do cliente / parte',   placeholder: 'Ex: Empresa XYZ Ltda',     hint: 'Selecione o tribunal para buscar.',                       tribunal: true,  uf: false },
+  cpf:      { label: 'CPF ou CNPJ',              placeholder: 'Somente números',           hint: 'Selecione o tribunal para buscar.',                       tribunal: true,  uf: false },
 };
 
 function selecionarTipoBusca(tipo, btn) {
@@ -225,15 +225,7 @@ function selecionarTipoBusca(tipo, btn) {
   document.getElementById('busca-hint').textContent             = cfg.hint;
   document.getElementById('busca-tribunal-wrap').style.display  = cfg.tribunal ? 'block' : 'none';
   document.getElementById('busca-oab-uf-wrap').style.display    = cfg.uf       ? 'block' : 'none';
-
-  const avisoEl = document.getElementById('busca-aviso-restrito');
-  if (cfg.restrito) {
-    avisoEl.style.display   = 'block';
-    inputArea.style.display = 'none';
-  } else {
-    avisoEl.style.display   = 'none';
-    inputArea.style.display = 'block';
-  }
+  inputArea.style.display = 'block';
   limparResultadoBusca();
 }
 
@@ -255,12 +247,6 @@ async function buscarProcesso() {
       await _buscarLoteInterno(numerosValidos, btn);
       return;
     }
-  }
-
-  // Processo TJDFT (código .8.07.) — usa scraper PJe local
-  if (_tipoBusca === 'numero' && /\.8\.07\./.test(rawInput)) {
-    await _buscarPJeTJDFT(rawInput, btn);
-    return;
   }
 
   // Busca individual via DataJud CNJ
@@ -426,23 +412,54 @@ async function _buscarLoteInterno(numerosValidos, btn) {
 }
 
 function exibirResultados(lista) {
+  if (!lista.length) { mostrarErroBusca('Nenhum processo encontrado.'); return; }
+
+  window._buscaResultados = lista;
+
+  // Com múltiplos resultados: reutiliza o sistema de lote com checkboxes
+  if (lista.length > 1) {
+    _loteResultados = lista.map(d => {
+      const jaExiste = !!(d.numero && (window._processosDB || []).some(p => p.numero === d.numero));
+      return {
+        numero:     d.numero || '—',
+        status:     'encontrado',
+        data:       d,
+        selecionado: true,
+        jaExiste,
+      };
+    });
+
+    const resultadosEl = document.getElementById('lote-resultados');
+    const importarWrap = document.getElementById('lote-importar-wrap');
+    resultadosEl.style.display = 'flex';
+    importarWrap.style.display = 'block';
+    renderizarLoteResultados();
+    atualizarLoteLabel();
+    document.getElementById('busca-resultados-wrap').style.display = 'none';
+    return;
+  }
+
+  // Resultado único: card expandido com botão de importar
   const wrap = document.getElementById('busca-resultados-wrap');
   wrap.style.display = 'flex';
-
-  if (!lista.length) { mostrarErroBusca('Nenhum processo encontrado.'); wrap.style.display = 'none'; return; }
-
   const fmt = iso => iso ? new Date(iso).toLocaleDateString('pt-BR') : '—';
+  const d = lista[0];
+  const jaExiste = !!(d.numero && (window._processosDB || []).some(p => p.numero === d.numero));
+  const btnLabel = jaExiste
+    ? '<i class="ti ti-refresh"></i> Atualizar e mesclar'
+    : '<i class="ti ti-cloud-download"></i> Importar e monitorar';
 
-  wrap.innerHTML = lista.map((d, i) => `
+  wrap.innerHTML = `
     <div class="busca-result-card">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
         <div>
           <div style="font-size:13px;font-weight:600;color:var(--navy)">${d.numero || '—'}</div>
           <div style="font-size:12px;color:var(--gray-500);margin-top:2px">${d.classe || ''}</div>
         </div>
-        <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;${d._fonte==='pje_tjdft'?'background:#fef3e2;color:#b45309':'background:#e8edf5;color:var(--navy)'};white-space:nowrap;flex-shrink:0">
-          ${d._fonte==='pje_tjdft'?'<i class="ti ti-scale" style="font-size:10px;margin-right:2px"></i>':''}${d.tribunal || ''}
-        </span>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+          <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#e8edf5;color:var(--navy);white-space:nowrap">${d.tribunal || ''}</span>
+          ${jaExiste ? `<span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#dcfce7;color:#15803d">Já cadastrado</span>` : ''}
+        </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;margin-bottom:10px">
         <div><span style="color:var(--gray-400)">Órgão: </span><span style="font-weight:500">${d.orgaoJulgador || '—'}</span></div>
@@ -461,37 +478,48 @@ function exibirResultados(lista) {
             </div>`).join('')}
         </div>` : ''}
       <button class="btn-primary" style="width:100%;justify-content:center;font-size:12px;padding:8px;gap:6px"
-        onclick="adicionarProcesso(${i})">
-        <i class="ti ti-cloud-download"></i> Importar e monitorar
+        onclick="adicionarProcesso(0)">
+        ${btnLabel}
       </button>
-    </div>`).join('');
-
-  // Guarda lista para uso em adicionarProcesso
-  window._buscaResultados = lista;
+    </div>`;
 }
 
-function adicionarProcesso(i) {
+async function adicionarProcesso(i) {
   const d = (window._buscaResultados || [])[i];
   if (!d) return;
 
+  // Verifica se processo já existe para mesclar diretamente
+  if (d.numero) {
+    const jaExiste = (window._processosDB || []).some(p => p.numero === d.numero);
+    if (jaExiste) {
+      const result = await _importarComMerge(d);
+      if (result.status === 'mesclado') {
+        closeModal('modal-busca-tribunal');
+        showToast('Processo atualizado e mesclado com seus dados existentes.');
+        carregarProcessos();
+      } else {
+        showToast('Erro ao mesclar processo.');
+      }
+      return;
+    }
+  }
+
+  // Processo novo: abre formulário para o advogado preencher os detalhes
   closeModal('modal-busca-tribunal');
   openModal('modal-novo-processo');
 
   setTimeout(() => {
-    document.getElementById('np-numero').value         = d.numero        || '';
-    document.getElementById('np-nome').value           = d.classe        || '';
-    document.getElementById('np-tribunal').value       = d.tribunal      || '';
-    document.getElementById('np-datajud-index').value    = d._datajudIndex  || '';
-    document.getElementById('np-classe').value           = d.classe         || '';
-    document.getElementById('np-orgao-julgador').value   = d.orgaoJulgador  || '';
-    document.getElementById('np-data-ajuizamento').value = d.dataAjuizamento|| '';
-    // guarda movimentos para salvar junto ao processo
+    document.getElementById('np-numero').value           = d.numero          || '';
+    document.getElementById('np-nome').value             = d.classe          || '';
+    document.getElementById('np-tribunal').value         = d.tribunal        || '';
+    document.getElementById('np-datajud-index').value    = d._datajudIndex   || '';
+    document.getElementById('np-classe').value           = d.classe          || '';
+    document.getElementById('np-orgao-julgador').value   = d.orgaoJulgador   || '';
+    document.getElementById('np-data-ajuizamento').value = d.dataAjuizamento || '';
     window._importMovimentos = d.movimentos || [];
 
     const clientePart = (d.partes || []).find(p => /autor|requerente|reclamante/i.test(p.tipo));
     if (clientePart) document.getElementById('np-cliente').value = clientePart.nome || '';
-
-    showToast('Dados importados do DataJud CNJ');
   }, 100);
 }
 
@@ -806,7 +834,14 @@ function renderizarListaProcessos(lista) {
           </button>
         </div>
       </div>
-      <div class="pc-title">${p.apelido || p.nome}</div>
+      <div style="display:flex;align-items:center;gap:4px;min-width:0" class="pc-title-row">
+        <div class="pc-title" style="flex:1;min-width:0" id="pc-title-${p.id}">${p.apelido || p.nome}</div>
+        <button onclick="editarApelidoCard(event,'${p.id}')" title="Editar apelido"
+          style="background:none;border:none;padding:2px 4px;cursor:pointer;color:var(--gray-400);font-size:12px;flex-shrink:0;opacity:0;transition:opacity .15s"
+          class="btn-edit-apelido-card">
+          <i class="ti ti-pencil"></i>
+        </button>
+      </div>
       ${p.apelido ? `<div style="font-size:11px;color:var(--gray-400);margin-top:-2px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.nome}</div>` : ''}
       <div class="pc-client">
         <i class="ti ti-user" style="font-size:12px"></i>
@@ -1060,9 +1095,21 @@ function popularDetalhe(proc) {
     syncBtn.style.display   = 'none';
   }
 
-  // Apelido / título
+  // Título imutável (vindo do tribunal)
+  const nomeEl = document.getElementById('detalhe-nome-proc');
+  if (nomeEl) nomeEl.textContent = proc.nome || proc.numero || '—';
+
+  // Apelido (campo separado e editável)
   const display = document.getElementById('detalhe-apelido-display');
-  display.textContent = proc.apelido || proc.nome || '—';
+  if (proc.apelido) {
+    display.textContent   = proc.apelido;
+    display.style.color   = 'var(--navy)';
+    display.style.opacity = '1';
+  } else {
+    display.textContent   = 'Adicionar apelido...';
+    display.style.color   = 'var(--gray-400)';
+    display.style.opacity = '0.8';
+  }
 
   // Número e órgão
   document.getElementById('detalhe-numero-orgao').textContent =
@@ -1258,11 +1305,11 @@ async function sincronizarDetalhe() {
 function editarApelido() {
   const display = document.getElementById('detalhe-apelido-display');
   const input   = document.getElementById('detalhe-apelido-input');
-  input.value   = _processoAtual?.apelido || _processoAtual?.nome || '';
+  input.value   = _processoAtual?.apelido || '';
   display.style.display = 'none';
   input.style.display   = 'block';
   input.focus();
-  input.select();
+  if (input.value) input.select();
 }
 
 async function salvarApelido() {
@@ -1279,9 +1326,16 @@ async function salvarApelido() {
   const apelidoAtual = _processoAtual.apelido || '';
   if (novo === apelidoAtual) return;
 
-  // Salva: se vazio, remove o apelido (mostra o nome)
   const apelidoSalvar = novo || null;
-  display.textContent = novo || _processoAtual.nome;
+  if (novo) {
+    display.textContent   = novo;
+    display.style.color   = 'var(--navy)';
+    display.style.opacity = '1';
+  } else {
+    display.textContent   = 'Adicionar apelido...';
+    display.style.color   = 'var(--gray-400)';
+    display.style.opacity = '0.8';
+  }
   _processoAtual.apelido = apelidoSalvar;
   document.getElementById('topbar-title').textContent = novo || _processoAtual.nome;
 
@@ -1290,9 +1344,68 @@ async function salvarApelido() {
     .update({ apelido: apelidoSalvar })
     .eq('id', _processoAtual.id);
 
-  if (error) { showToast('Erro ao salvar apelido.'); return; }
+  if (error) {
+    console.error('Erro ao salvar apelido:', error);
+    showToast('Erro: ' + (error.message || 'coluna apelido não encontrada — rode migration_tarefas_v2.sql'));
+    return;
+  }
   carregarProcessos();
   showToast(novo ? 'Apelido salvo.' : 'Apelido removido.');
+}
+
+function editarApelidoCard(event, processoId) {
+  event.stopPropagation();
+  const proc = (window._processosDB || []).find(p => p.id === processoId);
+  if (!proc) return;
+
+  const titleEl = document.getElementById('pc-title-' + processoId);
+  if (!titleEl) return;
+
+  const apelidoAnterior = proc.apelido || '';
+
+  const input = document.createElement('input');
+  input.type        = 'text';
+  input.value       = apelidoAnterior;
+  input.placeholder = 'Adicionar apelido...';
+  input.style.cssText = 'font-size:14px;font-weight:500;padding:2px 6px;height:26px;width:100%;border:1px solid var(--navy);border-radius:4px;outline:none;color:var(--gray-800);font-family:inherit';
+
+  titleEl.replaceWith(input);
+  input.focus();
+  if (input.value) input.select();
+
+  const concluir = async () => {
+    const novo = input.value.trim();
+
+    // Restaura display
+    const novoEl = document.createElement('div');
+    novoEl.className = 'pc-title';
+    novoEl.id        = 'pc-title-' + processoId;
+    novoEl.style.cssText = 'flex:1;min-width:0';
+    novoEl.textContent = novo || proc.nome;
+    input.replaceWith(novoEl);
+
+    if (novo === apelidoAnterior) return;
+
+    const { error } = await _supabase
+      .from('processos')
+      .update({ apelido: novo || null })
+      .eq('id', processoId);
+
+    if (error) {
+      console.error('Erro ao salvar apelido:', error);
+      showToast('Erro: ' + (error.message || 'verifique o console'));
+      return;
+    }
+    proc.apelido = novo || null;
+    showToast(novo ? 'Apelido salvo.' : 'Apelido removido.');
+    carregarProcessos();
+  };
+
+  input.addEventListener('blur', concluir);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { input.value = apelidoAnterior; input.blur(); }
+  });
 }
 
 async function verNotificacoes() {
@@ -1414,6 +1527,7 @@ function limparResultadoBusca() {
   if (loteResultados) { loteResultados.style.display = 'none'; loteResultados.innerHTML = ''; }
   if (loteImportar)   loteImportar.style.display    = 'none';
   if (loteBar)        loteBar.style.width            = '0%';
+  _loteResultados = [];
   window._buscaResultados = [];
 }
 
@@ -2180,6 +2294,60 @@ async function excluirTarefa(id) {
   carregarTarefas();
 }
 
+// ── IMPORTAÇÃO COM MERGE INTELIGENTE ─────────────────────────────────────
+
+async function _importarComMerge(d) {
+  const movs = d.movimentos || [];
+
+  // Verifica se processo já existe
+  const { data: existente } = await _supabase
+    .from('processos')
+    .select('id,apelido,cliente,notas_manuais,movimentos_recentes,movimentos_hash')
+    .eq('user_id', window._user?.id)
+    .eq('numero', d.numero)
+    .maybeSingle();
+
+  if (existente) {
+    // Mescla: atualiza dados do tribunal, preserva dados do advogado
+    const novasMovs = movs.length ? movs : (existente.movimentos_recentes || []);
+    const updates = {
+      movimentos_recentes: novasMovs,
+      movimentos_hash: novasMovs.length ? novasMovs.map(m => m.data + m.nome).join('|') : null,
+      ultima_verificacao:  new Date().toISOString(),
+    };
+    if (d.tribunal)        updates.tribunal        = d.tribunal;
+    if (d.orgaoJulgador)   updates.orgao_julgador  = d.orgaoJulgador;
+    if (d.classe)          updates.classe           = d.classe;
+    if (d.dataAjuizamento) updates.data_ajuizamento = d.dataAjuizamento;
+    if (d._datajudIndex)   updates.datajud_index   = d._datajudIndex;
+
+    const { error } = await _supabase.from('processos').update(updates).eq('id', existente.id);
+    if (error) return { status: 'erro', error };
+    return { status: 'mesclado' };
+  }
+
+  // Processo novo
+  const clientePart = (d.partes || []).find(p => /autor|requerente|reclamante/i.test(p.tipo));
+  const { error } = await _supabase.from('processos').insert({
+    user_id:             window._user?.id,
+    numero:              d.numero             || '',
+    nome:                d.classe             || d.numero || '',
+    cliente:             clientePart?.nome    || '',
+    area:                'Cível',
+    tribunal:            d.tribunal           || '',
+    parte_contraria:     '',
+    datajud_index:       d._datajudIndex      || null,
+    classe:              d.classe             || null,
+    orgao_julgador:      d.orgaoJulgador      || null,
+    data_ajuizamento:    d.dataAjuizamento    || null,
+    movimentos_recentes: movs.length ? movs   : null,
+    movimentos_hash:     movs.length ? movs.map(m => m.data + m.nome).join('|') : null,
+    ultima_verificacao:  movs.length ? new Date().toISOString() : null,
+  });
+  if (error) return { status: 'erro', error };
+  return { status: 'importado' };
+}
+
 // ── IMPORTAÇÃO EM LOTE ────────────────────────────────────────────────────
 
 let _loteResultados = [];
@@ -2203,15 +2371,20 @@ function renderizarLoteResultados() {
 
   wrap.innerHTML = _loteResultados.map((r, i) => {
     const isFound = r.status === 'encontrado';
+    const jaExiste = !!r.jaExiste;
     const sublabel = {
-      buscando:       'Buscando no DataJud...',
-      encontrado:     r.data?.classe || r.data?.tribunal || 'Encontrado',
-      nao_encontrado: 'Não localizado no DataJud',
-      erro:           'Erro de conexão — tente novamente',
+      buscando:       'Buscando...',
+      encontrado:     (jaExiste ? '↻ Já cadastrado · ' : '') + (r.data?.classe || r.data?.tribunal || 'Encontrado'),
+      nao_encontrado: 'Não localizado',
+      erro:           'Erro de conexão',
     }[r.status] || r.status;
 
+    const bg = r.status === 'encontrado'
+      ? (jaExiste ? '#f0fdf4' : 'var(--green-light)')
+      : (bgs[r.status] || 'var(--gray-50)');
+
     return `
-      <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;border:1px solid var(--gray-200);background:${bgs[r.status] || 'var(--gray-50)'}">
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:8px;border:1px solid var(--gray-200);background:${bg}">
         ${isFound
           ? `<input type="checkbox" ${r.selecionado ? 'checked' : ''}
                onchange="_loteResultados[${i}].selecionado=this.checked;atualizarLoteLabel()"
@@ -2232,7 +2405,9 @@ function atualizarLoteLabel() {
   const naoEncontrados = _loteResultados.filter(r => r.status === 'nao_encontrado').length;
   const label = document.getElementById('lote-importar-label');
   if (!label) return;
+  const jaExistentes = _loteResultados.filter(r => r.status === 'encontrado' && r.jaExiste && r.selecionado).length;
   label.textContent = `${selecionados} de ${encontrados} selecionado(s)`;
+  if (jaExistentes)   label.textContent += ` (${jaExistentes} serão mesclados)`;
   if (naoEncontrados) label.textContent += ` · ${naoEncontrados} não localizado(s)`;
 }
 
@@ -2249,47 +2424,17 @@ async function importarLoteSelecionados() {
   if (!selecionados.length) { showToast('Selecione pelo menos um processo.'); return; }
 
   const btn = document.querySelector('#lote-importar-wrap .btn-primary');
-  if (btn) { btn.disabled = true; btn.innerHTML = `<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Importando ${selecionados.length}...`; }
-
-  // Busca todos os números já cadastrados de uma vez (evita N queries)
-  const { data: existentes } = await _supabase
-    .from('processos').select('numero').eq('user_id', window._user?.id);
-  const numerosExistentes = new Set((existentes || []).map(p => p.numero).filter(Boolean));
+  if (btn) { btn.disabled = true; btn.innerHTML = `<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Processando ${selecionados.length}...`; }
 
   let importados = 0;
-  let duplicados = 0;
+  let mesclados  = 0;
   let erros      = 0;
 
   for (const r of selecionados) {
-    const d    = r.data;
-    const movs = d.movimentos || [];
-
-    if (d.numero && numerosExistentes.has(d.numero)) {
-      duplicados++;
-      continue;
-    }
-
-    const clientePart = (d.partes || []).find(p => /autor|requerente|reclamante/i.test(p.tipo));
-
-    const { error } = await _supabase.from('processos').insert({
-      user_id:             window._user?.id,
-      numero:              d.numero             || '',
-      nome:                d.classe             || d.numero || '',
-      cliente:             clientePart?.nome    || '',
-      area:                'Cível',
-      tribunal:            d.tribunal           || '',
-      parte_contraria:     '',
-      datajud_index:       d._datajudIndex      || null,
-      classe:              d.classe             || null,
-      orgao_julgador:      d.orgaoJulgador      || null,
-      data_ajuizamento:    d.dataAjuizamento    || null,
-      movimentos_recentes: movs.length ? movs   : null,
-      movimentos_hash:     movs.length ? movs.map(m => m.data + m.nome).join('|') : null,
-      ultima_verificacao:  movs.length ? new Date().toISOString() : null,
-    });
-
-    if (error) { erros++; console.error('Erro ao importar', d.numero, error); }
-    else importados++;
+    const result = await _importarComMerge(r.data);
+    if (result.status === 'importado')     importados++;
+    else if (result.status === 'mesclado') mesclados++;
+    else { erros++; console.error('Erro ao importar', r.numero, result.error); }
   }
 
   if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-cloud-download"></i> Importar selecionados'; }
@@ -2297,16 +2442,33 @@ async function importarLoteSelecionados() {
   closeModal('modal-busca-tribunal');
 
   const partes = [];
-  if (importados)  partes.push(`${importados} importado(s)`);
-  if (duplicados)  partes.push(`${duplicados} já cadastrado(s)`);
-  if (erros)       partes.push(`${erros} com falha`);
+  if (importados) partes.push(`${importados} importado(s)`);
+  if (mesclados)  partes.push(`${mesclados} atualizado(s) e mesclado(s)`);
+  if (erros)      partes.push(`${erros} com falha`);
   showToast(partes.length ? partes.join(' · ') + '.' : 'Nenhum processo importado.');
   carregarProcessos();
 }
 
 // ─── TJDFT ────────────────────────────────────────────────────────────────────
 
-const PYTHON_API = 'http://localhost:8000';
+const PYTHON_API = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:8000'
+  : 'https://meuprocesso-api.up.railway.app';
+
+// Data limite dos dados indexados no buscador DJe (portal congela em dez/2024)
+const DJE_DATA_LIMITE = '2024-12-31';
+const DJE_DATA_INICIO_PADRAO = '2024-01-01';
+
+function inicializarDatesDJe() {
+  const ini = document.getElementById('dje-data-inicio');
+  const fim = document.getElementById('dje-data-fim');
+  const aviso = document.getElementById('dje-aviso-periodo');
+  if (ini && !ini.value) ini.value = DJE_DATA_INICIO_PADRAO;
+  if (fim && !fim.value) fim.value = DJE_DATA_LIMITE;
+  if (aviso) {
+    aviso.textContent = 'Dados indexados até dez/2024. Para datas mais recentes use o PJe (card ao lado).';
+  }
+}
 
 async function verificarBackendPython() {
   const badge = document.getElementById('tjdft-status-badge');
@@ -2325,65 +2487,259 @@ async function verificarBackendPython() {
   badge.style.color = 'var(--gray-500)';
 }
 
+// Normaliza OAB para o formato "DF59360" usado no DJe
+// Aceita: "DF59360", "DF 59360", "OAB/DF 59360", "OAB DF 59360", "59360/DF", "59360 DF"
+function _normalizarOAB(input) {
+  const s = input.trim().toUpperCase().replace(/\./g, '');
+  let m;
+  m = s.match(/^OAB[/ ]?([A-Z]{2})[/ ]?(\d{3,6})$/);
+  if (m) return `${m[1]}${m[2]}`;
+  m = s.match(/^([A-Z]{2})[/ ]?(\d{3,6})$/);
+  if (m) return `${m[1]}${m[2]}`;
+  m = s.match(/^(\d{3,6})[/ ]([A-Z]{2})$/);
+  if (m) return `${m[2]}${m[1]}`;
+  return null;
+}
+
+function _tipoQueryDJe(q) {
+  if (_normalizarOAB(q)) return 'oab';
+  return 'nome';
+}
+
+// Extrai tipo de decisão do texto do DJe
+function _extrairTipoDecisao(txt) {
+  const tipos = ['ACÓRDÃO', 'SENTENÇA', 'DECISÃO INTERLOCUTÓRIA', 'DESPACHO', 'CERTIDÃO', 'PORTARIA', 'RESOLUÇÃO', 'ATO'];
+  for (const t of tipos) {
+    if (txt.toUpperCase().includes(t)) return t;
+  }
+  return '';
+}
+
 async function rodarMonitorDJe() {
-  const oab        = document.getElementById('dje-oab')?.value.trim();
+  const rawQuery   = document.getElementById('dje-query')?.value.trim();
   const dataInicio = document.getElementById('dje-data-inicio')?.value || null;
   const dataFim    = document.getElementById('dje-data-fim')?.value    || null;
 
-  if (!oab) { showToast('Informe o número da OAB.'); return; }
+  if (!rawQuery) { showToast('Informe OAB ou nome do advogado.'); return; }
 
   const wrap  = document.getElementById('dje-resultado');
   const title = document.getElementById('dje-resultado-titulo');
   const lista = document.getElementById('dje-resultado-lista');
 
-  title.textContent  = 'Buscando no DJe TJDFT…';
+  const tipo       = _tipoQueryDJe(rawQuery);
+  const queryFinal = tipo === 'oab' ? (_normalizarOAB(rawQuery) || rawQuery) : rawQuery;
+  const fimStr     = dataFim    || DJE_DATA_LIMITE;
+  const iniStr     = dataInicio || DJE_DATA_INICIO_PADRAO;
+
+  title.textContent  = `Buscando "${queryFinal}" no DJe TJDFT…`;
   lista.innerHTML    = '';
   wrap.style.display = 'block';
 
   try {
-    const res  = await fetch(`${PYTHON_API}/dje`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ oab, data_inicio: dataInicio, data_fim: dataFim }),
-      signal:  AbortSignal.timeout(30000),
-    });
+    const url = `https://pesquisadje.tjdft.jus.br/api/v1/buscador`
+      + `?query=${encodeURIComponent(queryFinal)}`
+      + `&pagina=0&tamanho=20`
+      + `&dataInicio=${iniStr}&dataFim=${fimStr}`;
+
+    const res  = await fetch(url);
+    if (!res.ok) throw new Error(`Erro ${res.status} na API do DJe.`);
     const json = await res.json();
-    if (!res.ok) throw new Error(json.detail || 'Erro no servidor');
 
-    const itens = json.resultados || [];
-    title.textContent = `${itens.length} publicação(ões) encontrada(s) para ${oab}`;
+    const docs  = json.documentos || [];
+    const total = json.total || 0;
 
-    if (!itens.length) {
-      lista.innerHTML = `<div style="text-align:center;padding:16px;color:var(--gray-400);font-size:12px">Nenhuma publicação encontrada no período.</div>`;
+    title.textContent = total
+      ? `${total} publicação(ões) — exibindo ${docs.length}`
+      : `Nenhuma publicação encontrada para "${queryFinal}" no período`;
+
+    if (!docs.length) {
+      lista.innerHTML = `<div style="text-align:center;padding:20px;color:var(--gray-400);font-size:13px">
+        <i class="ti ti-mood-empty" style="font-size:28px;display:block;margin-bottom:8px;opacity:.4"></i>
+        Nenhuma publicação no período selecionado.<br>
+        <span style="font-size:12px">Tente ampliar o intervalo de datas.</span>
+      </div>`;
       return;
     }
 
+    const PADRAO_PROC = /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/g;
     const fmt = iso => iso ? new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR') : '';
 
-    lista.innerHTML = itens.map(it => {
-      const processos = (it.numeros_processo || []).join(', ') || 'N/I';
-      const preview   = (it.preview || '').replace(/<em>/g, '<strong>').replace(/<\/em>/g, '</strong>');
+    // Enriquece cada doc com processos extraídos e match local
+    window._djeResultados = docs.map(doc => {
+      const previewTxt  = (doc.preview || []).join(' ');
+      const processos   = [...new Set(previewTxt.match(PADRAO_PROC) || [])];
+      const tipoDecisao = _extrairTipoDecisao(previewTxt);
+      // Cruza com processos já cadastrados
+      const matches = processos
+        .map(num => (window._processosDB || []).find(p => p.numero === num))
+        .filter(Boolean);
+      return { ...doc, processos, tipoDecisao, previewTxt, matches };
+    });
+
+    lista.innerHTML = window._djeResultados.map((doc, i) => {
+      const preview = doc.previewTxt
+        .replace(/<em>/g, '<mark style="background:#fef3c7;padding:0 1px;border-radius:2px">')
+        .replace(/<\/em>/g, '</mark>');
+
+      const temMatch = doc.matches.length > 0;
+
+      // ── Card: processo já cadastrado ────────────────────────────
+      if (temMatch) {
+        const proc = doc.matches[0];
+        return `
+          <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:var(--radius);padding:12px 14px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px">
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:#dcfce7;color:#166534;letter-spacing:.03em">
+                  <i class="ti ti-bell-ringing" style="font-size:10px"></i> ATUALIZAÇÃO
+                </span>
+                ${doc.tipoDecisao ? `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;background:#e8edf5;color:var(--navy)">${doc.tipoDecisao}</span>` : ''}
+              </div>
+              <span style="font-size:10px;color:var(--gray-400);white-space:nowrap">${fmt(doc.dataDisponibilizacao)} · ed. ${doc.numero}</span>
+            </div>
+
+            <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:2px">
+              ${proc.apelido || proc.nome}
+            </div>
+            <div style="font-size:11px;color:var(--gray-500);margin-bottom:8px">${doc.processos[0]}</div>
+
+            <div style="font-size:11px;color:var(--gray-700);line-height:1.6;max-height:60px;overflow:hidden;margin-bottom:10px">${preview}</div>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn-primary" style="font-size:11px;padding:6px 12px;gap:5px"
+                onclick="salvarAtualizacaoDJe(${i},'${proc.id}',this)">
+                <i class="ti ti-check"></i> Salvar como atualização
+              </button>
+              <button class="btn-secondary" style="font-size:11px;padding:6px 12px;gap:5px"
+                onclick="abrirProcesso('${proc.id}')">
+                <i class="ti ti-arrow-right"></i> Ver processo
+              </button>
+              ${doc.urlDiario ? `
+                <a href="${doc.urlDiario}" target="_blank" rel="noopener"
+                   style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--gray-500);padding:6px 8px;text-decoration:none">
+                  <i class="ti ti-external-link" style="font-size:11px"></i> DJe
+                </a>` : ''}
+            </div>
+          </div>`;
+      }
+
+      // ── Card: processo não cadastrado ───────────────────────────
+      const numPrincipal = doc.processos[0] || '';
       return `
-        <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);padding:10px 12px">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;gap:8px">
-            <span style="font-size:11px;font-weight:600;color:var(--navy);flex:1">${processos}</span>
-            <span style="font-size:10px;color:var(--gray-400);white-space:nowrap">${fmt(it.data)} · ed. ${it.edicao} · pág. ${it.pagina}</span>
+        <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);padding:12px 14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px">
+            <div style="display:flex;align-items:center;gap:6px">
+              <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:#e8edf5;color:var(--navy);letter-spacing:.03em">
+                PUBLICAÇÃO
+              </span>
+              ${doc.tipoDecisao ? `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;background:#f3f4f6;color:var(--gray-600)">${doc.tipoDecisao}</span>` : ''}
+            </div>
+            <span style="font-size:10px;color:var(--gray-400);white-space:nowrap">${fmt(doc.dataDisponibilizacao)} · ed. ${doc.numero}</span>
           </div>
-          <div style="font-size:11px;color:var(--gray-600);line-height:1.5;max-height:80px;overflow-y:auto">${preview}</div>
-          ${it.url_diario ? `
-            <a href="${it.url_diario}" target="_blank" rel="noopener"
-               style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;font-size:11px;color:var(--navy);font-weight:600">
-              <i class="ti ti-external-link" style="font-size:11px"></i> Abrir no DJe
-            </a>` : ''}
+
+          <div style="font-size:12px;font-weight:600;color:var(--navy);margin-bottom:6px">
+            ${numPrincipal || 'Processo não identificado'}
+            ${doc.processos.length > 1 ? `<span style="color:var(--gray-400);font-weight:400"> +${doc.processos.length-1}</span>` : ''}
+          </div>
+
+          <div style="font-size:11px;color:var(--gray-600);line-height:1.6;max-height:60px;overflow:hidden;margin-bottom:10px">${preview}</div>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            ${numPrincipal ? `
+              <button class="btn-secondary" style="font-size:11px;padding:6px 12px;gap:5px"
+                onclick="importarProcessoDJe(${i})">
+                <i class="ti ti-plus"></i> Importar processo
+              </button>` : ''}
+            ${doc.urlDiario ? `
+              <a href="${doc.urlDiario}" target="_blank" rel="noopener"
+                 style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--navy);font-weight:600;padding:6px 8px;text-decoration:none">
+                <i class="ti ti-external-link" style="font-size:11px"></i> Abrir no DJe
+              </a>` : ''}
+          </div>
         </div>`;
     }).join('');
 
   } catch (e) {
     title.textContent = '';
-    lista.innerHTML = `<div style="color:var(--red);font-size:12px;padding:8px">
-      ❌ ${e.message.includes('fetch') ? 'Servidor Python não está rodando em localhost:8000' : e.message}
+    lista.innerHTML = `<div style="color:var(--red);font-size:13px;padding:10px">
+      ❌ ${e.message || 'Erro ao acessar o DJe TJDFT.'}
     </div>`;
   }
+}
+
+async function salvarAtualizacaoDJe(docIndex, processoId, btn) {
+  const doc  = (window._djeResultados || [])[docIndex];
+  const proc = (window._processosDB  || []).find(p => p.id === processoId);
+  if (!doc || !proc) return;
+
+  const descricao = [
+    `DJe ed.${doc.numero}`,
+    doc.tipoDecisao || 'Publicação',
+    doc.dataDisponibilizacao
+  ].filter(Boolean).join(' — ');
+
+  const novoMov = {
+    data:     doc.dataDisponibilizacao + 'T00:00:00',
+    nome:     descricao,
+    _fonte:   'dje',
+    _edicao:  doc.numero,
+    _url:     doc.urlDiario || null,
+  };
+
+  // Evita duplicata: verifica se já existe movimento desta edição
+  const existentes = proc.movimentos_recentes || [];
+  const jaSalvo = existentes.some(m => m._fonte === 'dje' && m._edicao === doc.numero);
+  if (jaSalvo) { showToast('Esta publicação já foi salva neste processo.'); return; }
+
+  btn.disabled   = true;
+  btn.innerHTML  = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Salvando…';
+
+  const novosMovs = [novoMov, ...existentes];
+
+  const { error } = await _supabase.from('processos').update({
+    movimentos_recentes:  novosMovs,
+    notificacao_pendente: true,
+    novos_movimentos:     [novoMov],
+    ultima_verificacao:   new Date().toISOString(),
+  }).eq('id', processoId);
+
+  if (error) {
+    showToast('Erro ao salvar: ' + error.message);
+    btn.disabled  = false;
+    btn.innerHTML = '<i class="ti ti-check"></i> Salvar como atualização';
+    return;
+  }
+
+  // Atualiza memória local imediatamente
+  proc.movimentos_recentes  = novosMovs;
+  proc.notificacao_pendente = true;
+
+  btn.innerHTML = '<i class="ti ti-check"></i> Salvo!';
+  btn.style.background = 'var(--green)';
+
+  carregarProcessos();
+  showToast(`Atualização salva em "${proc.apelido || proc.nome}"`);
+}
+
+function importarProcessoDJe(docIndex) {
+  const doc = (window._djeResultados || [])[docIndex];
+  if (!doc) return;
+
+  closeModal('modal-busca-tribunal');
+  openModal('modal-novo-processo');
+
+  setTimeout(() => {
+    const num = doc.processos[0] || '';
+    document.getElementById('np-numero').value  = num;
+    document.getElementById('np-nome').value    = doc.tipoDecisao || '';
+    document.getElementById('np-tribunal').value = 'TJDFT';
+    document.getElementById('np-classe').value   = doc.tipoDecisao || '';
+    window._importMovimentos = [{
+      data: doc.dataDisponibilizacao + 'T00:00:00',
+      nome: `DJe ed.${doc.numero} — ${doc.tipoDecisao || 'Publicação'}`,
+    }];
+    showToast('Dados do DJe carregados');
+  }, 100);
 }
 
 async function rodarScraperPJe() {
@@ -2409,18 +2765,19 @@ async function rodarScraperPJe() {
 
     if (!res.ok) throw new Error(data.detail || 'Erro no servidor');
 
-    const historico = data.historico || [];
-    title.textContent = `${historico.length} andamento(s) encontrado(s)`;
+    const movs = data.movimentacoes || [];
+    const partes = data.partes || [];
+    title.textContent = `${movs.length} andamento(s) · ${partes.length} parte(s)`;
 
-    if (!historico.length) {
+    if (!movs.length) {
       tbody.innerHTML = `<tr><td colspan="2" style="text-align:center;padding:16px;color:var(--gray-400);font-size:12px">Nenhum andamento encontrado.</td></tr>`;
       return;
     }
 
-    tbody.innerHTML = historico.map(h => `
+    tbody.innerHTML = movs.map(h => `
       <tr style="border-bottom:1px solid var(--gray-100)">
-        <td style="padding:7px 10px;color:var(--gray-500);white-space:nowrap">${h.data}</td>
-        <td style="padding:7px 10px;color:var(--navy)">${h.andamento}</td>
+        <td style="padding:7px 10px;color:var(--gray-500);white-space:nowrap;font-size:11px">${h.data}</td>
+        <td style="padding:7px 10px;color:var(--navy);font-size:12px">${h.andamento}</td>
       </tr>`).join('');
 
   } catch (e) {
