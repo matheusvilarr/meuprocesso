@@ -93,7 +93,8 @@
     <div class="topbar-title" id="topbar-title">Dashboard</div>
     <div class="topbar-search" style="position:relative">
       <i class="ti ti-search"></i>
-      <input id="topbar-search-input" type="text" placeholder="Buscar processo, cliente, número..."
+      <input id="topbar-search-input" type="search" placeholder="Buscar processo, cliente, número..."
+        autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
         oninput="topbarSearch(this.value)"
         onkeydown="if(event.key==='Escape'){this.value='';topbarSearch('')}"
         onblur="setTimeout(()=>{const d=document.getElementById('topbar-search-drop');if(d)d.style.display='none'},180)">
