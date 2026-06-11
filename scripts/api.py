@@ -69,27 +69,36 @@ async def pje(req: PjeRequest):
 
 class DjeRequest(BaseModel):
     oab: str
-    data: Optional[str] = None  # YYYY-MM-DD; None = hoje
+    data_inicio: Optional[str] = None  # YYYY-MM-DD; padrão = últimos 30 dias
+    data_fim:    Optional[str] = None  # YYYY-MM-DD; padrão = hoje
+
+
+def _parse_date(s: Optional[str], campo: str) -> Optional[datetime.date]:
+    if not s:
+        return None
+    try:
+        return datetime.date.fromisoformat(s)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Formato inválido em '{campo}'. Use YYYY-MM-DD."
+        )
 
 
 @app.post("/dje")
 def dje(req: DjeRequest):
-    """Baixa o DJe do TJDFT e localiza intimações pelo número OAB."""
+    """Busca intimações no DJe TJDFT pelo número OAB (usa API de busca, sem PDF)."""
     from monitor_dje import monitorar
 
     oab = req.oab.strip()
     if not oab:
         raise HTTPException(status_code=400, detail="oab é obrigatório.")
 
-    data: datetime.date | None = None
-    if req.data:
-        try:
-            data = datetime.date.fromisoformat(req.data)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Formato de data inválido. Use YYYY-MM-DD.")
+    data_inicio = _parse_date(req.data_inicio, "data_inicio")
+    data_fim    = _parse_date(req.data_fim,    "data_fim")
 
     try:
-        resultados = monitorar(oab, data)
+        resultados = monitorar(oab, data_inicio, data_fim)
         return {"resultados": resultados}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))

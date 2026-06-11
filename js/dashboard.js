@@ -2326,46 +2326,57 @@ async function verificarBackendPython() {
 }
 
 async function rodarMonitorDJe() {
-  const oab      = document.getElementById('dje-oab')?.value.trim();
-  const dataVal  = document.getElementById('dje-data')?.value || new Date().toISOString().slice(0, 10);
+  const oab        = document.getElementById('dje-oab')?.value.trim();
+  const dataInicio = document.getElementById('dje-data-inicio')?.value || null;
+  const dataFim    = document.getElementById('dje-data-fim')?.value    || null;
+
   if (!oab) { showToast('Informe o número da OAB.'); return; }
 
   const wrap  = document.getElementById('dje-resultado');
   const title = document.getElementById('dje-resultado-titulo');
   const lista = document.getElementById('dje-resultado-lista');
 
-  const dtLabel = new Date(dataVal + 'T12:00:00').toLocaleDateString('pt-BR');
-  title.textContent = `Baixando DJe de ${dtLabel}…`;
-  lista.innerHTML   = '';
+  title.textContent  = 'Buscando no DJe TJDFT…';
+  lista.innerHTML    = '';
   wrap.style.display = 'block';
 
   try {
     const res  = await fetch(`${PYTHON_API}/dje`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ oab, data: dataVal }),
-      signal:  AbortSignal.timeout(120000),
+      body:    JSON.stringify({ oab, data_inicio: dataInicio, data_fim: dataFim }),
+      signal:  AbortSignal.timeout(30000),
     });
-    const data = await res.json();
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.detail || 'Erro no servidor');
 
-    if (!res.ok) throw new Error(data.detail || 'Erro no servidor');
-
-    const itens = data.resultados || [];
-    title.textContent = `${itens.length} intimação(ões) encontrada(s) para ${oab}`;
+    const itens = json.resultados || [];
+    title.textContent = `${itens.length} publicação(ões) encontrada(s) para ${oab}`;
 
     if (!itens.length) {
-      lista.innerHTML = `<div style="text-align:center;padding:16px;color:var(--gray-400);font-size:12px">Nenhuma intimação encontrada.</div>`;
+      lista.innerHTML = `<div style="text-align:center;padding:16px;color:var(--gray-400);font-size:12px">Nenhuma publicação encontrada no período.</div>`;
       return;
     }
 
-    lista.innerHTML = itens.map(it => `
-      <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);padding:10px 12px">
-        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
-          <span style="font-size:11px;font-weight:600;color:var(--navy)">${it.numero_processo || 'Processo não identificado'}</span>
-          <span style="font-size:10px;color:var(--gray-400)">pág. ${it.pagina}</span>
-        </div>
-        <div style="font-size:11px;color:var(--gray-600);line-height:1.5;max-height:80px;overflow-y:auto;white-space:pre-wrap">${it.bloco_texto}</div>
-      </div>`).join('');
+    const fmt = iso => iso ? new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR') : '';
+
+    lista.innerHTML = itens.map(it => {
+      const processos = (it.numeros_processo || []).join(', ') || 'N/I';
+      const preview   = (it.preview || '').replace(/<em>/g, '<strong>').replace(/<\/em>/g, '</strong>');
+      return `
+        <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);padding:10px 12px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;gap:8px">
+            <span style="font-size:11px;font-weight:600;color:var(--navy);flex:1">${processos}</span>
+            <span style="font-size:10px;color:var(--gray-400);white-space:nowrap">${fmt(it.data)} · ed. ${it.edicao} · pág. ${it.pagina}</span>
+          </div>
+          <div style="font-size:11px;color:var(--gray-600);line-height:1.5;max-height:80px;overflow-y:auto">${preview}</div>
+          ${it.url_diario ? `
+            <a href="${it.url_diario}" target="_blank" rel="noopener"
+               style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;font-size:11px;color:var(--navy);font-weight:600">
+              <i class="ti ti-external-link" style="font-size:11px"></i> Abrir no DJe
+            </a>` : ''}
+        </div>`;
+    }).join('');
 
   } catch (e) {
     title.textContent = '';

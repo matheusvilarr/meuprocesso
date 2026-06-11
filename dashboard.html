@@ -723,22 +723,26 @@
         </div>
         <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
           <div style="font-size:12px;color:var(--gray-500);line-height:1.6;background:var(--gray-50);border-radius:var(--radius);padding:10px 12px">
-            Baixa o PDF do dia automaticamente do TJDFT e varre em busca do seu número de OAB.
+            Busca intimações diretamente na API do DJe TJDFT pelo número da OAB — sem baixar PDF.
           </div>
 
+          <div class="form-field">
+            <label class="form-label">Número da OAB</label>
+            <input id="dje-oab" type="text" class="form-input" placeholder="DF59360 ou OAB/DF 59360">
+          </div>
           <div class="form-row">
             <div class="form-field" style="flex:1">
-              <label class="form-label">Número da OAB</label>
-              <input id="dje-oab" type="text" class="form-input" placeholder="OAB/DF 12345">
+              <label class="form-label">De</label>
+              <input id="dje-data-inicio" type="date" class="form-input">
             </div>
-            <div class="form-field" style="width:140px">
-              <label class="form-label">Data</label>
-              <input id="dje-data" type="date" class="form-input">
+            <div class="form-field" style="flex:1">
+              <label class="form-label">Até</label>
+              <input id="dje-data-fim" type="date" class="form-input">
             </div>
           </div>
 
           <button class="btn-primary" style="width:100%;justify-content:center" onclick="rodarMonitorDJe()">
-            <i class="ti ti-search"></i> Buscar Intimações de Hoje
+            <i class="ti ti-search"></i> Buscar Intimações
           </button>
 
           <div id="dje-resultado" style="display:none">

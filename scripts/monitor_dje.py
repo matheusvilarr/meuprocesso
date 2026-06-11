@@ -1,163 +1,143 @@
 """
 Monitor do Diário de Justiça Eletrônico (DJe) — TJDFT
-Baixa automaticamente o PDF do dia e alerta se a OAB do advogado aparece.
+Usa a API de busca do pesquisadje.tjdft.jus.br — não baixa o PDF.
 
 Uso:
-    python monitor_dje.py "<oab>"              # baixa o diário de hoje
-    python monitor_dje.py "<oab>" 2024-06-11   # baixa uma data específica
-    python monitor_dje.py "OAB/DF 12345"
+    python monitor_dje.py "DF59360"                     # busca últimos 30 dias
+    python monitor_dje.py "DF59360" 2025-01-01          # a partir de uma data
+    python monitor_dje.py "DF59360" 2025-01-01 2025-09-30  # intervalo específico
+    python monitor_dje.py "SUZANA VILAR"                # também funciona por nome
 """
 
 import sys
 import json
 import re
-import os
-import tempfile
 import datetime
 import requests
-import pdfplumber
 
 
-# ─── Configuração do TJDFT ────────────────────────────────────────────────────
-# AJUSTE: Inspecione a aba de rede do browser em https://www.tjdft.jus.br/publicacoes/diario-de-justica-eletronico
-# e copie a URL exata de download do PDF. O padrão costuma ser algo como:
-#   https://pesquisa.tjdft.jus.br/dspace/bitstream/.../YYYYMMDD_DJe_TJDFT.pdf
-#
-# Alguns tribunais expõem uma API ou endpoint com parâmetro de data, ex:
-#   https://dje.tjdft.jus.br/dje/pdf?data=YYYY-MM-DD
-#
-# Substitua a função `montar_url_dje` com o padrão real depois de inspecionar.
+BASE_URL = "https://pesquisadje.tjdft.jus.br"
+PADRAO_PROCESSO = re.compile(r'\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}')
 
-def montar_url_dje(data: datetime.date) -> str:
+
+def formatar_oab(oab: str) -> str:
     """
-    Monta a URL de download do DJe para uma data.
-    AJUSTE: substitua pelo padrão real do TJDFT após inspeção.
+    Normaliza o OAB para o formato usado no DJe: "DF59360".
+    Aceita: "OAB/DF 59360", "59360 DF", "DF 59360", "DF59360" etc.
     """
-    # Padrão de exemplo — ajuste após inspecionar o site do TJDFT
-    ano  = data.strftime("%Y")
-    mes  = data.strftime("%m")
-    dia  = data.strftime("%d")
-    return (
-        f"https://pesquisa.tjdft.jus.br/search?q=DJe+{ano}{mes}{dia}&format=pdf"
-        # AJUSTE: use a URL real, ex:
-        # f"https://dje.tjdft.jus.br/dje/pdf?data={ano}-{mes}-{dia}"
+    oab = oab.strip().upper()
+    # Remove prefixo "OAB" e pontuação
+    oab = re.sub(r'^OAB/?', '', oab).strip()
+    # Extrai UF e número
+    m = re.match(r'^([A-Z]{2})\s*(\d+)$|^(\d+)\s*([A-Z]{2})$', oab)
+    if m:
+        uf = m.group(1) or m.group(4)
+        num = m.group(2) or m.group(3)
+        return f"{uf}{num}"
+    # Já está no formato certo ou não conseguimos parsear — devolve limpo
+    return re.sub(r'\s+', '', oab)
+
+
+def buscar_dje(
+    query: str,
+    data_inicio: datetime.date,
+    data_fim: datetime.date,
+    pagina: int = 0,
+    tamanho: int = 20,
+) -> dict:
+    """Chama a API de busca do DJe TJDFT."""
+    url = (
+        f"{BASE_URL}/api/v1/buscador"
+        f"?query={requests.utils.quote(query)}"
+        f"&pagina={pagina}"
+        f"&tamanho={tamanho}"
+        f"&dataInicio={data_inicio.isoformat()}"
+        f"&dataFim={data_fim.isoformat()}"
     )
-
-
-def baixar_pdf_dje(data: datetime.date) -> str:
-    """
-    Faz o download do DJe da data informada e salva em arquivo temporário.
-    Retorna o caminho local do PDF.
-    """
-    url = montar_url_dje(data)
-    print(f"  → Baixando DJe de {data.strftime('%d/%m/%Y')}: {url}", flush=True)
-
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
         )
     }
-
-    try:
-        res = requests.get(url, headers=headers, timeout=60, stream=True)
-        res.raise_for_status()
-    except requests.RequestException as exc:
-        raise RuntimeError(f"Falha ao baixar o DJe: {exc}") from exc
-
-    # Verifica se realmente recebeu um PDF
-    content_type = res.headers.get("Content-Type", "")
-    if "pdf" not in content_type and "octet-stream" not in content_type:
-        raise RuntimeError(
-            f"Resposta não é um PDF (Content-Type: {content_type}). "
-            "Verifique a URL em montar_url_dje()."
-        )
-
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    for chunk in res.iter_content(chunk_size=8192):
-        tmp.write(chunk)
-    tmp.close()
-
-    tamanho_mb = os.path.getsize(tmp.name) / 1_048_576
-    print(f"  → PDF salvo em {tmp.name} ({tamanho_mb:.1f} MB)", flush=True)
-    return tmp.name
+    res = requests.get(url, headers=headers, timeout=20)
+    res.raise_for_status()
+    return res.json()
 
 
-# ─── Regex ────────────────────────────────────────────────────────────────────
-PADRAO_PROCESSO = re.compile(r'\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}')
-SEPARADOR_BLOCO = re.compile(r'\n{2,}')
-
-
-def extrair_intimacoes(caminho_pdf: str, oab: str) -> list[dict]:
+def monitorar(
+    oab: str,
+    data_inicio: datetime.date = None,
+    data_fim: datetime.date = None,
+) -> list[dict]:
     """
-    Percorre o PDF e retorna blocos de texto onde a OAB aparece.
-    AJUSTE: Se o DJe usar colunas, ative layout=True em extract_text().
+    Busca intimações do advogado no DJe TJDFT.
+    Retorna lista de publicações encontradas com preview e link.
     """
-    resultados  = []
-    padrao_oab  = re.compile(re.escape(oab.strip()), re.IGNORECASE)
+    query = formatar_oab(oab)
 
-    with pdfplumber.open(caminho_pdf) as pdf:
-        total = len(pdf.pages)
-        print(f"  → PDF com {total} página(s). Varrendo...", flush=True)
+    if data_fim is None:
+        data_fim = datetime.date.today()
+    if data_inicio is None:
+        data_inicio = data_fim - datetime.timedelta(days=30)
 
-        for num_pagina, pagina in enumerate(pdf.pages, start=1):
-            texto = pagina.extract_text(layout=False)  # AJUSTE: layout=True para colunas
-            if not texto:
-                continue
+    print(
+        f"  → Buscando '{query}' no DJe TJDFT de "
+        f"{data_inicio.strftime('%d/%m/%Y')} a {data_fim.strftime('%d/%m/%Y')}",
+        flush=True,
+    )
 
-            for bloco in SEPARADOR_BLOCO.split(texto):
-                if not padrao_oab.search(bloco):
-                    continue
+    resultado = buscar_dje(query, data_inicio, data_fim)
+    docs = resultado.get("documentos", [])
+    total = resultado.get("total", 0)
 
-                processos = PADRAO_PROCESSO.findall(bloco)
-                resultados.append({
-                    "pagina":          num_pagina,
-                    "numero_processo": processos[0] if processos else None,
-                    "todos_processos": list(dict.fromkeys(processos)),
-                    "bloco_texto":     bloco.strip(),
-                })
+    print(f"  → {total} publicação(ões) encontrada(s).", flush=True)
 
-    return resultados
+    saida = []
+    for doc in docs:
+        # Extrai número(s) de processo do preview
+        preview_txt = " ".join(doc.get("preview", []))
+        processos = list(dict.fromkeys(PADRAO_PROCESSO.findall(preview_txt)))
 
+        saida.append({
+            "data":            doc.get("dataDisponibilizacao"),
+            "edicao":          doc.get("numero"),
+            "pagina":          doc.get("pagina"),
+            "numeros_processo": processos,
+            "preview":         preview_txt.strip(),
+            "url_diario":      doc.get("urlDiario"),
+        })
 
-def monitorar(oab: str, data: datetime.date = None) -> list[dict]:
-    """
-    Fluxo completo: baixa o DJe da data e varre em busca da OAB.
-    """
-    if data is None:
-        data = datetime.date.today()
-
-    caminho_pdf = baixar_pdf_dje(data)
-    try:
-        return extrair_intimacoes(caminho_pdf, oab)
-    finally:
-        os.unlink(caminho_pdf)  # apaga o temporário
+    return saida
 
 
 def main() -> None:
     if len(sys.argv) < 2:
-        print('Uso: python monitor_dje.py "<oab>" [YYYY-MM-DD]')
-        print('Ex:  python monitor_dje.py "OAB/DF 12345"')
-        print('Ex:  python monitor_dje.py "OAB/DF 12345" 2024-06-11')
+        print('Uso: python monitor_dje.py "<oab>" [data_inicio] [data_fim]')
+        print('Ex:  python monitor_dje.py "DF59360"')
+        print('Ex:  python monitor_dje.py "DF59360" 2025-01-01')
+        print('Ex:  python monitor_dje.py "DF59360" 2025-01-01 2025-09-30')
         sys.exit(1)
 
-    oab  = sys.argv[1]
-    data = (
-        datetime.date.fromisoformat(sys.argv[2])
-        if len(sys.argv) > 2
-        else datetime.date.today()
+    oab = sys.argv[1]
+
+    data_inicio = (
+        datetime.date.fromisoformat(sys.argv[2]) if len(sys.argv) > 2 else None
+    )
+    data_fim = (
+        datetime.date.fromisoformat(sys.argv[3]) if len(sys.argv) > 3 else None
     )
 
-    print(f"🔍 Buscando '{oab}' no DJe de {data.strftime('%d/%m/%Y')}")
+    print(f"🔍 Monitor DJe — OAB: {oab}")
 
     try:
-        resultados = monitorar(oab, data)
-    except RuntimeError as exc:
-        print(f"❌ {exc}", file=sys.stderr)
+        resultados = monitorar(oab, data_inicio, data_fim)
+    except requests.RequestException as exc:
+        print(f"❌ Erro de conexão: {exc}", file=sys.stderr)
         sys.exit(1)
 
     print(json.dumps(resultados, ensure_ascii=False, indent=2))
-    print(f"\n✅ {len(resultados)} intimação(ões) encontrada(s)")
+    print(f"\n✅ {len(resultados)} publicação(ões) retornada(s)")
 
 
 if __name__ == "__main__":
