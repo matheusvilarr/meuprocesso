@@ -1,5 +1,5 @@
-// Vercel Cron Job — verifica atualizações no DataJud e notifica usuários por email
-// Roda 6x/dia conforme vercel.json — requer SUPABASE_SERVICE_KEY e RESEND_API_KEY
+// Vercel Cron Job — verifica atualizações no DataJud e DJEN, notifica por email
+// Roda 3x/dia conforme vercel.json — requer SUPABASE_SERVICE_KEY e RESEND_API_KEY
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -9,6 +9,7 @@ const DATAJUD_KEY      = process.env.DATAJUD_API_KEY
   || 'cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==';
 const RESEND_KEY       = process.env.RESEND_API_KEY;
 const CRON_SECRET      = process.env.CRON_SECRET;
+const DJEN_API         = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
 
 export default async function handler(req, res) {
   const authHeader = req.headers['authorization'];
@@ -21,34 +22,47 @@ export default async function handler(req, res) {
 
   const admin = createClient(SUPA_URL, SUPA_SERVICE_KEY);
 
+  // ── 1. Busca todos os processos ativos ────────────────────────────────────
   const { data: processos, error } = await admin
     .from('processos')
     .select('id, user_id, numero, nome, apelido, datajud_index, movimentos_hash')
-    .not('datajud_index', 'is', null)
     .not('numero', 'is', null)
     .neq('status', 'Arquivado');
 
   if (error) return res.status(500).json({ erro: error.message });
 
+  // ── 2. Busca OABs dos usuários (salvas em user_metadata pelo perfil) ──────
+  const userIds = [...new Set(processos.map(p => p.user_id))];
+  const oabsPorUsuario = {}; // { user_id: [{num, uf}] }
+  for (const uid of userIds) {
+    try {
+      const { data: ud } = await admin.auth.admin.getUserById(uid);
+      const oabRaw = ud?.user?.user_metadata?.oab || '';
+      if (!oabRaw) continue;
+      const oabs = oabRaw.split(',').map(s => s.trim()).filter(Boolean);
+      oabsPorUsuario[uid] = oabs.map(o => {
+        const m = o.toUpperCase().replace(/\./g, '').match(/^(?:OAB[/ ]?)?([A-Z]{2})[/ ]?(\d{3,6})$/);
+        return m ? { uf: m[1], num: m[2] } : null;
+      }).filter(Boolean);
+    } catch (_) {}
+  }
+
   let verificados = 0, atualizados = 0;
+  const atualizacoesPorUsuario = {}; // { user_id: [{ nome, novos, fonte }] }
 
-  // Acumula atualizações por usuário para enviar um único email consolidado
-  const atualizacoesPorUsuario = {}; // { user_id: [{ nome, novos }] }
-
-  for (const proc of processos) {
+  // ── 3. Verifica DataJud (movimentos históricos) ───────────────────────────
+  const processosDatajud = processos.filter(p => p.datajud_index);
+  for (const proc of processosDatajud) {
     try {
       const hits = await buscarNoDatajud(proc.datajud_index, proc.numero);
       if (!hits || !hits.length) continue;
 
       const fonte = hits[0]._source;
-
-      // Guarda todos os movimentos disponíveis (para timeline completa)
       const todosMovs = (fonte.movimentos || [])
         .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))
         .slice(0, 100)
         .map(m => ({ nome: m.nome, data: parsarData(m.dataHora) }));
 
-      // Usa apenas os 6 mais recentes para comparar mudanças (eficiente e suficiente)
       const novoHash = todosMovs.slice(0, 6).map(m => m.data + m.nome).join('|');
       verificados++;
 
@@ -67,21 +81,65 @@ export default async function handler(req, res) {
       }).eq('id', proc.id);
 
       atualizados++;
-
-      if (!atualizacoesPorUsuario[proc.user_id]) {
-        atualizacoesPorUsuario[proc.user_id] = [];
-      }
-      atualizacoesPorUsuario[proc.user_id].push({
-        nome:  proc.apelido || proc.nome,
-        novos: novos.slice(0, 3), // máximo 3 movimentos no email
-      });
-
-    } catch (_) {
-      // ignora erro individual para não parar o loop
-    }
+      if (!atualizacoesPorUsuario[proc.user_id]) atualizacoesPorUsuario[proc.user_id] = [];
+      atualizacoesPorUsuario[proc.user_id].push({ nome: proc.apelido || proc.nome, novos: novos.slice(0, 3), fonte: 'CNJ DataJud' });
+    } catch (_) {}
   }
 
-  // Envia emails consolidados (1 por usuário) se Resend estiver configurado
+  // ── 4. Verifica DJEN (publicações do dia — mais rápido que DataJud) ───────
+  const hoje      = new Date().toISOString().slice(0, 10);
+  const ontem     = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const numeroSet = new Set(processos.map(p => p.numero).filter(Boolean));
+
+  for (const uid of userIds) {
+    const oabs = oabsPorUsuario[uid];
+    if (!oabs?.length) continue;
+
+    try {
+      const reqs = oabs.map(oab =>
+        fetch(`${DJEN_API}?${new URLSearchParams({ numeroOab: oab.num, ufOab: oab.uf, dataDisponibilizacaoInicio: ontem, dataDisponibilizacaoFim: hoje, pagina: 1, tamanhoPagina: 100 })}`)
+          .then(r => r.ok ? r.json() : { items: [] })
+      );
+      const resultados = await Promise.all(reqs);
+      const items = resultados.flatMap(r => r.items || []);
+
+      for (const item of items) {
+        const PADRAO = /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/g;
+        const numerosNoTexto = [...new Set((item.numeroprocessocommascara ? [item.numeroprocessocommascara] : []).concat((item.texto || '').match(PADRAO) || []))];
+
+        for (const numDJEN of numerosNoTexto) {
+          if (!numeroSet.has(numDJEN)) continue; // processo não cadastrado pelo usuário
+
+          const proc = processos.find(p => p.numero === numDJEN && p.user_id === uid);
+          if (!proc) continue;
+
+          const movDJEN = { nome: `DJEN — ${item.tipoComunicacao || 'Publicação'}`, data: (item.data_disponibilizacao || hoje) + 'T00:00:00' };
+          const djenKey = movDJEN.data + movDJEN.nome;
+
+          // Evita duplicar: verifica se o movimento DJEN já está na timeline
+          const { data: procAtual } = await admin.from('processos').select('movimentos_recentes').eq('id', proc.id).single();
+          const movsAtuais = procAtual?.movimentos_recentes || [];
+          const jaTemMovimento = movsAtuais.some(m => m.data === movDJEN.data && m.nome === movDJEN.nome);
+          if (jaTemMovimento) continue;
+
+          const novaLista = [movDJEN, ...movsAtuais].slice(0, 100);
+
+          await admin.from('processos').update({
+            movimentos_recentes:  novaLista,
+            ultima_verificacao:   new Date().toISOString(),
+            notificacao_pendente: true,
+            novos_movimentos:     [movDJEN],
+          }).eq('id', proc.id);
+
+          atualizados++;
+          if (!atualizacoesPorUsuario[uid]) atualizacoesPorUsuario[uid] = [];
+          atualizacoesPorUsuario[uid].push({ nome: proc.apelido || proc.nome, novos: [movDJEN], fonte: 'DJEN' });
+        }
+      }
+    } catch (_) {}
+  }
+
+  // ── 5. Envia emails consolidados ──────────────────────────────────────────
   let emailsEnviados = 0;
   if (RESEND_KEY && Object.keys(atualizacoesPorUsuario).length) {
     for (const [userId, itens] of Object.entries(atualizacoesPorUsuario)) {
@@ -89,13 +147,10 @@ export default async function handler(req, res) {
         const { data: userData } = await admin.auth.admin.getUserById(userId);
         const email = userData?.user?.email;
         if (!email) continue;
-
         const nomeUsuario = userData.user.user_metadata?.full_name || email.split('@')[0];
         await enviarEmailNotificacao(email, nomeUsuario, itens);
         emailsEnviados++;
-      } catch (_) {
-        // não bloqueia o cron se falhar envio de email
-      }
+      } catch (_) {}
     }
   }
 

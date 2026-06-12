@@ -120,11 +120,12 @@ function buildMiniCal() {
     html += `<div class="cal-day other-month">${d.getDate()}</div>`;
   }
 
+  const ano = miniCalDate.getFullYear();
+  const mes = miniCalDate.getMonth();
   for (let d = 1; d <= last.getDate(); d++) {
-    const isToday  = miniCalDate.getFullYear() === today.getFullYear() &&
-                     miniCalDate.getMonth() === today.getMonth() && d === today.getDate();
+    const isToday  = ano === today.getFullYear() && mes === today.getMonth() && d === today.getDate();
     const hasEvent = eventoDias.has(d);
-    html += `<div class="cal-day ${isToday ? 'today' : ''} ${hasEvent ? 'has-event' : ''}" onclick="showPage('calendario')">${d}</div>`;
+    html += `<div class="cal-day ${isToday ? 'today' : ''} ${hasEvent ? 'has-event' : ''}" onclick="abrirDiaPopover(${ano},${mes},${d},this)">${d}</div>`;
   }
 
   grid.innerHTML = html;
@@ -133,6 +134,91 @@ function buildMiniCal() {
 function changeCalMonth(dir) {
   miniCalDate.setMonth(miniCalDate.getMonth() + dir);
   buildMiniCal();
+  // Fecha popover ao trocar de mês
+  const pop = document.getElementById('dia-popover');
+  if (pop) pop.style.display = 'none';
+}
+
+let _diaSelecionado = null;
+
+function abrirDiaPopover(ano, mes, dia, celEl) {
+  const pop    = document.getElementById('dia-popover');
+  const titulo = document.getElementById('dia-popover-titulo');
+  const lista  = document.getElementById('dia-popover-lista');
+  if (!pop) return;
+
+  document.querySelectorAll('.cal-day.selecionado').forEach(el => el.classList.remove('selecionado'));
+  if (celEl) celEl.classList.add('selecionado');
+
+  _diaSelecionado = { ano, mes, dia };
+
+  const isoDate  = `${ano}-${String(mes + 1).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
+  const dtObj    = new Date(isoDate + 'T12:00:00');
+  const nomes    = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+  const meses    = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  titulo.textContent = `${nomes[dtObj.getDay()]}, ${dia} de ${meses[mes]}`;
+
+  const tipoLabel = { prazo_processual:'Prazo', audiencia:'Audiência', lembrete:'Lembrete', reuniao:'Reunião' };
+  const corTipo   = { prazo_processual:'#ef4444', audiencia:'#3b82f6', lembrete:'#f59e0b', reuniao:'#8b5cf6' };
+  const eventos   = (_eventosDB || []).filter(e => e.data === isoDate);
+
+  lista.innerHTML = eventos.length
+    ? eventos.map(e => `
+        <div style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:8px;background:var(--gray-50)">
+          <div style="width:3px;min-height:34px;border-radius:4px;background:${corTipo[e.tipo] || '#94a3b8'};flex-shrink:0;margin-top:2px"></div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.titulo}</div>
+            <div style="font-size:11px;color:var(--gray-400);margin-top:1px">${tipoLabel[e.tipo] || e.tipo}${e.hora ? ' · ' + e.hora : ''}</div>
+          </div>
+        </div>`).join('')
+    : `<div style="text-align:center;padding:16px 0;color:var(--gray-300)">
+         <i class="ti ti-calendar-off" style="font-size:24px;display:block;margin-bottom:6px"></i>
+         <div style="font-size:12px">Nenhum compromisso</div>
+       </div>`;
+
+  // Posiciona o popover perto da célula clicada
+  pop.style.display = 'block';
+  const rect    = celEl.getBoundingClientRect();
+  const popW    = 280;
+  const popH    = pop.offsetHeight;
+  let left      = rect.right + 8;
+  let top       = rect.top + window.scrollY;
+
+  // Se sair pela direita, abre para a esquerda
+  if (left + popW > window.innerWidth - 16) left = rect.left - popW - 8;
+  // Se sair por baixo, sobe
+  if (top + popH > window.innerHeight + window.scrollY - 16) top = Math.max(8, rect.bottom + window.scrollY - popH);
+
+  pop.style.left = left + 'px';
+  pop.style.top  = top + 'px';
+
+  // Fecha ao clicar fora
+  setTimeout(() => document.addEventListener('click', _fecharDiaFora, { once: true }), 50);
+}
+
+function _fecharDiaFora(e) {
+  const pop = document.getElementById('dia-popover');
+  if (pop && !pop.contains(e.target)) {
+    fecharDiaPopover();
+  } else if (pop && pop.style.display !== 'none') {
+    setTimeout(() => document.addEventListener('click', _fecharDiaFora, { once: true }), 50);
+  }
+}
+
+function fecharDiaPopover() {
+  const pop = document.getElementById('dia-popover');
+  if (pop) pop.style.display = 'none';
+  document.querySelectorAll('.cal-day.selecionado').forEach(el => el.classList.remove('selecionado'));
+}
+
+function abrirNovoEventoDia() {
+  fecharDiaPopover();
+  if (!_diaSelecionado) return;
+  const { ano, mes, dia } = _diaSelecionado;
+  const isoDate = `${ano}-${String(mes + 1).padStart(2,'0')}-${String(dia).padStart(2,'0')}`;
+  openModal('modal-lembrete');
+  const evData = document.getElementById('ev-data');
+  if (evData) evData.value = isoDate;
 }
 
 // Full Calendar
@@ -332,9 +418,8 @@ async function buscarAdvogadoDJEN() {
         <div style="font-size:11px;color:var(--gray-500);margin-bottom:${doc.partes?.cliente ? '3px' : '6px'}">${orgao}</div>
         ${doc.partes?.cliente && doc.partes.cliente.length <= 2
           ? `<div style="background:#fffbeb;border:1px solid #f59e0b;border-radius:6px;padding:8px 10px;margin-bottom:8px">
-               <div style="font-size:11px;font-weight:700;color:#92400e;margin-bottom:3px"><i class="ti ti-lock" style="font-size:11px"></i> Segredo de Justiça</div>
-               <div style="font-size:11px;color:#78350f;line-height:1.5">Este processo corre em sigilo. Não compartilhe prints ou informações com terceiros não autorizados.</div>
-               <input id="dje-cliente-manual-${i}" type="text" class="form-input" placeholder="Nome do cliente (opcional, salvo só para você)" style="margin-top:8px;font-size:11px;padding:6px 10px">
+               <div style="font-size:11px;font-weight:700;color:#92400e;margin-bottom:6px"><i class="ti ti-lock" style="font-size:11px"></i> Segredo de Justiça</div>
+               <input id="dje-cliente-manual-${i}" type="text" class="form-input" placeholder="Nome do cliente (salvo só para você)" style="font-size:11px;padding:6px 10px">
              </div>`
           : (doc.partes?.cliente
               ? `<div style="font-size:11px;color:var(--gray-700);margin-bottom:6px"><b>Cliente:</b> ${doc.partes.cliente}${doc.partes.contrario ? ` &nbsp;·&nbsp; <b>vs</b> ${doc.partes.contrario}` : ''}</div>`
@@ -815,6 +900,15 @@ async function carregarProcessos() {
     .neq('status', 'Arquivado')
     .order('created_at', { ascending: false });
 
+  // Reordena pelo movimento mais recente (mais ativo primeiro)
+  if (data) {
+    data.sort((a, b) => {
+      const dA = a.movimentos_recentes?.[0]?.data || a.ultima_verificacao || a.created_at || '';
+      const dB = b.movimentos_recentes?.[0]?.data || b.ultima_verificacao || b.created_at || '';
+      return dB.localeCompare(dA);
+    });
+  }
+
   if (error || !data) return;
 
   // Atualiza badge de processos
@@ -839,6 +933,25 @@ async function carregarProcessos() {
   renderizarListaProcessos(data);
   atualizarDashboard(data, countArq || 0);
   atualizarBell();
+
+  // Enriquece em background processos com número CNJ mas sem datajud_index
+  _enriquecerPendentes(data);
+}
+
+// Roda _enriquecerComDatajud para processos que têm número mas nunca cruzaram com DataJud
+// Processa em lotes de 3 para não sobrecarregar a API
+async function _enriquecerPendentes(lista) {
+  const pendentes = (lista || []).filter(p =>
+    p.numero && !p.datajud_index && p.numero.match(/\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/)
+  );
+  if (!pendentes.length) return;
+
+  for (let i = 0; i < pendentes.length; i += 3) {
+    const lote = pendentes.slice(i, i + 3);
+    await Promise.all(lote.map(p => _enriquecerComDatajud(p.numero)));
+    // Pausa entre lotes para não throttle
+    if (i + 3 < pendentes.length) await new Promise(r => setTimeout(r, 1500));
+  }
 }
 
 function atualizarDashboard(processos, totalArquivados) {
@@ -1028,14 +1141,21 @@ function renderizarListaProcessos(lista) {
     card.setAttribute('data-db', p.id);
     card.onclick = () => abrirProcesso(p.id);
 
+    // Pontinho de sincronização
+    const diasSemVerif = p.ultima_verificacao
+      ? (Date.now() - new Date(p.ultima_verificacao)) / 86400000 : 999;
+    const syncDot = diasSemVerif <= 7
+      ? (temSync ? '#22c55e' : '#60a5fa')   // verde=CNJ, azul=DJEN/recente
+      : (temSync ? '#f59e0b' : '#d1d5db');  // âmbar=CNJ desatualizado, cinza=manual
+    const syncTip = diasSemVerif <= 7
+      ? (temSync ? 'Atualizado via CNJ DataJud' : 'Verificado recentemente')
+      : (temSync ? 'CNJ — verificação desatualizada' : 'Sem sincronização automática');
+
     card.innerHTML = `
       <div class="pc-top">
         <span class="pc-num">${p.numero || '—'}</span>
         <div style="display:flex;align-items:center;gap:5px">
-          ${temSync ? `<span class="pc-sync-badge ${temNotif ? 'pc-sync-badge--notif' : ''}">
-            <i class="ti ti-${temNotif ? 'bell-ringing' : 'cloud-check'}"></i>
-            ${temNotif ? 'Atualizado' : 'CNJ DataJud'}
-          </span>` : ''}
+          <span title="${syncTip}" style="width:7px;height:7px;border-radius:50%;background:${syncDot};flex-shrink:0;display:inline-block"></span>
           <span class="pc-status status-${statusCls(p.status)}">${p.status || 'Ativo'}</span>
           <button class="btn-arquivar-card" title="Arquivar processo"
             onclick="pedirArquivar(event,'${p.id}','${(p.nome||'').replace(/'/g,'\\x27')}')">
@@ -1065,19 +1185,24 @@ function renderizarListaProcessos(lista) {
             <i class="ti ti-refresh"></i> Atualizar
           </button>` : ''}
       </div>
-      ${temNotif && p.novos_movimentos?.length ? `
-        <div class="pc-prazo" style="color:var(--amber);border-top-color:var(--amber-light)">
-          <i class="ti ti-bell-ringing"></i>
-          <span style="font-weight:600">${p.novos_movimentos[0].nome}</span>
-        </div>` : `
-        <div class="pc-prazo">
-          ${temSync
-            ? `<i class="ti ti-clock" style="font-size:13px"></i>
-               Verificado ${fmtHora(p.ultima_verificacao)}`
-            : `<i class="ti ti-clock" style="font-size:13px"></i> Cadastro manual`
-          }
-        </div>`
-      }`;
+      ${(() => {
+        const ultimoMov = p.movimentos_recentes?.[0];
+        if (temNotif && p.novos_movimentos?.length) {
+          return `<div class="pc-prazo" style="color:#1d4ed8;border-top-color:#dbeafe">
+            <i class="ti ti-bell-ringing"></i>
+            <span style="font-weight:600">${p.novos_movimentos[0].nome}</span>
+          </div>`;
+        }
+        if (ultimoMov) {
+          const nomeResumido = ultimoMov.nome.length > 55 ? ultimoMov.nome.slice(0, 55) + '…' : ultimoMov.nome;
+          const dataFormatada = ultimoMov.data ? new Date(ultimoMov.data).toLocaleDateString('pt-BR', { day:'2-digit', month:'short' }) : '';
+          return `<div class="pc-prazo" title="${ultimoMov.nome}">
+            <i class="ti ti-clock" style="font-size:13px"></i>
+            <span>${dataFormatada ? dataFormatada + ' · ' : ''}${nomeResumido}</span>
+          </div>`;
+        }
+        return `<div class="pc-prazo"><i class="ti ti-pencil" style="font-size:13px"></i> Sem movimentações</div>`;
+      })()}`;
 
     return card;
   });
@@ -1386,14 +1511,19 @@ function renderizarTimelineCNJ(proc) {
   wrap.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:6px">
       <div style="font-size:13px;font-weight:600;color:var(--navy)">
-        ${totalCNJ ? `<span style="color:var(--navy)">${totalCNJ} do CNJ DataJud</span>` : ''}
+        ${totalCNJ ? `<span style="color:var(--navy)">${totalCNJ} movimentação(ões)</span>` : ''}
         ${totalCNJ && totalNotas ? ' · ' : ''}
         ${totalNotas ? `<span style="color:var(--amber)">${totalNotas} anotação(ões)</span>` : ''}
       </div>
-      ${proc.datajud_index ? `
-        <button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="sincronizarDetalhe()">
-          <i class="ti ti-refresh"></i> Atualizar CNJ
-        </button>` : ''}
+      ${proc.datajud_index
+        ? `<button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="sincronizarDetalhe()">
+             <i class="ti ti-refresh"></i> Atualizar CNJ
+           </button>`
+        : (proc.numero
+            ? `<button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="_enriquecerComDatajud('${proc.numero}')">
+                 <i class="ti ti-cloud-download"></i> Buscar no CNJ
+               </button>`
+            : '')}
     </div>
     <div class="cnj-timeline">
       ${todos.map(m => {
@@ -1645,11 +1775,9 @@ function atualizarBell() {
       t.coluna !== 'concluida' && (t.prioridade === 'urgente' || (t.prazo && t.prazo < hojeStr))
     ).length;
 
-  if (bell)  bell.style.color   = total > 0 ? 'var(--gold)' : 'rgba(255,255,255,0.35)';
-  if (badge) {
-    badge.textContent   = total > 99 ? '99+' : String(total);
-    badge.style.display = total > 0 ? 'flex' : 'none';
-  }
+  // Ponto azul no sino do topbar
+  const topbarBadge = document.getElementById('topbar-notif-badge');
+  if (topbarBadge) topbarBadge.style.display = total > 0 ? 'block' : 'none';
 }
 
 let _notifPanelAberto = false;
@@ -1668,9 +1796,9 @@ function toggleNotifPanel() {
 }
 
 function _fecharNotifFora(e) {
-  const panel = document.getElementById('notif-panel');
-  const wrap  = document.getElementById('notif-bell-wrap');
-  if (panel && !panel.contains(e.target) && (!wrap || !wrap.contains(e.target))) {
+  const panel    = document.getElementById('notif-panel');
+  const bellBtn  = document.querySelector('.icon-btn [id="topbar-bell"]')?.closest('.icon-btn');
+  if (panel && !panel.contains(e.target) && (!bellBtn || !bellBtn.contains(e.target))) {
     panel.style.display = 'none';
     _notifPanelAberto = false;
   } else if (panel && panel.style.display !== 'none') {
@@ -1687,8 +1815,8 @@ function _toggleNotifPref(cat) {
 function _notifToggleBtn(cat) {
   const on = _notifPrefs[cat];
   return `<div onclick="event.stopPropagation();_toggleNotifPref('${cat}')" title="${on ? 'Desativar' : 'Ativar'}"
-    style="cursor:pointer;width:34px;height:20px;background:${on ? '#22c55e' : 'var(--gray-200)'};border-radius:10px;position:relative;flex-shrink:0;transition:background .2s">
-    <div style="position:absolute;top:3px;left:${on ? '15px' : '3px'};width:14px;height:14px;background:#fff;border-radius:50%;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.25)"></div>
+    style="cursor:pointer;width:22px;height:13px;background:${on ? '#1d4ed8' : '#bfdbfe'};border-radius:7px;position:relative;flex-shrink:0;transition:background .2s">
+    <div style="position:absolute;top:2px;left:${on ? '11px' : '2px'};width:9px;height:9px;background:#fff;border-radius:50%;transition:left .2s;box-shadow:0 1px 2px rgba(0,0,0,.2)"></div>
   </div>`;
 }
 
@@ -1706,10 +1834,10 @@ function _renderNotifPanel() {
   const secoes = [
     {
       cat: 'processos', icon: 'ti-briefcase', label: 'Processos',
-      cor: 'var(--amber)',
+      cor: '#3b82f6',
       items: (window._processosDB || []).filter(p => p.notificacao_pendente),
       html: p => `<div onclick="abrirProcesso('${p.id}');toggleNotifPanel()" style="padding:6px 16px 6px 36px;cursor:pointer;display:flex;align-items:center;gap:8px;border-radius:6px;margin:0 8px 2px;transition:background .12s" onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background='transparent'">
-        <i class="ti ti-point-filled" style="font-size:8px;color:var(--amber);flex-shrink:0"></i>
+        <i class="ti ti-point-filled" style="font-size:8px;color:#3b82f6;flex-shrink:0"></i>
         <div style="min-width:0">
           <div style="font-size:12.5px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.apelido || p.nome}</div>
           <div style="font-size:11px;color:var(--gray-400)">Nova movimentação</div>
@@ -1757,7 +1885,7 @@ function _renderNotifPanel() {
         <div style="display:flex;align-items:center;gap:7px">
           <i class="ti ${s.icon}" style="font-size:14px;color:var(--navy)"></i>
           <span style="font-size:13px;font-weight:600;color:var(--gray-900)">${s.label}</span>
-          ${on && count ? `<span style="font-size:10px;font-weight:700;background:var(--amber);color:#1a2e6b;padding:0 6px;border-radius:10px;line-height:17px">${count}</span>` : ''}
+          ${on && count ? `<span style="font-size:10px;font-weight:700;background:#dbeafe;color:#1d4ed8;padding:0 6px;border-radius:10px;line-height:17px">${count}</span>` : ''}
         </div>
         ${_notifToggleBtn(s.cat)}
       </div>
@@ -2267,7 +2395,12 @@ function aplicarAvatarSidebar() {
   const avatar = document.getElementById('sidebar-user-avatar');
   if (!avatar || !window._user) return;
   const meta    = window._user.user_metadata || {};
+  const nome    = meta.full_name || meta.nome || window._user.email?.split('@')[0] || '';
   const fotoUrl = meta.avatar_url;
+
+  // Atualiza nome no sidebar sempre
+  const nameEl = document.getElementById('sidebar-user-name');
+  if (nameEl) nameEl.textContent = nome || window._user.email || '';
 
   if (fotoUrl) {
     avatar.innerHTML        = `<img src="${fotoUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%">`;
@@ -2275,7 +2408,6 @@ function aplicarAvatarSidebar() {
     avatar.style.overflow   = 'hidden';
   } else {
     avatar.innerHTML = '';
-    const nome     = meta.full_name || meta.nome || window._user.email?.split('@')[0] || '';
     const cor      = meta.avatar_color || '#1a2e6b';
     const iniciais = nome.trim().split(' ').filter(Boolean).slice(0,2).map(p => p[0].toUpperCase()).join('')
                      || (window._user.email || '?')[0].toUpperCase();
@@ -3345,23 +3477,19 @@ async function salvarAtualizacaoDJe(docIndex, processoId, btn) {
   const proc = (window._processosDB  || []).find(p => p.id === processoId);
   if (!doc || !proc) return;
 
-  const descricao = [
-    `DJe ed.${doc.numero}`,
-    doc.tipoDecisao || 'Publicação',
-    doc.dataDisponibilizacao
-  ].filter(Boolean).join(' — ');
+  const dataDisp  = doc.data_disponibilizacao || '';
+  const descricao = `DJEN — ${doc.tipoComunicacao || 'Publicação'}${doc.tipoDecisao ? ' · ' + doc.tipoDecisao : ''}`;
 
   const novoMov = {
-    data:     doc.dataDisponibilizacao + 'T00:00:00',
-    nome:     descricao,
-    _fonte:   'dje',
-    _edicao:  doc.numero,
-    _url:     doc.urlDiario || null,
+    data:   dataDisp ? dataDisp + 'T00:00:00' : new Date().toISOString(),
+    nome:   descricao,
+    _fonte: 'djen',
+    _url:   doc.link || null,
   };
 
-  // Evita duplicata: verifica se já existe movimento desta edição
+  // Evita duplicata: verifica se já existe movimento com mesmo texto e data
   const existentes = proc.movimentos_recentes || [];
-  const jaSalvo = existentes.some(m => m._fonte === 'dje' && m._edicao === doc.numero);
+  const jaSalvo = existentes.some(m => m.nome === novoMov.nome && m.data === novoMov.data);
   if (jaSalvo) { showToast('Esta publicação já foi salva neste processo.'); return; }
 
   btn.disabled   = true;
@@ -3455,14 +3583,26 @@ async function _enriquecerComDatajud(numero) {
       ultima_verificacao: new Date().toISOString(),
     };
     // Aproveita dados extras do DataJud se não vieram do DJEN
-    if (p.tribunal)      update.tribunal      = p.tribunal;
-    if (p.orgaoJulgador) update.orgao_julgador = p.orgaoJulgador;
-    if (p.classe)        update.classe         = p.classe;
+    if (p.tribunal)       update.tribunal       = p.tribunal;
+    if (p.orgaoJulgador)  update.orgao_julgador = p.orgaoJulgador;
+    if (p.classe)         update.classe         = p.classe;
+    // datajud_index é essencial para o cron de monitoramento detectar este processo
+    if (p._datajudIndex)  update.datajud_index  = p._datajudIndex;
 
     const userId = window._escritorioId || window._user?.id;
     await _supabase.from('processos').update(update).eq('numero', numero).eq('user_id', userId);
     await carregarProcessos();
-    showToast(`Timeline completa carregada: ${p.movimentos.length} movimentos`, 'success');
+
+    // Se o detalhe deste processo estiver aberto, re-renderiza a timeline
+    if (_processoAtual?.numero === numero) {
+      const proc = (window._processosDB || []).find(p => p.numero === numero);
+      if (proc) {
+        _processoAtual = proc;
+        popularDetalhe(proc);
+      }
+    }
+
+    showToast(`Timeline completa: ${p.movimentos.length} movimentos carregados`, 'success');
   } catch (_) { /* silently fail — timeline básica do DJEN já foi salva */ }
 }
 

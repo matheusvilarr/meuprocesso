@@ -63,18 +63,35 @@ export default async function handler(req, res) {
       break;
     }
 
-    // Nome do advogado
+    // Nome do advogado — minimum_should_match evita homônimos sem quebrar em stop words ("dos","da","de")
     case 'advogado': {
+      const palavras = q.trim().split(/\s+/).filter(Boolean);
+      // 1 palavra → tudo casa; 2 → ambas; 3+ → 75% (ex: "Suzana Vilar dos Santos" = 3 de 4)
+      const msm = palavras.length >= 3 ? '75%' : palavras.length === 2 ? 2 : 1;
       query = {
-        match: { 'partes.advogados.nome': { query: q, fuzziness: 'AUTO' } }
+        match: {
+          'partes.advogados.nome': {
+            query:                q,
+            fuzziness:            'AUTO',
+            minimum_should_match: msm,
+          }
+        }
       };
       break;
     }
 
     // Nome do cliente (parte do processo)
     case 'cliente': {
+      const palavrasC = q.trim().split(/\s+/).filter(Boolean);
+      const msmC = palavrasC.length >= 3 ? '75%' : palavrasC.length === 2 ? 2 : 1;
       query = {
-        match: { 'partes.nome': { query: q, fuzziness: 'AUTO' } }
+        match: {
+          'partes.nome': {
+            query:                q,
+            fuzziness:            'AUTO',
+            minimum_should_match: msmC,
+          }
+        }
       };
       break;
     }
@@ -99,7 +116,16 @@ export default async function handler(req, res) {
       return res.status(400).json({ erro: 'Tipo de busca inválido.' });
   }
 
-  const body = { size: 10, query };
+  // Pega 50 resultados sem sort fixo no servidor — o cliente ordena por movimento mais recente.
+  // Sort server-side por dataAjuizamento como tiebreaker (garante resultados recentes).
+  const body = {
+    size: 50,
+    query,
+    sort: [
+      { dataAjuizamento: { order: 'desc', missing: '_last', unmapped_type: 'date' } },
+    ],
+  };
+
   const hits  = await chamarDatajud(tribunal, body, DATAJUD_KEY);
 
   if (!hits || hits._erro) return res.status(502).json({ erro: erroDetalhe(hits) });

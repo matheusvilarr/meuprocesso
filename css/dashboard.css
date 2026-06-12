@@ -468,6 +468,7 @@ body {
   background: var(--gold);
 }
 .cal-day.today.has-event::after { background: var(--gold-light); }
+.cal-day.selecionado { background: #dbeafe; color: #1d4ed8; font-weight: 600; border-radius: 6px; }
 
 /* ── PROCESSOS ── */
 .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
@@ -828,13 +829,13 @@ body {
   border-radius: 10px; white-space: nowrap;
 }
 .pc-sync-badge--notif {
-  background: var(--amber-light); color: var(--amber);
+  background: #dbeafe; color: #1d4ed8;
   animation: pulse 1.5s ease-in-out infinite;
 }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.65} }
 
-/* Card com notificação — borda dourada */
-.process-card.pc-notif { border-left-color: var(--gold); }
+/* Card com notificação — borda azul */
+.process-card.pc-notif { border-left-color: #1d4ed8; }
 
 /* Botão atualizar dentro do pc-meta */
 .btn-atualizar-mini {
