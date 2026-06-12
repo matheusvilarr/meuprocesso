@@ -52,7 +52,9 @@ document.getElementById('loginForm').addEventListener('submit', async function (
   }
 
   btn.textContent = 'Redirecionando...';
-  window.location.href = '/dashboard';
+  const params = new URLSearchParams(window.location.search);
+  const redirect = params.get('redirect');
+  window.location.href = redirect || '/dashboard';
 });
 
 function iconEye() {

@@ -112,9 +112,6 @@
         <i class="ti ti-bell" id="topbar-bell"></i>
         <span id="topbar-notif-badge" style="display:none;position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;background:#3b82f6;border:1.5px solid #fff"></span>
       </div>
-      <div class="icon-btn" title="Novo processo" onclick="openModal('modal-novo-processo')">
-        <i class="ti ti-plus"></i>
-      </div>
     </div>
   </header>
 
@@ -788,7 +785,7 @@
           <div class="form-field">
             <label class="form-label">OAB ou Nome do Advogado</label>
             <input id="dje-query" type="search" autocomplete="off" class="form-input"
-              placeholder="DF59360 · DF59360, SP12345 · Suzana Vilar"
+              placeholder="DF00000 · DF00000, SP00000 · Nome do Advogado"
               onkeydown="if(event.key==='Enter') rodarMonitorDJe()">
             <div style="font-size:11px;color:var(--gray-400);margin-top:4px">
               OAB em qualquer formato. Separe por vírgula para buscar múltiplas OABs de uma vez.
@@ -1327,7 +1324,7 @@
           <div class="form-field" style="flex:1;margin-bottom:0">
             <label class="form-label">OAB ou Nome do Advogado</label>
             <input id="modal-dje-query" type="text" class="form-input"
-              placeholder="59360 · DF59360, SP12345 · Suzana Vilar dos Santos"
+              placeholder="DF00000 · DF00000, SP00000 · Nome do Advogado"
               onkeydown="if(event.key==='Enter') buscarAdvogadoDJEN()">
           </div>
           <div class="form-field" style="width:80px;margin-bottom:0">

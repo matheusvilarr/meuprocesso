@@ -25,7 +25,7 @@ export default async function handler(req, res) {
   // ── 1. Busca todos os processos ativos ────────────────────────────────────
   const { data: processos, error } = await admin
     .from('processos')
-    .select('id, user_id, numero, nome, apelido, datajud_index, movimentos_hash')
+    .select('id, user_id, numero, nome, apelido, datajud_index, movimentos_hash, created_at')
     .not('numero', 'is', null)
     .neq('status', 'Arquivado');
 
@@ -68,21 +68,31 @@ export default async function handler(req, res) {
 
       if (novoHash === proc.movimentos_hash) continue;
 
-      const novos = proc.movimentos_hash
+      // Só notifica movimentos com data posterior à importação do processo
+      const importadoEm = (proc.created_at || '').slice(0, 10);
+      const todosNovos = proc.movimentos_hash
         ? todosMovs.filter(m => !proc.movimentos_hash.includes(m.data + m.nome))
         : todosMovs.slice(0, 1);
+      const novosRecentes = todosNovos.filter(m => m.data && (!importadoEm || m.data >= importadoEm));
+      const temNovosRecentes = novosRecentes.length > 0;
 
-      await admin.from('processos').update({
-        movimentos_recentes:  todosMovs,
-        movimentos_hash:      novoHash,
-        ultima_verificacao:   new Date().toISOString(),
-        notificacao_pendente: true,
-        novos_movimentos:     novos,
-      }).eq('id', proc.id);
+      const update = {
+        movimentos_recentes: todosMovs,
+        movimentos_hash:     novoHash,
+        ultima_verificacao:  new Date().toISOString(),
+      };
+      if (temNovosRecentes) {
+        update.notificacao_pendente = true;
+        update.novos_movimentos     = novosRecentes;
+      }
+
+      await admin.from('processos').update(update).eq('id', proc.id);
 
       atualizados++;
-      if (!atualizacoesPorUsuario[proc.user_id]) atualizacoesPorUsuario[proc.user_id] = [];
-      atualizacoesPorUsuario[proc.user_id].push({ nome: proc.apelido || proc.nome, novos: novos.slice(0, 3), fonte: 'CNJ DataJud' });
+      if (temNovosRecentes) {
+        if (!atualizacoesPorUsuario[proc.user_id]) atualizacoesPorUsuario[proc.user_id] = [];
+        atualizacoesPorUsuario[proc.user_id].push({ nome: proc.apelido || proc.nome, novos: novosRecentes.slice(0, 3), fonte: 'CNJ DataJud' });
+      }
     } catch (_) {}
   }
 

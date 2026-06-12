@@ -83,7 +83,7 @@ let toastTimer;
 function showToast(msg, tipo) {
   const t = document.getElementById('toast');
   document.getElementById('toast-msg').textContent = msg;
-  t.style.background = tipo === 'success' ? '#16a34a' : tipo === 'error' ? '#dc2626' : '';
+  t.style.background = tipo === 'success' ? '#16a34a' : tipo === 'error' ? '#dc2626' : tipo === 'warning' ? '#d97706' : '';
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { t.classList.remove('show'); t.style.background = ''; }, 3500);
@@ -197,6 +197,8 @@ function abrirDiaPopover(ano, mes, dia, celEl) {
 }
 
 function _fecharDiaFora(e) {
+  // Clique em outro dia: abrirDiaPopover já vai abrir o novo — não fechar aqui
+  if (e.target.closest('.cal-day')) return;
   const pop = document.getElementById('dia-popover');
   if (pop && !pop.contains(e.target)) {
     fecharDiaPopover();
@@ -323,7 +325,18 @@ async function buscarAdvogadoDJEN() {
   const dataInicio = document.getElementById('modal-dje-inicio')?.value || new Date(new Date().getFullYear() + '-01-01').toISOString().slice(0, 10);
   const dataFim    = document.getElementById('modal-dje-fim')?.value    || new Date().toISOString().slice(0, 10);
 
-  if (!rawQuery) { showToast('Informe OAB ou nome do advogado.'); return; }
+  if (!rawQuery) {
+    const oabPerfil = window._user?.user_metadata?.oab || '';
+    if (!oabPerfil) {
+      showToast('Cadastre sua OAB nas configurações para buscar no DJEN.', 'warning');
+      closeModal('modal-busca-tribunal');
+      showPage('configuracoes');
+      setTimeout(() => document.getElementById('config-oab')?.focus(), 400);
+      return;
+    }
+    showToast('Informe OAB ou nome do advogado.');
+    return;
+  }
 
   const titulo    = document.getElementById('modal-djen-titulo');
   const lista     = document.getElementById('modal-djen-resultados');
@@ -486,7 +499,7 @@ async function buscarAdvogadoDJEN() {
 
 const BUSCA_CONFIG = {
   numero:   { label: 'Número do processo (CNJ)', placeholder: '0000000-00.0000.0.00.0000\nPara vários, cole um por linha', hint: 'O tribunal é detectado automaticamente. Para vários, cole um número por linha.', tribunal: false, uf: false },
-  oab:      { label: 'Número da OAB',            placeholder: 'Ex: 59360',       hint: 'Mais preciso que busca por nome — evita homônimos. Informe só o número e selecione UF e tribunal.', tribunal: true, uf: true  },
+  oab:      { label: 'Número da OAB',            placeholder: 'Ex: 12345',       hint: 'Mais preciso que busca por nome — evita homônimos. Informe só o número e selecione UF e tribunal.', tribunal: true, uf: true  },
   advogado: { label: 'Nome do advogado',          placeholder: 'Ex: João Silva',  hint: 'Resultados ordenados por mais recente. Use todas as palavras do nome. Para busca exata sem homônimos, prefira a aba OAB.', tribunal: true, uf: false },
   cliente:  { label: 'Nome do cliente / parte',   placeholder: 'Ex: Empresa XYZ Ltda', hint: 'Resultados ordenados por mais recente. Use nome completo para evitar resultados genéricos.', tribunal: true, uf: false },
   cpf:      { label: 'CPF ou CNPJ',              placeholder: 'Somente números', hint: 'Selecione o tribunal para buscar.',                       tribunal: true,  uf: false },
@@ -1578,8 +1591,11 @@ function renderizarTimelineCNJ(proc) {
               ${fmt(m.data)}
               ${isNota
                 ? `<span style="margin-left:6px;background:var(--amber-light);color:var(--amber);font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px">NOTA</span>`
-                : '<span style="margin-left:6px;background:#e8f0fe;color:#1a2e6b;font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px">CNJ</span>'
+                : m._fonte === 'djen'
+                  ? '<span style="margin-left:6px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px">DJEN</span>'
+                  : '<span style="margin-left:6px;background:#e8f0fe;color:#1a2e6b;font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px">CNJ</span>'
               }
+              ${m._url ? `<a href="${m._url}" target="_blank" rel="noopener" title="Ver publicação" style="margin-left:6px;color:var(--gray-400);font-size:11px;text-decoration:none;vertical-align:middle"><i class="ti ti-external-link"></i></a>` : ''}
             </div>
             <div class="cnj-tl-nome">
               ${isNota ? `<i class="ti ti-pencil" style="font-size:11px;color:var(--amber);margin-right:4px"></i>` : ''}
@@ -3316,7 +3332,17 @@ async function rodarMonitorDJe() {
   const dataInicio = document.getElementById('dje-data-inicio')?.value || DJE_DATA_INICIO_PADRAO;
   const dataFim    = document.getElementById('dje-data-fim')?.value    || new Date().toISOString().slice(0, 10);
 
-  if (!rawQuery) { showToast('Informe OAB ou nome do advogado.'); return; }
+  if (!rawQuery) {
+    const oabPerfil = window._user?.user_metadata?.oab || '';
+    if (!oabPerfil) {
+      showToast('Cadastre sua OAB nas configurações para buscar no DJEN.', 'warning');
+      showPage('configuracoes');
+      setTimeout(() => document.getElementById('config-oab')?.focus(), 400);
+      return;
+    }
+    showToast('Informe OAB ou nome do advogado.');
+    return;
+  }
 
   const wrap  = document.getElementById('dje-resultado');
   const title = document.getElementById('dje-resultado-titulo');
