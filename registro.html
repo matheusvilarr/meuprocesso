@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Criar conta — Meu Processo</title>
+<link rel="icon" type="image/png" href="img/images/logo.png">
+<link rel="apple-touch-icon" href="img/images/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/login.css">
+<style>
+  .card { max-width: 500px; }
+  .form-row { display: flex; gap: 12px; }
+  .form-row .field { flex: 1; }
+  .hint { font-size: 11px; color: var(--g400); margin-top: 4px; }
+  .oab-required { font-size: 11px; color: #d97706; font-weight: 600; margin-top: 4px; display: flex; align-items: center; gap: 4px; }
+  .success-box { background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 12px; padding: 28px 24px; text-align: center; display: none; }
+  .success-box .icon { font-size: 40px; margin-bottom: 12px; }
+  .success-box h2 { font-size: 18px; font-weight: 700; color: #166534; margin-bottom: 8px; }
+  .success-box p { font-size: 13px; color: #374151; line-height: 1.6; margin-bottom: 8px; }
+  .success-box .spam-warn { background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #92400e; margin-top: 12px; }
+  .field label { display: block; font-size: 13px; font-weight: 500; color: var(--g700); margin-bottom: 6px; }
+  .field label .req { color: var(--red); margin-left: 2px; }
+  .codigo-check { display: none; position: absolute; right: 14px; top: 50%; transform: translateY(-50%); font-size: 16px; }
+  .codigo-check.ok { display: block; color: #16a34a; }
+  .codigo-check.err { display: block; color: var(--red); }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="card">
+
+    <a href="/" class="logo">
+      <img src="img/images/logo.png" alt="Meu Processo">
+    </a>
+
+    <!-- Formulário de cadastro -->
+    <form class="form" id="registroForm" novalidate>
+
+      <div class="form-row">
+        <div class="field">
+          <label>Nome completo <span class="req">*</span></label>
+          <input type="text" id="reg-nome" placeholder="Seu nome completo" autocomplete="name" required>
+          <div class="error-msg" id="nomeError"></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>E-mail <span class="req">*</span></label>
+        <input type="email" id="reg-email" placeholder="seu@email.com.br" autocomplete="email" required>
+        <div class="error-msg" id="emailError"></div>
+      </div>
+
+      <div class="form-row">
+        <div class="field">
+          <label>OAB <span class="req">*</span></label>
+          <input type="text" id="reg-oab" placeholder="DF 00000" autocomplete="off" required>
+          <div class="hint">Formato: UF + número. Ex: DF 12345 ou SP 98765.<br>Múltiplas OABs? Separe por vírgula.</div>
+          <div class="error-msg" id="oabError"></div>
+        </div>
+        <div class="field">
+          <label>Código de acesso <span class="req">*</span></label>
+          <div style="position:relative">
+            <input type="text" id="reg-codigo" placeholder="XXXXXXXX" autocomplete="off" required style="text-transform:uppercase;letter-spacing:.08em" oninput="this.value=this.value.toUpperCase()">
+            <span class="codigo-check" id="codigo-check-icon"></span>
+          </div>
+          <div class="hint">Código fornecido pelo seu escritório ou advogado responsável.</div>
+          <div class="error-msg" id="codigoError"></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Senha <span class="req">*</span></label>
+        <div style="position:relative">
+          <input type="password" id="reg-senha" placeholder="Mínimo 6 caracteres" autocomplete="new-password" required>
+          <button type="button" class="toggle-pw" id="togglePwReg" aria-label="Mostrar senha">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+        <div class="error-msg" id="senhaError"></div>
+      </div>
+
+      <button type="submit" class="btn-submit" id="btnRegistro">Criar conta</button>
+
+    </form>
+
+    <!-- Estado: aguardando confirmação de email -->
+    <div class="success-box" id="sucesso-box">
+      <div class="icon">✉️</div>
+      <h2>Confirme seu e-mail</h2>
+      <p>Enviamos um link de confirmação para <strong id="sucesso-email"></strong>.<br>Clique no link para ativar sua conta e acessar o sistema.</p>
+      <div class="spam-warn">
+        📁 <strong>Não recebeu?</strong> Verifique a pasta <strong>Spam</strong> ou <strong>Lixo Eletrônico</strong> — e-mails automáticos costumam cair lá.
+      </div>
+    </div>
+
+    <div class="links" id="registro-links">
+      <p class="register-line">Já tem uma conta? <a href="/login">Entrar</a></p>
+    </div>
+
+    <div class="divider"></div>
+
+    <p class="terms">
+      Ao criar sua conta, você concorda com os
+      <a href="#">Termos de Uso</a> e a
+      <a href="#">Política de Privacidade</a> do Meu Processo.
+    </p>
+
+  </div>
+
+  <p class="footer-copy">© 2026 · Meu Processo · Versão 0.1</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="js/supabase-client.js"></script>
+<script src="js/registro.js"></script>
+</body>
+</html>

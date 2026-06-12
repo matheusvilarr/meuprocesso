@@ -657,6 +657,15 @@
 
     <div style="display:flex;flex-direction:column;gap:20px;max-width:640px">
 
+      <!-- Alerta OAB não preenchida -->
+      <div id="config-oab-alerta" style="display:none;background:#fffbeb;border:1.5px solid #fcd34d;border-radius:10px;padding:14px 18px;display:flex;align-items:flex-start;gap:12px">
+        <i class="ti ti-alert-triangle" style="color:#d97706;font-size:18px;flex-shrink:0;margin-top:1px"></i>
+        <div>
+          <div style="font-size:13px;font-weight:700;color:#92400e;margin-bottom:2px">OAB não cadastrada</div>
+          <div style="font-size:12px;color:#78350f">Preencha sua OAB abaixo para ativar o monitoramento automático do DJEN e receber notificações de novas publicações.</div>
+        </div>
+      </div>
+
       <!-- Perfil & Avatar -->
       <div class="card">
         <div class="card-header">
@@ -672,7 +681,7 @@
               <input type="file" id="config-foto-input" accept="image/jpeg,image/png,image/webp" style="display:none" onchange="uploadFotoPerfil(this)">
             </div>
             <div>
-              <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--gray-700)">Cor do avatar</div>
+              <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--gray-700)">Foto ou cor do avatar</div>
               <div id="config-color-picker" style="display:flex;gap:8px;flex-wrap:wrap"></div>
               <div id="config-foto-label" style="margin-top:10px"></div>
             </div>
@@ -684,7 +693,7 @@
           <div class="form-field" style="margin-top:14px">
             <label class="form-label">E-mail</label>
             <input type="email" id="config-email" class="form-input" disabled style="background:var(--gray-50);color:var(--gray-400);cursor:not-allowed">
-            <div style="font-size:11px;color:var(--gray-400);margin-top:4px">O e-mail não pode ser alterado por aqui.</div>
+            <div style="font-size:11px;color:var(--gray-400);margin-top:4px">O e-mail não pode ser alterado por aqui. Entre em contato com o suporte.</div>
           </div>
         </div>
         <div style="padding:14px 24px;border-top:1px solid var(--gray-100);display:flex;justify-content:flex-end">
@@ -695,26 +704,32 @@
       <!-- Dados do Escritório -->
       <div class="card">
         <div class="card-header">
-          <div class="card-title"><i class="ti ti-building"></i> Dados do Escritório</div>
+          <div class="card-title"><i class="ti ti-building"></i> Escritório &amp; OAB</div>
         </div>
-        <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
+        <div style="padding:20px 24px;display:flex;flex-direction:column;gap:16px">
           <div class="form-field">
             <label class="form-label">Nome do escritório</label>
-            <input type="text" id="config-escritorio" class="form-input" placeholder="Ex: Alves & Associados Advogados">
+            <input type="text" id="config-escritorio" class="form-input" placeholder="Ex: Alves &amp; Associados Advogados">
           </div>
-          <div class="form-row">
-            <div class="form-field">
-              <label class="form-label">OAB</label>
-              <input type="text" id="config-oab" class="form-input" placeholder="Ex: SP 192.847">
+          <div class="form-field">
+            <label class="form-label" style="display:flex;align-items:center;gap:6px">
+              OAB
+              <span style="font-size:10px;background:#fef3c7;color:#92400e;font-weight:700;padding:1px 7px;border-radius:10px">OBRIGATÓRIA</span>
+            </label>
+            <input type="text" id="config-oab" class="form-input" placeholder="DF 00000" style="font-family:monospace;letter-spacing:.04em">
+            <div style="font-size:11px;color:var(--gray-400);margin-top:5px">
+              Formato: UF + número. Ex: <b>DF 12345</b> ou <b>GO 50723</b>.<br>
+              Múltiplas OABs? Separe por vírgula: <b>DF 12345, GO 50723</b>.<br>
+              <span style="color:#d97706;font-weight:500">Necessária para o monitoramento automático do DJEN.</span>
             </div>
-            <div class="form-field">
-              <label class="form-label">Telefone</label>
-              <input type="text" id="config-telefone" class="form-input" placeholder="(11) 99999-9999">
-            </div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">Telefone</label>
+            <input type="text" id="config-telefone" class="form-input" placeholder="(61) 99999-9999">
           </div>
         </div>
         <div style="padding:14px 24px;border-top:1px solid var(--gray-100);display:flex;justify-content:flex-end">
-          <button class="btn-primary" onclick="salvarEscritorio()"><i class="ti ti-check"></i> Salvar escritório</button>
+          <button class="btn-primary" onclick="salvarEscritorio()"><i class="ti ti-check"></i> Salvar</button>
         </div>
       </div>
 

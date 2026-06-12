@@ -2496,6 +2496,15 @@ function carregarConfiguracoes() {
   if (oabEl) oabEl.value = meta.oab        || '';
   if (telEl) telEl.value = meta.telefone   || '';
 
+  // Mostra alerta se OAB não preenchida
+  const alertaOAB = document.getElementById('config-oab-alerta');
+  if (alertaOAB) alertaOAB.style.display = meta.oab ? 'none' : 'flex';
+
+  // Esconde alerta ao preencher OAB
+  if (oabEl) oabEl.addEventListener('input', function () {
+    if (alertaOAB) alertaOAB.style.display = this.value.trim() ? 'none' : 'flex';
+  }, { once: false });
+
   const picker = document.getElementById('config-color-picker');
   if (picker) {
     picker.innerHTML = AVATAR_CORES.map(c => `
