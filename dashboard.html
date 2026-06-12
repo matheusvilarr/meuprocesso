@@ -44,10 +44,6 @@
       <i class="ti ti-checklist"></i>
       Tarefas
     </div>
-    <div class="nav-item" onclick="showPage('tjdft')">
-      <i class="ti ti-scale"></i>
-      TJDFT
-    </div>
     <div class="nav-item" onclick="showPage('colaboradores')">
       <i class="ti ti-users"></i>
       Colaboradores
@@ -81,11 +77,24 @@
       <div class="user-info">
         <div class="user-name" id="sidebar-user-name">Carregando...</div>
         <div class="user-role" id="sidebar-user-email"></div>
+        <div id="sidebar-colab-badge" style="display:none;font-size:10px;color:#e8b400;font-weight:600;letter-spacing:.04em;margin-top:1px"></div>
       </div>
     </div>
-    <i class="ti ti-bell" id="notif-bell" style="color:rgba(255,255,255,0.3);cursor:pointer;font-size:16px;flex-shrink:0" onclick="verNotificacoes()" title="Notificações"></i>
+    <div id="notif-bell-wrap" style="position:relative;flex-shrink:0;cursor:pointer" onclick="toggleNotifPanel()" title="Notificações">
+      <i class="ti ti-bell" id="notif-bell" style="color:rgba(255,255,255,0.35);font-size:18px;display:block"></i>
+      <span id="notif-badge" style="display:none;position:absolute;top:-5px;right:-7px;background:var(--gold);color:#1a2e6b;font-size:10px;font-weight:800;border-radius:10px;padding:0 5px;min-width:16px;text-align:center;line-height:17px;pointer-events:none">0</span>
+    </div>
   </div>
 </aside>
+
+<!-- ── PAINEL DE NOTIFICAÇÕES ── -->
+<div id="notif-panel" style="display:none;position:fixed;bottom:68px;left:250px;width:340px;background:#fff;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.18);border:1px solid var(--gray-200);z-index:200;flex-direction:column;max-height:480px">
+  <div style="padding:14px 18px;border-bottom:1px solid var(--gray-100);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+    <div style="font-size:14px;font-weight:700;color:var(--navy)">Notificações</div>
+    <button onclick="toggleNotifPanel()" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:16px;line-height:1;padding:2px"><i class="ti ti-x"></i></button>
+  </div>
+  <div id="notif-panel-body" style="overflow-y:auto;flex:1"></div>
+</div>
 
 <!-- MAIN -->
 <div class="main">
@@ -221,7 +230,7 @@
       </div>
       <div style="display:flex;gap:10px">
         <button class="btn-secondary" onclick="openModal('modal-novo-processo')"><i class="ti ti-plus"></i> Cadastro manual</button>
-        <button class="btn-primary" onclick="openModal('modal-busca-tribunal')"><i class="ti ti-database-search"></i> Buscar no Tribunal</button>
+        <button class="btn-primary" onclick="openModal('modal-busca-tribunal')"><i class="ti ti-cloud-search"></i> Buscar processo</button>
       </div>
     </div>
 
@@ -551,39 +560,94 @@
     <div class="page-header">
       <div>
         <div class="page-title">Colaboradores</div>
-        <div class="page-sub">Equipe do escritório</div>
+        <div class="page-sub" id="colab-page-sub">Equipe do escritório</div>
       </div>
-      <button class="btn-primary" onclick="openModal('modal-convite')"><i class="ti ti-user-plus"></i> Convidar Advogado</button>
+      <button class="btn-primary" id="btn-convidar-colab" onclick="abrirModalConvite()">
+        <i class="ti ti-user-plus"></i> Convidar Colaborador
+      </button>
     </div>
 
-    <div style="max-width:480px;margin:60px auto;text-align:center;color:var(--gray-400)">
-      <i class="ti ti-users" style="font-size:52px;display:block;margin-bottom:16px;opacity:0.25"></i>
-      <div style="font-size:16px;font-weight:600;color:var(--navy);margin-bottom:8px">Colaboradores em breve</div>
-      <div style="font-size:13px;line-height:1.6;margin-bottom:24px">
-        Em breve você poderá convidar advogados e estagiários para colaborar em processos e tarefas do seu escritório.
+    <!-- Aviso para colaboradores: não podem gerenciar a equipe -->
+    <div id="colab-aviso-readonly" style="display:none;background:#fffbeb;border:1px solid #fbbf24;border-radius:10px;padding:12px 16px;margin-bottom:20px;font-size:13px;color:#92400e;align-items:center;gap:10px">
+      <i class="ti ti-info-circle" style="font-size:18px;flex-shrink:0"></i>
+      <span>Você é colaborador deste escritório. Apenas o titular pode gerenciar a equipe.</span>
+    </div>
+
+    <!-- Lista de membros ativos -->
+    <div class="card" style="margin-bottom:20px">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--gray-100);font-size:13px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em">
+        Membros ativos <span id="colab-count" style="font-weight:400;color:var(--gray-400);margin-left:4px"></span>
       </div>
-      <button class="btn-secondary" onclick="openModal('modal-convite')">
-        <i class="ti ti-bell"></i> Quero ser avisado quando disponível
-      </button>
+      <div id="colab-lista" style="padding:8px 0">
+        <div style="padding:32px;text-align:center;color:var(--gray-400);font-size:13px">
+          <i class="ti ti-loader-2" style="animation:spin .8s linear infinite;display:block;font-size:24px;margin-bottom:8px"></i>
+          Carregando...
+        </div>
+      </div>
+    </div>
+
+    <!-- Convites pendentes -->
+    <div class="card" id="card-convites-pendentes" style="display:none">
+      <div style="padding:16px 20px;border-bottom:1px solid var(--gray-100);font-size:13px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em">
+        Convites pendentes
+      </div>
+      <div id="colab-convites" style="padding:8px 0"></div>
     </div>
   </div>
 
-  <!-- Modal convite (coming soon) -->
-  <div class="modal-backdrop" id="modal-convite" onclick="closeModalOutside(event,'modal-convite')">
-    <div class="modal" style="max-width:420px">
+  <!-- Modal: Convidar Colaborador -->
+  <div class="modal-backdrop" id="modal-convidar-colab" onclick="closeModalOutside(event,'modal-convidar-colab')">
+    <div class="modal" style="max-width:460px">
       <div class="modal-header">
         <span class="modal-title"><i class="ti ti-user-plus"></i> Convidar Colaborador</span>
-        <button class="modal-close" onclick="closeModal('modal-convite')"><i class="ti ti-x"></i></button>
+        <button class="modal-close" onclick="closeModal('modal-convidar-colab')"><i class="ti ti-x"></i></button>
       </div>
-      <div style="padding:32px 24px;text-align:center">
-        <i class="ti ti-tools" style="font-size:40px;color:var(--navy);opacity:0.3;display:block;margin-bottom:16px"></i>
-        <div style="font-size:15px;font-weight:600;color:var(--navy);margin-bottom:8px">Funcionalidade em desenvolvimento</div>
-        <div style="font-size:13px;color:var(--gray-600);line-height:1.6;margin-bottom:20px">
-          A gestão de equipes está sendo construída. Enquanto isso, entre em contato para saber mais ou sugerir melhorias:
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+        <div>
+          <label class="form-label">E-mail do convidado</label>
+          <input class="form-input" id="conv-email" type="email" placeholder="email@escritorio.com.br">
         </div>
-        <a href="mailto:atendimento@meuprocesso.app.br" style="display:inline-flex;align-items:center;gap:6px;background:var(--navy);color:#fff;padding:10px 20px;border-radius:var(--radius);font-size:13px;font-weight:500;text-decoration:none">
-          <i class="ti ti-mail"></i> atendimento@meuprocesso.app.br
-        </a>
+        <div>
+          <label class="form-label">Cargo</label>
+          <input class="form-input" id="conv-cargo" value="Advogado Associado" placeholder="Ex: Estagiário, Sócio...">
+        </div>
+        <div>
+          <label class="form-label">Escopo do acesso</label>
+          <select class="form-input" id="conv-escopo" onchange="toggleConvProcesso()">
+            <option value="escritorio">Escritório completo</option>
+            <option value="processo">Somente 1 processo</option>
+          </select>
+        </div>
+        <div id="conv-processo-wrap" style="display:none">
+          <label class="form-label">Processo</label>
+          <select class="form-input" id="conv-processo">
+            <option value="">Selecione o processo...</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Nível de acesso</label>
+          <select class="form-input" id="conv-nivel">
+            <option value="total">Total — pode criar e editar</option>
+            <option value="restrito">Restrito — somente leitura</option>
+          </select>
+        </div>
+        <div id="conv-link-wrap" style="display:none;background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:12px 14px">
+          <div style="font-size:12px;color:var(--gray-500);margin-bottom:6px;font-weight:600">Link de convite gerado</div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input class="form-input" id="conv-link-input" style="flex:1;font-size:12px;background:#fff" readonly>
+            <button class="btn-secondary" style="white-space:nowrap;padding:8px 12px;font-size:12px" onclick="copiarLinkConvite()">
+              <i class="ti ti-copy"></i> Copiar
+            </button>
+          </div>
+          <div style="font-size:11px;color:var(--gray-400);margin-top:6px">Compartilhe este link com o convidado. Expira em 7 dias.</div>
+        </div>
+        <div id="conv-erro" style="display:none;color:var(--red);font-size:13px"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('modal-convidar-colab')">Cancelar</button>
+        <button class="btn-primary" id="btn-gerar-convite" onclick="gerarConvite()">
+          <i class="ti ti-send"></i> Gerar link
+        </button>
       </div>
     </div>
   </div>
@@ -712,17 +776,7 @@
       </div>
     </div>
 
-    <!-- Aviso temporário -->
-    <div style="background:#fef9ec;border:1px solid #f0d060;border-radius:10px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px;font-size:13px;color:#7a5c00">
-      <i class="ti ti-tool" style="font-size:18px;flex-shrink:0"></i>
-      <div>
-        <strong>Funcionalidade em manutenção.</strong>
-        O monitor do DJe e a busca no PJe requerem um servidor de apoio que está sendo configurado.
-        Em breve disponível.
-      </div>
-    </div>
-
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;opacity:0.45;pointer-events:none">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
 
       <!-- ── Card 1: Monitor DJe ── -->
       <div class="card">
@@ -731,16 +785,16 @@
         </div>
         <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
           <div style="font-size:12px;color:var(--gray-500);line-height:1.6;background:var(--gray-50);border-radius:var(--radius);padding:10px 12px">
-            Busca intimações diretamente na API do DJe TJDFT pelo número da OAB — sem baixar PDF.
+            Busca intimações do TJDFT via <strong>DJEN</strong> (Diário de Justiça Nacional do CNJ) — dados atuais, sem baixar PDF.
           </div>
 
           <div class="form-field">
             <label class="form-label">OAB ou Nome do Advogado</label>
             <input id="dje-query" type="search" autocomplete="off" class="form-input"
-              placeholder="DF59360 · OAB/DF 59360 · Suzana Vilar"
+              placeholder="DF59360 · DF59360, SP12345 · Suzana Vilar"
               onkeydown="if(event.key==='Enter') rodarMonitorDJe()">
             <div style="font-size:11px;color:var(--gray-400);margin-top:4px">
-              OAB em qualquer formato — o sistema normaliza automaticamente.
+              OAB em qualquer formato. Separe por vírgula para buscar múltiplas OABs de uma vez.
             </div>
           </div>
           <div class="form-row">
@@ -1081,23 +1135,27 @@
   </div>
 </div>
 
-<!-- Modal: Busca no tribunal (DataJud CNJ) -->
+<!-- Modal: Busca unificada (DataJud + DJEN) -->
 <div class="modal-backdrop" id="modal-busca-tribunal" onclick="closeModalOutside(event,'modal-busca-tribunal')">
-  <div class="modal" style="max-width:560px;width:100%">
+  <div class="modal" style="max-width:600px;width:100%">
     <div class="modal-header">
-      <span class="modal-title"><i class="ti ti-database-search" style="font-size:15px;margin-right:6px"></i> Buscar no tribunal</span>
+      <span class="modal-title"><i class="ti ti-cloud-search" style="font-size:15px;margin-right:6px"></i> Buscar processo</span>
       <span class="modal-close" onclick="closeModal('modal-busca-tribunal')"><i class="ti ti-x"></i></span>
     </div>
     <div class="modal-body">
 
-      <!-- Tabs de tipo de busca -->
+      <!-- 2 abas: Número | Advogado/OAB -->
       <div style="display:flex;gap:4px;background:var(--gray-100);border-radius:8px;padding:4px;margin-bottom:16px">
-        <button class="busca-tab active" onclick="selecionarTipoBusca('numero',this)"   style="flex:1">Número CNJ</button>
-        <button class="busca-tab"        onclick="selecionarTipoBusca('oab',this)"       style="flex:1">OAB</button>
-        <button class="busca-tab"        onclick="selecionarTipoBusca('advogado',this)"  style="flex:1">Nome advogado</button>
-        <button class="busca-tab"        onclick="selecionarTipoBusca('cliente',this)"   style="flex:1">Nome cliente</button>
-        <button class="busca-tab"        onclick="selecionarTipoBusca('cpf',this)"       style="flex:1">CPF / CNPJ</button>
+        <button class="busca-tab active" id="tab-btn-numero" onclick="selecionarAbaBusca('numero',this)" style="flex:1">
+          <i class="ti ti-hash" style="font-size:13px"></i> Por número CNJ
+        </button>
+        <button class="busca-tab" id="tab-btn-advogado" onclick="selecionarAbaBusca('advogado',this)" style="flex:1">
+          <i class="ti ti-id-badge-2" style="font-size:13px"></i> Por advogado / OAB
+        </button>
       </div>
+
+      <!-- ── Aba: Número CNJ ─────────────────────────────────── -->
+      <div id="busca-aba-numero">
 
       <!-- Seletor de tribunal (oculto na busca por número) -->
       <div id="busca-tribunal-wrap" style="display:none;margin-bottom:12px">
@@ -1219,7 +1277,7 @@
         <div style="display:flex;gap:8px;align-items:flex-start">
           <textarea id="busca-input" class="form-input"
             placeholder="0000000-00.0000.0.00.0000&#10;Para vários processos, cole um por linha"
-            oninput="limparResultadoBusca();this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px'"
+            oninput="limparResultadoBusca();this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px';_verificarSugestaoOAB()"
             onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();buscarProcesso()}"
             style="resize:none;height:62px;overflow:hidden;line-height:1.5;font-size:13px;font-family:monospace"></textarea>
           <button class="btn-primary" id="busca-btn" onclick="buscarProcesso()" style="white-space:nowrap;min-width:90px;flex-shrink:0">
@@ -1228,6 +1286,11 @@
         </div>
         <div id="busca-hint" style="font-size:11px;color:var(--gray-400);margin-top:4px">
           Tribunal detectado automaticamente. Para vários, cole um número por linha.
+        </div>
+        <!-- Sugestão de usar OAB (aparece ao detectar número no campo de nome) -->
+        <div id="busca-oab-sugestao" style="display:none;background:#e8f0fe;border:1px solid #a8c4f5;border-radius:7px;padding:9px 12px;margin-top:8px;font-size:12.5px;color:#1a3a7a;align-items:center;gap:8px">
+          <i class="ti ti-info-circle" style="font-size:15px;flex-shrink:0"></i>
+          <span>Parece um número de OAB. Para busca exata sem homônimos, <button onclick="_usarOABDetectada()" style="background:none;border:none;color:#1a3a7a;font-weight:700;cursor:pointer;font-size:12.5px;padding:0;text-decoration:underline">use a aba OAB →</button></span>
         </div>
       </div>
       </div>
@@ -1259,6 +1322,53 @@
 
       <!-- Lista de resultados (busca individual) -->
       <div id="busca-resultados-wrap" style="display:none;margin-top:16px;max-height:360px;overflow-y:auto;flex-direction:column;gap:10px"></div>
+      </div><!-- fim busca-aba-numero -->
+
+      <!-- ── Aba: Advogado / OAB (DJEN nacional) ─────────────── -->
+      <div id="busca-aba-advogado" style="display:none">
+        <div style="display:flex;gap:8px;margin-bottom:10px;align-items:flex-end">
+          <div class="form-field" style="flex:1;margin-bottom:0">
+            <label class="form-label">OAB ou Nome do Advogado</label>
+            <input id="modal-dje-query" type="text" class="form-input"
+              placeholder="59360 · DF59360, SP12345 · Suzana Vilar dos Santos"
+              onkeydown="if(event.key==='Enter') buscarAdvogadoDJEN()">
+          </div>
+          <div class="form-field" style="width:80px;margin-bottom:0">
+            <label class="form-label">UF</label>
+            <select id="modal-dje-uf" class="form-select" style="padding:8px 6px">
+              <option value="">Todas</option>
+              <option value="AC">AC</option><option value="AL">AL</option><option value="AP">AP</option>
+              <option value="AM">AM</option><option value="BA">BA</option><option value="CE">CE</option>
+              <option value="DF" selected>DF</option><option value="ES">ES</option><option value="GO">GO</option>
+              <option value="MA">MA</option><option value="MT">MT</option><option value="MS">MS</option>
+              <option value="MG">MG</option><option value="PA">PA</option><option value="PB">PB</option>
+              <option value="PR">PR</option><option value="PE">PE</option><option value="PI">PI</option>
+              <option value="RJ">RJ</option><option value="RN">RN</option><option value="RS">RS</option>
+              <option value="RO">RO</option><option value="RR">RR</option><option value="SC">SC</option>
+              <option value="SE">SE</option><option value="SP">SP</option><option value="TO">TO</option>
+            </select>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--gray-400);margin-bottom:10px">
+          OAB: número com ou sem UF (ex: 59360 ou DF59360). Múltiplas OABs por vírgula. Para nome, selecione "Todas" na UF.
+        </div>
+        <div style="display:flex;gap:10px;margin-bottom:12px">
+          <div class="form-field" style="flex:1">
+            <label class="form-label">De</label>
+            <input id="modal-dje-inicio" type="date" class="form-input">
+          </div>
+          <div class="form-field" style="flex:1">
+            <label class="form-label">Até</label>
+            <input id="modal-dje-fim" type="date" class="form-input">
+          </div>
+        </div>
+        <button class="btn-primary" style="width:100%;justify-content:center;margin-bottom:14px" onclick="buscarAdvogadoDJEN()">
+          <i class="ti ti-search"></i> Buscar Intimações no DJEN
+        </button>
+        <div id="modal-djen-titulo" style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:8px;min-height:18px"></div>
+        <div id="modal-djen-resultados" style="display:flex;flex-direction:column;gap:8px;max-height:380px;overflow-y:auto"></div>
+      </div><!-- fim busca-aba-advogado -->
+
     </div>
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeModal('modal-busca-tribunal')">Fechar</button>

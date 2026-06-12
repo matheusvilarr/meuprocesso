@@ -30,6 +30,7 @@ function showPage(id) {
   if (id === 'tarefas')       carregarTarefas();
   if (id === 'arquivados')    carregarArquivados();
   if (id === 'configuracoes') carregarConfiguracoes();
+  if (id === 'colaboradores') carregarColaboradores();
   if (id === 'tjdft') { verificarBackendPython(); inicializarDatesDJe(); }
 }
 
@@ -79,12 +80,13 @@ function closeModalOutside(e, id) {
 
 // Toast
 let toastTimer;
-function showToast(msg) {
+function showToast(msg, tipo) {
   const t = document.getElementById('toast');
   document.getElementById('toast-msg').textContent = msg;
+  t.style.background = tipo === 'success' ? '#16a34a' : tipo === 'error' ? '#dc2626' : '';
   t.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove('show'), 3000);
+  toastTimer = setTimeout(() => { t.classList.remove('show'); t.style.background = ''; }, 3500);
 }
 
 // Mini Calendar
@@ -195,16 +197,173 @@ function changeFCalMonth(dir) {
 // Init
 buildMiniCal();
 
-// ── BUSCA DATAJUD ──────────────────────────────────────────────────────
+// ── BUSCA UNIFICADA ────────────────────────────────────────────────────
 
 let _tipoBusca = 'numero';
+let _abaAtiva  = 'numero'; // 'numero' | 'advogado'
+
+function selecionarAbaBusca(aba, btn) {
+  _abaAtiva = aba;
+  document.querySelectorAll('.busca-tab').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+
+  document.getElementById('busca-aba-numero').style.display   = aba === 'numero'   ? '' : 'none';
+  document.getElementById('busca-aba-advogado').style.display = aba === 'advogado' ? '' : 'none';
+
+  if (aba === 'advogado') {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const ini  = document.getElementById('modal-dje-inicio');
+    const fim  = document.getElementById('modal-dje-fim');
+    if (ini && !ini.value) ini.value = new Date(new Date().getFullYear() + '-01-01').toISOString().slice(0, 10);
+    if (fim && !fim.value) fim.value = hoje;
+    document.getElementById('modal-dje-query')?.focus();
+  }
+}
+
+function _detectarArea(siglaTribunal, nomeClasse) {
+  const t = (siglaTribunal || '').toUpperCase();
+  const c = (nomeClasse    || '').toUpperCase();
+  if (t.startsWith('TRT') || c.includes('TRABALH') || c.includes('RECLAMAÇÃO')) return 'Trabalhista';
+  if (c.includes('FAMÍL') || c.includes('DIVÓRC') || c.includes('ALIMENT') || c.includes('GUARDA') || c.includes('ADOÇÃO')) return 'Família';
+  if (c.includes('TRIBUT') || c.includes('FISCAL') || c.includes('EXECUÇÃO FISCAL')) return 'Tributário';
+  if (c.includes('PREVIDÊN') || c.includes('BENEFÍCIO') || c.includes('INSS') || c.includes('APOSENTAD')) return 'Previdenciário';
+  if (c.includes('CRIMIN') || c.includes('PENAL') || c.includes('CRIME') || c.includes('INQUÉRIT')) return 'Criminal';
+  return 'Cível';
+}
+
+async function buscarAdvogadoDJEN() {
+  const rawQuery   = document.getElementById('modal-dje-query')?.value.trim();
+  const ufSelecionada = document.getElementById('modal-dje-uf')?.value || '';
+  const dataInicio = document.getElementById('modal-dje-inicio')?.value || new Date(new Date().getFullYear() + '-01-01').toISOString().slice(0, 10);
+  const dataFim    = document.getElementById('modal-dje-fim')?.value    || new Date().toISOString().slice(0, 10);
+
+  if (!rawQuery) { showToast('Informe OAB ou nome do advogado.'); return; }
+
+  const titulo    = document.getElementById('modal-djen-titulo');
+  const lista     = document.getElementById('modal-djen-resultados');
+  titulo.textContent = 'Buscando…';
+  lista.innerHTML    = '<div style="text-align:center;padding:20px;color:var(--gray-400)"><i class="ti ti-loader-2" style="animation:spin .8s linear infinite;font-size:22px"></i></div>';
+
+  // Cada entrada pode ser "DF 59360" ou só "59360" (usa UF do dropdown)
+  const entradas = rawQuery.split(',').map(s => s.trim()).filter(Boolean);
+  const oabsParsadas = entradas.map(e => {
+    let n = _normalizarOAB(e);
+    // Se não tem UF no texto mas há UF selecionada, tenta compor com a UF
+    if (!n && ufSelecionada && /^\d{3,6}$/.test(e.trim())) n = `${ufSelecionada}${e.trim()}`;
+    return n ? _parsearOAB(n) : null;
+  }).filter(Boolean);
+  const isOAB = oabsParsadas.length > 0;
+  const label = isOAB ? oabsParsadas.map(o => `${o.uf} ${o.num}`).join(', ') : rawQuery;
+
+  try {
+    const base = { dataDisponibilizacaoInicio: dataInicio, dataDisponibilizacaoFim: dataFim, pagina: 1, tamanhoPagina: 100 };
+
+    let reqs;
+    if (isOAB) {
+      reqs = oabsParsadas.map(oab => fetch(`${DJEN_API}?${new URLSearchParams({ ...base, numeroOab: oab.num, ufOab: oab.uf })}`).then(r => r.ok ? r.json() : { items: [], count: 0 }));
+    } else {
+      // Busca por nome via parâmetro da API — retorna resultados reais, não só os 100 primeiros do dia
+      const params = { ...base, nomeAdvogado: rawQuery };
+      if (ufSelecionada) params.ufOab = ufSelecionada;
+      reqs = [fetch(`${DJEN_API}?${new URLSearchParams(params)}`).then(r => r.ok ? r.json() : { items: [], count: 0 })];
+    }
+
+    const resultados = await Promise.all(reqs);
+    const vistos = new Set();
+    let items = resultados.flatMap(r => r.items || []).filter(item => { if (vistos.has(item.id)) return false; vistos.add(item.id); return true; })
+      .sort((a, b) => (b.data_disponibilizacao || '').localeCompare(a.data_disponibilizacao || ''));
+
+    const total = resultados.reduce((s, r) => s + (r.count || 0), 0);
+
+    if (!items.length) {
+      titulo.textContent = `Nenhuma publicação encontrada para "${label}" no período`;
+      lista.innerHTML = `<div style="text-align:center;padding:24px;color:var(--gray-400);font-size:13px">
+        <i class="ti ti-mood-empty" style="font-size:28px;display:block;margin-bottom:8px;opacity:.4"></i>
+        Tente ampliar o período ou verificar o formato da OAB.
+      </div>`;
+      return;
+    }
+
+    titulo.textContent = `${total} publicação(ões) — exibindo ${items.length}`;
+
+    const stripHtml2 = h => h.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '').replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const fmt2 = iso => iso ? new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR') : '';
+    const PADRAO_PROC = /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/g;
+
+    window._djeResultados = items.map(item => {
+      const textoLimpo   = stripHtml2(item.texto || '');
+      const processoMask = item.numeroprocessocommascara || '';
+      const numerosExtras = [...new Set((textoLimpo.match(PADRAO_PROC) || []))];
+      const processos    = processoMask ? [processoMask, ...numerosExtras.filter(n => n !== processoMask)] : numerosExtras;
+      const tipoDecisao  = _extrairTipoDecisao(textoLimpo);
+      // Extrai partes via destinatarios (polo A = ativo/cliente, P/R = passivo/contrário)
+      const parteAtiva   = item.destinatarios?.find(d => ['A','AT','ATIVO'].includes((d.polo||'').toUpperCase()));
+      const partePassiva = item.destinatarios?.find(d => ['P','R','PA','RE','PASSIVO'].includes((d.polo||'').toUpperCase()));
+      const partes       = { cliente: parteAtiva?.nome || null, contrario: partePassiva?.nome || null };
+      const matches      = processos.map(num => (window._processosDB || []).find(p => p.numero === num)).filter(Boolean);
+      return { ...item, textoLimpo, processos, tipoDecisao, partes, matches };
+    });
+
+    const semCadastro = window._djeResultados.filter(d => !d.matches.length && d.processos[0]);
+    let html = semCadastro.length > 1 ? `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 2px 10px">
+        <span style="font-size:12px;color:var(--gray-500)">${semCadastro.length} processo(s) não cadastrado(s)</span>
+        <button class="btn-primary" style="font-size:11px;padding:5px 14px" onclick="importarTodosDJe()">
+          <i class="ti ti-download"></i> Importar todos
+        </button>
+      </div>` : '';
+
+    html += window._djeResultados.map((doc, i) => {
+      const preview      = doc.textoLimpo.slice(0, 200) + (doc.textoLimpo.length > 200 ? '…' : '');
+      const numPrincipal = doc.processos[0] || '';
+      const dataFmt      = fmt2(doc.data_disponibilizacao);
+      const orgao        = doc.nomeOrgao || doc.siglaTribunal || '';
+      const temMatch     = doc.matches.length > 0;
+
+      const badgeTipo = `<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:${temMatch ? '#dcfce7;color:#166534' : '#e8edf5;color:var(--navy)'};letter-spacing:.03em">${temMatch ? '<i class="ti ti-bell-ringing" style="font-size:10px"></i> ATUALIZAÇÃO' : (doc.tipoComunicacao || 'PUBLICAÇÃO')}</span>`;
+      const badgeDecisao = doc.tipoDecisao ? `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;background:#f3f4f6;color:var(--gray-600)">${doc.tipoDecisao}</span>` : '';
+
+      return `<div style="background:${temMatch ? '#f0fdf4;border:1.5px solid #86efac' : 'var(--gray-50);border:1px solid var(--gray-200)'};border-radius:var(--radius);padding:12px 14px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px">
+          <div style="display:flex;align-items:center;gap:6px">${badgeTipo}${badgeDecisao}</div>
+          <span style="font-size:10px;color:var(--gray-400);white-space:nowrap">${dataFmt} · ${doc.siglaTribunal || ''}</span>
+        </div>
+        <div style="font-size:12px;font-weight:600;color:var(--navy);margin-bottom:2px">${numPrincipal || 'Processo não identificado'}${doc.processos.length > 1 ? `<span style="color:var(--gray-400);font-weight:400"> +${doc.processos.length-1}</span>` : ''}</div>
+        <div style="font-size:11px;color:var(--gray-500);margin-bottom:${doc.partes?.cliente ? '3px' : '6px'}">${orgao}</div>
+        ${doc.partes?.cliente && doc.partes.cliente.length <= 2
+          ? `<div style="background:#fffbeb;border:1px solid #f59e0b;border-radius:6px;padding:8px 10px;margin-bottom:8px">
+               <div style="font-size:11px;font-weight:700;color:#92400e;margin-bottom:3px"><i class="ti ti-lock" style="font-size:11px"></i> Segredo de Justiça</div>
+               <div style="font-size:11px;color:#78350f;line-height:1.5">Este processo corre em sigilo. Não compartilhe prints ou informações com terceiros não autorizados.</div>
+               <input id="dje-cliente-manual-${i}" type="text" class="form-input" placeholder="Nome do cliente (opcional, salvo só para você)" style="margin-top:8px;font-size:11px;padding:6px 10px">
+             </div>`
+          : (doc.partes?.cliente
+              ? `<div style="font-size:11px;color:var(--gray-700);margin-bottom:6px"><b>Cliente:</b> ${doc.partes.cliente}${doc.partes.contrario ? ` &nbsp;·&nbsp; <b>vs</b> ${doc.partes.contrario}` : ''}</div>`
+              : '')}
+        <div style="font-size:11px;color:var(--gray-600);line-height:1.6;max-height:48px;overflow:hidden;margin-bottom:10px">${preview}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${temMatch ? `
+            <button class="btn-primary" style="font-size:11px;padding:5px 11px" onclick="salvarAtualizacaoDJe(${i},'${doc.matches[0].id}',this)"><i class="ti ti-check"></i> Salvar atualização</button>
+            <button class="btn-secondary" style="font-size:11px;padding:5px 11px" onclick="abrirProcesso('${doc.matches[0].id}')"><i class="ti ti-arrow-right"></i> Ver processo</button>
+          ` : (numPrincipal ? `<button class="btn-secondary" style="font-size:11px;padding:5px 11px" onclick="importarProcessoDJe(${i})"><i class="ti ti-plus"></i> Importar processo</button>` : '')}
+          ${doc.link ? `<a href="${doc.link}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--navy);padding:5px 8px;text-decoration:none"><i class="ti ti-external-link" style="font-size:11px"></i> DJEN</a>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+
+    lista.innerHTML = html;
+
+  } catch(e) {
+    titulo.textContent = '';
+    lista.innerHTML = `<div style="color:var(--red);font-size:13px;padding:10px">❌ ${e.message || 'Erro ao acessar o DJEN.'}</div>`;
+  }
+}
 
 const BUSCA_CONFIG = {
   numero:   { label: 'Número do processo (CNJ)', placeholder: '0000000-00.0000.0.00.0000\nPara vários, cole um por linha', hint: 'O tribunal é detectado automaticamente. Para vários, cole um número por linha.', tribunal: false, uf: false },
-  oab:      { label: 'Número da OAB',            placeholder: 'Ex: 59360',                hint: 'Informe apenas o número. Selecione a UF e o tribunal.',  tribunal: true,  uf: true  },
-  advogado: { label: 'Nome do advogado',          placeholder: 'Ex: João Silva',            hint: 'Selecione o tribunal para buscar.',                       tribunal: true,  uf: false },
-  cliente:  { label: 'Nome do cliente / parte',   placeholder: 'Ex: Empresa XYZ Ltda',     hint: 'Selecione o tribunal para buscar.',                       tribunal: true,  uf: false },
-  cpf:      { label: 'CPF ou CNPJ',              placeholder: 'Somente números',           hint: 'Selecione o tribunal para buscar.',                       tribunal: true,  uf: false },
+  oab:      { label: 'Número da OAB',            placeholder: 'Ex: 59360',       hint: 'Mais preciso que busca por nome — evita homônimos. Informe só o número e selecione UF e tribunal.', tribunal: true, uf: true  },
+  advogado: { label: 'Nome do advogado',          placeholder: 'Ex: João Silva',  hint: 'Resultados ordenados por mais recente. Use todas as palavras do nome. Para busca exata sem homônimos, prefira a aba OAB.', tribunal: true, uf: false },
+  cliente:  { label: 'Nome do cliente / parte',   placeholder: 'Ex: Empresa XYZ Ltda', hint: 'Resultados ordenados por mais recente. Use nome completo para evitar resultados genéricos.', tribunal: true, uf: false },
+  cpf:      { label: 'CPF ou CNPJ',              placeholder: 'Somente números', hint: 'Selecione o tribunal para buscar.',                       tribunal: true,  uf: false },
 };
 
 function selecionarTipoBusca(tipo, btn) {
@@ -218,15 +377,53 @@ function selecionarTipoBusca(tipo, btn) {
 
   document.getElementById('busca-label').textContent            = cfg.label;
   if (inputEl) {
-    inputEl.placeholder = cfg.placeholder;
-    inputEl.value       = '';
+    inputEl.placeholder  = cfg.placeholder;
+    inputEl.value        = '';
     inputEl.style.height = '62px';
+    inputEl.style.fontFamily = tipo === 'numero' ? 'monospace' : 'inherit';
   }
   document.getElementById('busca-hint').textContent             = cfg.hint;
   document.getElementById('busca-tribunal-wrap').style.display  = cfg.tribunal ? 'block' : 'none';
   document.getElementById('busca-oab-uf-wrap').style.display    = cfg.uf       ? 'block' : 'none';
+  const sugestao = document.getElementById('busca-oab-sugestao');
+  if (sugestao) sugestao.style.display = 'none';
   inputArea.style.display = 'block';
   limparResultadoBusca();
+}
+
+// Detecta se o texto digitado no campo de nome parece ser um número de OAB
+function _verificarSugestaoOAB() {
+  const sugestao = document.getElementById('busca-oab-sugestao');
+  if (!sugestao) return;
+  if (_tipoBusca !== 'advogado') { sugestao.style.display = 'none'; return; }
+  const val = (document.getElementById('busca-input')?.value || '').trim();
+  // Considera OAB: só números (ex: 59360) ou UF+número (ex: DF59360, SP 12345)
+  const pareceOAB = /^\d{3,6}$/.test(val) || /^[A-Za-z]{2}[/ ]?\d{3,6}$/.test(val);
+  sugestao.style.display = pareceOAB ? 'flex' : 'none';
+}
+
+// Clique no link "use a aba OAB": migra o valor digitado para o campo OAB
+function _usarOABDetectada() {
+  const val = (document.getElementById('busca-input')?.value || '').trim();
+  // Extrai só os dígitos do número OAB
+  const somenteDigitos = val.replace(/\D/g, '');
+  // Extrai UF se presente (ex: "DF59360" → UF=DF)
+  const ufMatch = val.toUpperCase().match(/^([A-Z]{2})[/ ]?\d/);
+  const uf = ufMatch ? ufMatch[1] : '';
+
+  // Clica na tab OAB
+  const tabOAB = [...document.querySelectorAll('.busca-tab')].find(b => b.getAttribute('onclick')?.includes("'oab'"));
+  if (tabOAB) selecionarTipoBusca('oab', tabOAB);
+
+  // Preenche o campo com o número e seleciona a UF detectada
+  const input = document.getElementById('busca-input');
+  if (input) input.value = somenteDigitos;
+
+  const ufSel = document.getElementById('busca-oab-uf-select');
+  if (uf && ufSel) {
+    const opt = [...ufSel.options].find(o => o.value === uf);
+    if (opt) ufSel.value = uf;
+  }
 }
 
 async function buscarProcesso() {
@@ -414,6 +611,15 @@ async function _buscarLoteInterno(numerosValidos, btn) {
 function exibirResultados(lista) {
   if (!lista.length) { mostrarErroBusca('Nenhum processo encontrado.'); return; }
 
+  // Reordena pelo movimento mais recente — garante 2025/2026 antes de 2023/2024
+  if (_tipoBusca !== 'numero') {
+    lista = [...lista].sort((a, b) => {
+      const dA = a.movimentos?.[0]?.data ? new Date(a.movimentos[0].data) : new Date(0);
+      const dB = b.movimentos?.[0]?.data ? new Date(b.movimentos[0].data) : new Date(0);
+      return dB - dA;
+    });
+  }
+
   window._buscaResultados = lista;
 
   // Com múltiplos resultados: reutiliza o sistema de lote com checkboxes
@@ -435,6 +641,20 @@ function exibirResultados(lista) {
     importarWrap.style.display = 'block';
     renderizarLoteResultados();
     atualizarLoteLabel();
+
+    // Label informando ordenação para buscas por nome/OAB
+    if (_tipoBusca !== 'numero') {
+      const tipoLabel = { oab: 'OAB', advogado: 'Nome do advogado', cliente: 'Nome do cliente', cpf: 'CPF/CNPJ' };
+      const loteLabel = document.getElementById('lote-importar-label');
+      if (loteLabel) {
+        loteLabel.insertAdjacentHTML('afterend',
+          `<span id="lote-ordem-label" style="font-size:11px;color:var(--gray-400);display:flex;align-items:center;gap:4px;margin-top:2px">
+            <i class="ti ti-sort-descending-2" style="font-size:12px"></i> Mais recentes primeiro · ${lista.length} resultado(s) — ${tipoLabel[_tipoBusca] || ''}
+          </span>`
+        );
+      }
+    }
+
     document.getElementById('busca-resultados-wrap').style.display = 'none';
     return;
   }
@@ -540,7 +760,7 @@ async function salvarProcesso() {
     if (!jaExiste) {
       const { count } = await _supabase
         .from('processos').select('id', { count: 'exact', head: true })
-        .eq('user_id', window._user?.id).eq('numero', numero);
+        .eq('user_id', window._escritorioId).eq('numero', numero);
       if (count > 0) { showToast('Este processo já está cadastrado.'); return; }
     } else {
       showToast('Este processo já está cadastrado.');
@@ -552,7 +772,7 @@ async function salvarProcesso() {
   btn.textContent = 'Salvando...';
 
   const payload = {
-    user_id:         window._user?.id,
+    user_id:         window._escritorioId,
     numero,
     nome,
     cliente,
@@ -615,21 +835,10 @@ async function carregarProcessos() {
     badgeArq.style.display = countArq ? 'inline-flex' : 'none';
   }
 
-  // Badge de notificações pendentes
-  const comNotif = data.filter(p => p.notificacao_pendente);
-  const bell     = document.getElementById('notif-bell');
-  if (bell) {
-    bell.style.color = comNotif.length
-      ? 'var(--gold)'
-      : 'rgba(255,255,255,0.3)';
-    bell.title = comNotif.length
-      ? `${comNotif.length} atualização(ões) nova(s)`
-      : 'Sem novas notificações';
-  }
-
   window._processosDB = data;
   renderizarListaProcessos(data);
   atualizarDashboard(data, countArq || 0);
+  atualizarBell();
 }
 
 function atualizarDashboard(processos, totalArquivados) {
@@ -1408,11 +1617,167 @@ function editarApelidoCard(event, processoId) {
   });
 }
 
-async function verNotificacoes() {
-  showPage('processos');
-  // Foca nos processos com notificação
-  const com = (window._processosDB || []).filter(p => p.notificacao_pendente);
-  if (com.length) showToast(`${com.length} processo(s) com nova movimentação`);
+// ── NOTIFICAÇÕES ──────────────────────────────────────────────────────────
+
+const _notifPrefs = {
+  get processos()  { return localStorage.getItem('notif_processos')  !== 'false'; },
+  get calendario() { return localStorage.getItem('notif_calendario') !== 'false'; },
+  get tarefas()    { return localStorage.getItem('notif_tarefas')    !== 'false'; },
+  set processos(v)  { localStorage.setItem('notif_processos',  String(v)); },
+  set calendario(v) { localStorage.setItem('notif_calendario', String(v)); },
+  set tarefas(v)    { localStorage.setItem('notif_tarefas',    String(v)); },
+};
+
+function atualizarBell() {
+  const bell    = document.getElementById('notif-bell');
+  const badge   = document.getElementById('notif-badge');
+  const hoje    = new Date();
+  const em7     = new Date(); em7.setDate(hoje.getDate() + 7);
+  const hojeStr = hoje.toISOString().slice(0, 10);
+
+  let total = 0;
+  if (_notifPrefs.processos)
+    total += (window._processosDB || []).filter(p => p.notificacao_pendente).length;
+  if (_notifPrefs.calendario)
+    total += (_eventosDB || []).filter(e => { const d = new Date(e.data + 'T12:00:00'); return d >= hoje && d <= em7; }).length;
+  if (_notifPrefs.tarefas)
+    total += (_tarefasDB || []).filter(t =>
+      t.coluna !== 'concluida' && (t.prioridade === 'urgente' || (t.prazo && t.prazo < hojeStr))
+    ).length;
+
+  if (bell)  bell.style.color   = total > 0 ? 'var(--gold)' : 'rgba(255,255,255,0.35)';
+  if (badge) {
+    badge.textContent   = total > 99 ? '99+' : String(total);
+    badge.style.display = total > 0 ? 'flex' : 'none';
+  }
+}
+
+let _notifPanelAberto = false;
+
+function toggleNotifPanel() {
+  const panel = document.getElementById('notif-panel');
+  if (!panel) return;
+  _notifPanelAberto = !_notifPanelAberto;
+  if (_notifPanelAberto) {
+    _renderNotifPanel();
+    panel.style.display = 'flex';
+    setTimeout(() => document.addEventListener('click', _fecharNotifFora, { once: true }), 50);
+  } else {
+    panel.style.display = 'none';
+  }
+}
+
+function _fecharNotifFora(e) {
+  const panel = document.getElementById('notif-panel');
+  const wrap  = document.getElementById('notif-bell-wrap');
+  if (panel && !panel.contains(e.target) && (!wrap || !wrap.contains(e.target))) {
+    panel.style.display = 'none';
+    _notifPanelAberto = false;
+  } else if (panel && panel.style.display !== 'none') {
+    setTimeout(() => document.addEventListener('click', _fecharNotifFora, { once: true }), 50);
+  }
+}
+
+function _toggleNotifPref(cat) {
+  _notifPrefs[cat] = !_notifPrefs[cat];
+  _renderNotifPanel();
+  atualizarBell();
+}
+
+function _notifToggleBtn(cat) {
+  const on = _notifPrefs[cat];
+  return `<div onclick="event.stopPropagation();_toggleNotifPref('${cat}')" title="${on ? 'Desativar' : 'Ativar'}"
+    style="cursor:pointer;width:34px;height:20px;background:${on ? '#22c55e' : 'var(--gray-200)'};border-radius:10px;position:relative;flex-shrink:0;transition:background .2s">
+    <div style="position:absolute;top:3px;left:${on ? '15px' : '3px'};width:14px;height:14px;background:#fff;border-radius:50%;transition:left .2s;box-shadow:0 1px 3px rgba(0,0,0,.25)"></div>
+  </div>`;
+}
+
+function _renderNotifPanel() {
+  const body = document.getElementById('notif-panel-body');
+  if (!body) return;
+
+  const hoje    = new Date();
+  const em7     = new Date(); em7.setDate(hoje.getDate() + 7);
+  const hojeStr = hoje.toISOString().slice(0, 10);
+  const fmt     = iso => new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR', { day:'2-digit', month:'short' });
+
+  const tipoEvento = { prazo_processual:'Prazo', audiencia:'Audiência', lembrete:'Lembrete', reuniao:'Reunião' };
+
+  const secoes = [
+    {
+      cat: 'processos', icon: 'ti-briefcase', label: 'Processos',
+      cor: 'var(--amber)',
+      items: (window._processosDB || []).filter(p => p.notificacao_pendente),
+      html: p => `<div onclick="abrirProcesso('${p.id}');toggleNotifPanel()" style="padding:6px 16px 6px 36px;cursor:pointer;display:flex;align-items:center;gap:8px;border-radius:6px;margin:0 8px 2px;transition:background .12s" onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background='transparent'">
+        <i class="ti ti-point-filled" style="font-size:8px;color:var(--amber);flex-shrink:0"></i>
+        <div style="min-width:0">
+          <div style="font-size:12.5px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.apelido || p.nome}</div>
+          <div style="font-size:11px;color:var(--gray-400)">Nova movimentação</div>
+        </div>
+      </div>`,
+    },
+    {
+      cat: 'calendario', icon: 'ti-calendar', label: 'Calendário',
+      cor: 'var(--blue)',
+      items: (_eventosDB || []).filter(e => { const d = new Date(e.data + 'T12:00:00'); return d >= hoje && d <= em7; }),
+      html: e => `<div onclick="showPage('calendario');toggleNotifPanel()" style="padding:6px 16px 6px 36px;cursor:pointer;display:flex;align-items:center;gap:8px;border-radius:6px;margin:0 8px 2px;transition:background .12s" onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background='transparent'">
+        <i class="ti ti-point-filled" style="font-size:8px;color:var(--blue);flex-shrink:0"></i>
+        <div style="min-width:0;flex:1">
+          <div style="font-size:12.5px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.titulo}</div>
+          <div style="font-size:11px;color:var(--gray-400)">${tipoEvento[e.tipo] || e.tipo} · ${fmt(e.data)}</div>
+        </div>
+      </div>`,
+    },
+    {
+      cat: 'tarefas', icon: 'ti-checklist', label: 'Tarefas',
+      cor: 'var(--red)',
+      items: (_tarefasDB || []).filter(t => t.coluna !== 'concluida' && (t.prioridade === 'urgente' || (t.prazo && t.prazo < hojeStr))),
+      html: t => `<div onclick="showPage('tarefas');toggleNotifPanel()" style="padding:6px 16px 6px 36px;cursor:pointer;display:flex;align-items:center;gap:8px;border-radius:6px;margin:0 8px 2px;transition:background .12s" onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background='transparent'">
+        <i class="ti ti-point-filled" style="font-size:8px;color:var(--red);flex-shrink:0"></i>
+        <div style="min-width:0;flex:1">
+          <div style="font-size:12.5px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.titulo}</div>
+          <div style="font-size:11px;color:${t.prazo && t.prazo < hojeStr ? 'var(--red)' : 'var(--gray-400)'}">${t.prazo && t.prazo < hojeStr ? 'Vencida em ' + fmt(t.prazo) : 'Urgente'}</div>
+        </div>
+      </div>`,
+    },
+  ];
+
+  const todasOff = secoes.every(s => !_notifPrefs[s.cat]);
+  const temItem  = secoes.some(s => _notifPrefs[s.cat] && s.items.length);
+
+  let html = secoes.map(s => {
+    const on    = _notifPrefs[s.cat];
+    const count = on ? s.items.length : 0;
+    const itens = on && s.items.length
+      ? s.items.slice(0, 5).map(s.html).join('') +
+        (s.items.length > 5 ? `<div style="font-size:11px;color:var(--gray-400);padding:2px 16px 10px 36px">+ ${s.items.length - 5} mais</div>` : '')
+      : (on ? `<div style="font-size:12px;color:var(--gray-300);padding:2px 16px 10px 36px">Nenhuma no momento</div>` : '');
+    return `<div style="padding:11px 16px ${on && s.items.length ? '6px' : '11px'};border-bottom:1px solid var(--gray-100)">
+      <div style="display:flex;align-items:center;justify-content:space-between;${on ? 'margin-bottom:6px' : ''}">
+        <div style="display:flex;align-items:center;gap:7px">
+          <i class="ti ${s.icon}" style="font-size:14px;color:var(--navy)"></i>
+          <span style="font-size:13px;font-weight:600;color:var(--gray-900)">${s.label}</span>
+          ${on && count ? `<span style="font-size:10px;font-weight:700;background:var(--amber);color:#1a2e6b;padding:0 6px;border-radius:10px;line-height:17px">${count}</span>` : ''}
+        </div>
+        ${_notifToggleBtn(s.cat)}
+      </div>
+      ${itens}
+    </div>`;
+  }).join('');
+
+  if (todasOff) {
+    html += `<div style="padding:24px 20px;text-align:center;color:var(--gray-400);font-size:13px">
+      <i class="ti ti-bell-slash" style="font-size:28px;display:block;margin-bottom:8px;opacity:.4"></i>
+      Todas as notificações estão desativadas.
+    </div>`;
+  } else if (!temItem) {
+    html += `<div style="padding:20px;text-align:center;color:var(--gray-400);font-size:13px">
+      <i class="ti ti-circle-check" style="font-size:28px;display:block;margin-bottom:8px;color:#22c55e;opacity:.7"></i>
+      Tudo em dia!
+    </div>`;
+  }
+
+  body.innerHTML = html;
 }
 
 // ── LOGOUT ────────────────────────────────────────────────────────────────
@@ -1504,6 +1869,7 @@ window.addEventListener('DOMContentLoaded', () => {
           sincronizarTodos(true);
         });
         carregarEventosDashboard();
+        carregarTarefas();
         aplicarAvatarSidebar();
       }
     }
@@ -1641,6 +2007,255 @@ async function carregarArquivados() {
 
     grid.appendChild(card);
   });
+}
+
+// ── COLABORADORES ─────────────────────────────────────────────────────────
+
+function _avatarCor(str) {
+  const paleta = ['#1a2e6b','#1565c0','#1a7a4a','#9c2b6a','#c0390f','#b07a00','#374151','#0d7377','#7c3aed'];
+  let h = 0;
+  for (let i = 0; i < (str || '').length; i++) h = ((h << 5) - h + (str || '').charCodeAt(i)) | 0;
+  return paleta[Math.abs(h) % paleta.length];
+}
+
+function _avatarIniciais(nome, email) {
+  if (nome) {
+    const p = nome.trim().split(/\s+/).filter(Boolean);
+    if (p.length >= 2) return (p[0][0] + p[p.length - 1][0]).toUpperCase();
+    if (p.length === 1 && p[0].length >= 2) return p[0].slice(0, 2).toUpperCase();
+    if (p.length === 1) return p[0][0].toUpperCase();
+  }
+  if (email) {
+    const pref = email.split('@')[0];
+    return pref.length >= 2 ? pref.slice(0, 2).toUpperCase() : pref[0].toUpperCase();
+  }
+  return '??';
+}
+
+function _membroCardHTML(iniciais, cor, nomeDisplay, emailDisplay, cargoLabel, escopoLabel, dataLabel, btnRemover) {
+  return `
+  <div style="display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--gray-100)">
+    <div style="width:40px;height:40px;border-radius:50%;background:${cor};display:flex;align-items:center;justify-content:center;color:#fff;font-size:13px;font-weight:700;flex-shrink:0;letter-spacing:.5px;user-select:none">
+      ${iniciais}
+    </div>
+    <div style="flex:1;min-width:0">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:1px">
+        <div style="font-size:14px;font-weight:600;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px">${nomeDisplay}</div>
+        <span style="font-size:11px;background:var(--gray-100);color:var(--gray-500);padding:1px 7px;border-radius:10px;white-space:nowrap">${cargoLabel}</span>
+      </div>
+      ${emailDisplay ? `<div style="font-size:12px;color:var(--gray-400);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${emailDisplay}</div>` : ''}
+      <div style="font-size:11px;color:var(--gray-300);margin-top:1px">${escopoLabel}${dataLabel ? ' · ' + dataLabel : ''}</div>
+    </div>
+    ${btnRemover}
+  </div>`;
+}
+
+async function carregarColaboradores() {
+  const lista    = document.getElementById('colab-lista');
+  const convites = document.getElementById('colab-convites');
+  const cardConv = document.getElementById('card-convites-pendentes');
+  const btnConv  = document.getElementById('btn-convidar-colab');
+  const aviso    = document.getElementById('colab-aviso-readonly');
+
+  // Colaboradores não gerenciam a equipe
+  if (window._isColaborador) {
+    if (btnConv) btnConv.style.display = 'none';
+    if (aviso)  { aviso.style.display = 'flex'; }
+  }
+
+  // Carrega membros ativos do escritório
+  const { data: membros, error } = await _supabase
+    .from('colaboradores')
+    .select('*')
+    .eq('escritorio_id', window._escritorioId)
+    .eq('status', 'ativo')
+    .order('created_at', { ascending: true });
+
+  if (!lista) return;
+
+  const cnt = document.getElementById('colab-count');
+  const total = membros?.length || 0;
+  if (cnt) cnt.textContent = `(${total}/3)`;
+
+  // Card do titular (sempre no topo)
+  let titularHTML = '';
+  if (!window._isColaborador) {
+    const meta   = window._user?.user_metadata || {};
+    const nomeT  = meta.full_name || meta.nome || window._user?.email?.split('@')[0] || 'Titular';
+    const emailT = window._user?.email || '';
+    const corT   = meta.avatar_color || '#1a2e6b';
+    const iniT   = _avatarIniciais(nomeT, emailT);
+    titularHTML  = _membroCardHTML(iniT, corT, nomeT, emailT, 'Titular', 'Escritório completo', '', '');
+  }
+
+  if (!membros || !membros.length) {
+    lista.innerHTML = titularHTML + `<div style="padding:20px 20px 24px;text-align:center;color:var(--gray-400);font-size:13px">
+      Nenhum colaborador ainda. Gere um link de convite para adicionar alguém.
+    </div>`;
+  } else {
+    const membrosHTML = membros.map(m => {
+      const proc = m.processo_id
+        ? (window._processosDB || []).find(p => p.id === m.processo_id)
+        : null;
+      const escopoLabel = proc
+        ? `Processo: ${(proc.apelido || proc.nome || proc.numero || '').slice(0, 38)}`
+        : 'Escritório completo';
+      const dataLabel = m.created_at ? `Desde ${new Date(m.created_at).toLocaleDateString('pt-BR')}` : '';
+      const nomeM  = m.nome  || m.email?.split('@')[0] || m.cargo || 'Colaborador';
+      const emailM = m.email || '';
+      const iniM   = _avatarIniciais(nomeM, emailM);
+      const corM   = _avatarCor(nomeM || emailM || m.id);
+      const btnR   = !window._isColaborador
+        ? `<button onclick="removerColaborador('${m.id}')" title="Remover colaborador"
+            style="background:none;border:none;cursor:pointer;color:var(--gray-300);padding:6px;border-radius:6px;font-size:17px;transition:color .15s;flex-shrink:0"
+            onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--gray-300)'">
+            <i class="ti ti-user-minus"></i>
+          </button>`
+        : '';
+      return _membroCardHTML(iniM, corM, nomeM, emailM, m.cargo || 'Colaborador', escopoLabel, dataLabel, btnR);
+    }).join('');
+    lista.innerHTML = titularHTML + membrosHTML;
+  }
+
+  // Convites pendentes (só para titular)
+  if (window._isColaborador) return;
+
+  const { data: pendentes } = await _supabase
+    .from('convites')
+    .select('id, email, cargo, expires_at')
+    .eq('escritorio_id', window._escritorioId)
+    .eq('status', 'pendente')
+    .order('created_at', { ascending: false });
+
+  if (pendentes?.length) {
+    if (cardConv) cardConv.style.display = 'block';
+    convites.innerHTML = pendentes.map(c => `
+      <div style="display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--gray-100)">
+        <i class="ti ti-mail" style="color:var(--gold);font-size:20px;flex-shrink:0"></i>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:600;color:var(--gray-900)">${c.email}</div>
+          <div style="font-size:12px;color:var(--gray-400)">${c.cargo || ''} · Expira em ${new Date(c.expires_at).toLocaleDateString('pt-BR')}</div>
+        </div>
+        <button onclick="cancelarConvite('${c.id}')" title="Cancelar convite"
+          style="background:none;border:none;cursor:pointer;color:var(--gray-400);padding:4px;font-size:16px"
+          onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--gray-400)'">
+          <i class="ti ti-x"></i>
+        </button>
+      </div>`).join('');
+  }
+}
+
+function abrirModalConvite(processoId) {
+  if (window._isColaborador) return;
+  document.getElementById('conv-link-wrap').style.display    = 'none';
+  document.getElementById('conv-erro').style.display         = 'none';
+  document.getElementById('conv-email').value                = '';
+  document.getElementById('conv-cargo').value                = 'Advogado Associado';
+  document.getElementById('conv-nivel').value                = 'total';
+  document.getElementById('conv-escopo').value               = processoId ? 'processo' : 'escritorio';
+  document.getElementById('conv-processo-wrap').style.display = processoId ? 'block' : 'none';
+
+  // Preenche select de processos
+  const sel = document.getElementById('conv-processo');
+  sel.innerHTML = '<option value="">Selecione o processo...</option>';
+  (window._processosDB || []).forEach(p => {
+    const opt = document.createElement('option');
+    opt.value       = p.id;
+    opt.textContent = (p.apelido || p.nome || p.numero || '').slice(0, 60);
+    if (p.id === processoId) opt.selected = true;
+    sel.appendChild(opt);
+  });
+
+  const btn = document.getElementById('btn-gerar-convite');
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-send"></i> Gerar link'; }
+  openModal('modal-convidar-colab');
+}
+
+function toggleConvProcesso() {
+  const escopo = document.getElementById('conv-escopo').value;
+  document.getElementById('conv-processo-wrap').style.display = escopo === 'processo' ? 'block' : 'none';
+}
+
+async function gerarConvite() {
+  const email      = document.getElementById('conv-email').value.trim();
+  const cargo      = document.getElementById('conv-cargo').value.trim() || 'Advogado Associado';
+  const nivel      = document.getElementById('conv-nivel').value;
+  const escopo     = document.getElementById('conv-escopo').value;
+  const processoId = escopo === 'processo' ? (document.getElementById('conv-processo').value || null) : null;
+  const erroEl     = document.getElementById('conv-erro');
+  const btn        = document.getElementById('btn-gerar-convite');
+
+  erroEl.style.display = 'none';
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    erroEl.textContent = 'Digite um e-mail válido.';
+    erroEl.style.display = 'block';
+    return;
+  }
+  if (escopo === 'processo' && !processoId) {
+    erroEl.textContent = 'Selecione um processo.';
+    erroEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled    = true;
+  btn.innerHTML   = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Gerando...';
+
+  const { data: { session } } = await _supabase.auth.getSession();
+  if (!session) { showToast('Sessão expirada.'); return; }
+
+  try {
+    const res  = await fetch('/api/convidar-colaborador', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+      body:    JSON.stringify({ email, cargo, nivel_acesso: nivel, processo_id: processoId }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      erroEl.textContent   = data.erro || 'Erro ao gerar convite.';
+      erroEl.style.display = 'block';
+      btn.disabled    = false;
+      btn.innerHTML   = '<i class="ti ti-send"></i> Gerar link';
+      return;
+    }
+    document.getElementById('conv-link-input').value = data.link;
+    document.getElementById('conv-link-wrap').style.display = 'block';
+    btn.innerHTML = '<i class="ti ti-check"></i> Link gerado!';
+  } catch {
+    erroEl.textContent   = 'Falha na conexão. Tente novamente.';
+    erroEl.style.display = 'block';
+    btn.disabled    = false;
+    btn.innerHTML   = '<i class="ti ti-send"></i> Gerar link';
+  }
+}
+
+function copiarLinkConvite() {
+  const input = document.getElementById('conv-link-input');
+  if (!input?.value) return;
+  navigator.clipboard.writeText(input.value).then(() => showToast('Link copiado!'));
+}
+
+async function removerColaborador(id) {
+  if (!confirm('Remover este colaborador do escritório?')) return;
+  const { error } = await _supabase
+    .from('colaboradores')
+    .update({ status: 'removido' })
+    .eq('id', id)
+    .eq('escritorio_id', window._escritorioId);
+  if (error) { showToast('Erro ao remover colaborador.'); return; }
+  showToast('Colaborador removido.');
+  carregarColaboradores();
+}
+
+async function cancelarConvite(id) {
+  if (!confirm('Cancelar este convite?')) return;
+  const { error } = await _supabase
+    .from('convites')
+    .update({ status: 'expirado' })
+    .eq('id', id)
+    .eq('escritorio_id', window._escritorioId);
+  if (error) { showToast('Erro ao cancelar convite.'); return; }
+  showToast('Convite cancelado.');
+  carregarColaboradores();
 }
 
 // ── CONFIGURAÇÕES / PERFIL ────────────────────────────────────────────────
@@ -1926,6 +2541,7 @@ async function carregarEventosDashboard() {
   if (data) _eventosDB = data;
   atualizarPrazosDash();
   buildMiniCal();
+  atualizarBell();
 
   const em7 = new Date(); em7.setDate(em7.getDate() + 7);
   const proximos = data?.filter(e => new Date(e.data + 'T12:00:00') <= em7) || [];
@@ -2016,6 +2632,7 @@ async function salvarEvento() {
         processo_id:     proc || null,
         urgencia,
         notificar_antes: notif,
+        escritorio_id:   window._isColaborador ? window._escritorioId : undefined,
       }),
     });
 
@@ -2156,6 +2773,7 @@ async function carregarTarefas() {
     .order('created_at', { ascending: true });
 
   if (!error && data) _tarefasDB = data;
+  atualizarBell();
 
   const total = _tarefasDB.length;
   const sub   = document.getElementById('tarefas-sub');
@@ -2264,7 +2882,7 @@ async function salvarTarefa() {
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Salvando...'; }
 
   const { error } = await _supabase.from('tarefas').insert({
-    user_id:     window._user?.id,
+    user_id:     window._escritorioId,
     titulo,
     processo_id: processo || null,
     coluna,
@@ -2303,7 +2921,7 @@ async function _importarComMerge(d) {
   const { data: existente } = await _supabase
     .from('processos')
     .select('id,apelido,cliente,notas_manuais,movimentos_recentes,movimentos_hash')
-    .eq('user_id', window._user?.id)
+    .eq('user_id', window._escritorioId)
     .eq('numero', d.numero)
     .maybeSingle();
 
@@ -2329,7 +2947,7 @@ async function _importarComMerge(d) {
   // Processo novo
   const clientePart = (d.partes || []).find(p => /autor|requerente|reclamante/i.test(p.tipo));
   const { error } = await _supabase.from('processos').insert({
-    user_id:             window._user?.id,
+    user_id:             window._escritorioId,
     numero:              d.numero             || '',
     nome:                d.classe             || d.numero || '',
     cliente:             clientePart?.nome    || '',
@@ -2455,19 +3073,18 @@ const PYTHON_API = window.location.hostname === 'localhost' || window.location.h
   ? 'http://localhost:8000'
   : 'https://meuprocesso-api.up.railway.app';
 
-// Data limite dos dados indexados no buscador DJe (portal congela em dez/2024)
-const DJE_DATA_LIMITE = '2024-12-31';
-const DJE_DATA_INICIO_PADRAO = '2024-01-01';
+// Usa a API do DJEN (comunicaapi.pje.jus.br) — dados atuais, CORS aberto, sem autenticação.
+// Substitui o buscador pesquisadje.tjdft.jus.br que congelou em out/2024.
+const DJEN_API = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
+const DJE_DATA_INICIO_PADRAO = new Date(new Date().getFullYear() + '-01-01').toISOString().slice(0, 10);
 
 function inicializarDatesDJe() {
-  const ini = document.getElementById('dje-data-inicio');
-  const fim = document.getElementById('dje-data-fim');
+  const ini   = document.getElementById('dje-data-inicio');
+  const fim   = document.getElementById('dje-data-fim');
   const aviso = document.getElementById('dje-aviso-periodo');
   if (ini && !ini.value) ini.value = DJE_DATA_INICIO_PADRAO;
-  if (fim && !fim.value) fim.value = DJE_DATA_LIMITE;
-  if (aviso) {
-    aviso.textContent = 'Dados indexados até dez/2024. Para datas mais recentes use o PJe (card ao lado).';
-  }
+  if (fim && !fim.value) fim.value = new Date().toISOString().slice(0, 10);
+  if (aviso) aviso.innerHTML = '';
 }
 
 async function verificarBackendPython() {
@@ -2515,10 +3132,16 @@ function _extrairTipoDecisao(txt) {
   return '';
 }
 
+// Extrai número e UF da OAB de uma string normalizada ("DF59360" → {num:"59360", uf:"DF"})
+function _parsearOAB(normalizado) {
+  const m = normalizado.match(/^([A-Z]{2})(\d+)$/);
+  return m ? { uf: m[1], num: m[2] } : null;
+}
+
 async function rodarMonitorDJe() {
   const rawQuery   = document.getElementById('dje-query')?.value.trim();
-  const dataInicio = document.getElementById('dje-data-inicio')?.value || null;
-  const dataFim    = document.getElementById('dje-data-fim')?.value    || null;
+  const dataInicio = document.getElementById('dje-data-inicio')?.value || DJE_DATA_INICIO_PADRAO;
+  const dataFim    = document.getElementById('dje-data-fim')?.value    || new Date().toISOString().slice(0, 10);
 
   if (!rawQuery) { showToast('Informe OAB ou nome do advogado.'); return; }
 
@@ -2526,33 +3149,63 @@ async function rodarMonitorDJe() {
   const title = document.getElementById('dje-resultado-titulo');
   const lista = document.getElementById('dje-resultado-lista');
 
-  const tipo       = _tipoQueryDJe(rawQuery);
-  const queryFinal = tipo === 'oab' ? (_normalizarOAB(rawQuery) || rawQuery) : rawQuery;
-  const fimStr     = dataFim    || DJE_DATA_LIMITE;
-  const iniStr     = dataInicio || DJE_DATA_INICIO_PADRAO;
-
-  title.textContent  = `Buscando "${queryFinal}" no DJe TJDFT…`;
   lista.innerHTML    = '';
   wrap.style.display = 'block';
 
+  // Suporta múltiplas OABs separadas por vírgula: "DF59360, SP12345"
+  const entradas = rawQuery.split(',').map(s => s.trim()).filter(Boolean);
+  const oabsParsadas = entradas
+    .map(e => { const n = _normalizarOAB(e); return n ? _parsearOAB(n) : null; })
+    .filter(Boolean);
+  const isOAB = oabsParsadas.length > 0;
+  const label = isOAB ? oabsParsadas.map(o => `${o.uf}${o.num}`).join(', ') : rawQuery;
+
+  title.textContent = `Buscando "${label}" no DJEN nacional…`;
+
   try {
-    const url = `https://pesquisadje.tjdft.jus.br/api/v1/buscador`
-      + `?query=${encodeURIComponent(queryFinal)}`
-      + `&pagina=0&tamanho=20`
-      + `&dataInicio=${iniStr}&dataFim=${fimStr}`;
+    const baseParams = {
+      dataDisponibilizacaoInicio: dataInicio,
+      dataDisponibilizacaoFim:    dataFim,
+      pagina:        1,
+      tamanhoPagina: 50,
+    };
 
-    const res  = await fetch(url);
-    if (!res.ok) throw new Error(`Erro ${res.status} na API do DJe.`);
-    const json = await res.json();
+    // Faz uma requisição por OAB em paralelo; sem OAB faz uma só requisição por nome
+    const requisicoes = isOAB
+      ? oabsParsadas.map(oab => {
+          const p = new URLSearchParams({ ...baseParams, numeroOab: oab.num, ufOab: oab.uf });
+          return fetch(`${DJEN_API}?${p}`).then(r => r.ok ? r.json() : { items: [], count: 0 });
+        })
+      : [fetch(`${DJEN_API}?${new URLSearchParams(baseParams)}`).then(r => r.ok ? r.json() : { items: [], count: 0 })];
 
-    const docs  = json.documentos || [];
-    const total = json.total || 0;
+    const resultados = await Promise.all(requisicoes);
 
-    title.textContent = total
-      ? `${total} publicação(ões) — exibindo ${docs.length}`
-      : `Nenhuma publicação encontrada para "${queryFinal}" no período`;
+    // Mescla, deduplica por id e ordena por data mais recente
+    const vistos = new Set();
+    let items = resultados.flatMap(r => r.items || []).filter(item => {
+      if (vistos.has(item.id)) return false;
+      vistos.add(item.id);
+      return true;
+    }).sort((a, b) => (b.data_disponibilizacao || '').localeCompare(a.data_disponibilizacao || ''));
 
-    if (!docs.length) {
+    const total = resultados.reduce((s, r) => s + (r.count || 0), 0);
+
+    // Para busca por nome: filtra client-side nos destinatários
+    if (!isOAB && rawQuery.length >= 3) {
+      const palavras = rawQuery.toLowerCase().split(/\s+/).filter(p => p.length > 2);
+      items = items.filter(item => {
+        const advs = (item.destinatarioadvogados || []).map(d => (d.advogado?.nome || '').toLowerCase());
+        const textoLower = (item.texto || '').toLowerCase();
+        return advs.some(n => palavras.every(p => n.includes(p)))
+          || palavras.every(p => textoLower.includes(p));
+      });
+    }
+
+    title.textContent = items.length
+      ? `${total} publicação(ões) no período — exibindo ${items.length}`
+      : `Nenhuma publicação encontrada para "${label}" no período`;
+
+    if (!items.length) {
       lista.innerHTML = `<div style="text-align:center;padding:20px;color:var(--gray-400);font-size:13px">
         <i class="ti ti-mood-empty" style="font-size:28px;display:block;margin-bottom:8px;opacity:.4"></i>
         Nenhuma publicação no período selecionado.<br>
@@ -2563,27 +3216,55 @@ async function rodarMonitorDJe() {
 
     const PADRAO_PROC = /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/g;
     const fmt = iso => iso ? new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR') : '';
+    const stripHtml = h => h
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ').trim();
 
-    // Enriquece cada doc com processos extraídos e match local
-    window._djeResultados = docs.map(doc => {
-      const previewTxt  = (doc.preview || []).join(' ');
-      const processos   = [...new Set(previewTxt.match(PADRAO_PROC) || [])];
-      const tipoDecisao = _extrairTipoDecisao(previewTxt);
-      // Cruza com processos já cadastrados
+    // Extrai nomes de partes do texto da publicação
+    const extrairPartes = txt => {
+      const polos = { cliente: null, contrario: null };
+      const reqs = txt.match(/(?:REQUERENTE|AUTOR[AE]?|EXEQUENTE|IMPETRANTE|RECORRENTE)\s*[:\-]\s*([A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇ][A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇa-záéíóúâêîôûãõç\s]{3,50}?)(?=\s{2,}|ADVOGADO|OAB|\n|CPF|REQUERIDO|RÉU)/i);
+      const reus  = txt.match(/(?:REQUERIDO[A]?|RÉU|RÉUS|EXECUTADO[A]?|IMPETRADO|RECORRIDO)\s*[:\-]\s*([A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇ][A-ZÁÉÍÓÚÂÊÎÔÛÃÕÇa-záéíóúâêîôûãõç\s]{3,50}?)(?=\s{2,}|ADVOGADO|OAB|\n|CPF|REQUERENTE|AUTOR)/i);
+      if (reqs) polos.cliente   = reqs[1].trim();
+      if (reus) polos.contrario = reus[1].trim();
+      return polos;
+    };
+
+    window._djeResultados = items.map(item => {
+      const textoLimpo = stripHtml(item.texto || '');
+      const processoMask = item.numeroprocessocommascara || '';
+      // Extrai todos os números CNJ do texto também
+      const numerosExtras = [...new Set((textoLimpo.match(PADRAO_PROC) || []))];
+      const processos = processoMask
+        ? [processoMask, ...numerosExtras.filter(n => n !== processoMask)]
+        : numerosExtras;
+      const tipoDecisao = _extrairTipoDecisao(textoLimpo);
+      const partes      = extrairPartes(textoLimpo);
       const matches = processos
         .map(num => (window._processosDB || []).find(p => p.numero === num))
         .filter(Boolean);
-      return { ...doc, processos, tipoDecisao, previewTxt, matches };
+      return { ...item, textoLimpo, processos, tipoDecisao, partes, matches };
     });
 
-    lista.innerHTML = window._djeResultados.map((doc, i) => {
-      const preview = doc.previewTxt
-        .replace(/<em>/g, '<mark style="background:#fef3c7;padding:0 1px;border-radius:2px">')
-        .replace(/<\/em>/g, '</mark>');
+    // Botão "Importar todos" no topo dos resultados
+    const semCadastro = window._djeResultados.filter(d => !d.matches.length && d.processos[0]);
+    lista.innerHTML = semCadastro.length > 1 ? `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 2px 10px">
+        <span style="font-size:12px;color:var(--gray-500)">${semCadastro.length} processo(s) não cadastrado(s)</span>
+        <button class="btn-primary" style="font-size:11px;padding:5px 14px" onclick="importarTodosDJe()">
+          <i class="ti ti-download"></i> Importar todos
+        </button>
+      </div>` : '';
 
+    lista.innerHTML += window._djeResultados.map((doc, i) => {
+      const preview = doc.textoLimpo.slice(0, 220) + (doc.textoLimpo.length > 220 ? '…' : '');
       const temMatch = doc.matches.length > 0;
+      const numPrincipal = doc.processos[0] || '';
+      const dataFmt = fmt(doc.data_disponibilizacao);
+      const orgao = doc.nomeOrgao || '';
 
-      // ── Card: processo já cadastrado ────────────────────────────
       if (temMatch) {
         const proc = doc.matches[0];
         return `
@@ -2595,16 +3276,11 @@ async function rodarMonitorDJe() {
                 </span>
                 ${doc.tipoDecisao ? `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;background:#e8edf5;color:var(--navy)">${doc.tipoDecisao}</span>` : ''}
               </div>
-              <span style="font-size:10px;color:var(--gray-400);white-space:nowrap">${fmt(doc.dataDisponibilizacao)} · ed. ${doc.numero}</span>
+              <span style="font-size:10px;color:var(--gray-400);white-space:nowrap">${dataFmt}</span>
             </div>
-
-            <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:2px">
-              ${proc.apelido || proc.nome}
-            </div>
-            <div style="font-size:11px;color:var(--gray-500);margin-bottom:8px">${doc.processos[0]}</div>
-
+            <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:2px">${proc.apelido || proc.nome}</div>
+            <div style="font-size:11px;color:var(--gray-500);margin-bottom:4px">${numPrincipal} · ${orgao}</div>
             <div style="font-size:11px;color:var(--gray-700);line-height:1.6;max-height:60px;overflow:hidden;margin-bottom:10px">${preview}</div>
-
             <div style="display:flex;gap:8px;flex-wrap:wrap">
               <button class="btn-primary" style="font-size:11px;padding:6px 12px;gap:5px"
                 onclick="salvarAtualizacaoDJe(${i},'${proc.id}',this)">
@@ -2614,47 +3290,44 @@ async function rodarMonitorDJe() {
                 onclick="abrirProcesso('${proc.id}')">
                 <i class="ti ti-arrow-right"></i> Ver processo
               </button>
-              ${doc.urlDiario ? `
-                <a href="${doc.urlDiario}" target="_blank" rel="noopener"
-                   style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--gray-500);padding:6px 8px;text-decoration:none">
-                  <i class="ti ti-external-link" style="font-size:11px"></i> DJe
-                </a>` : ''}
+              ${doc.link ? `<a href="${doc.link}" target="_blank" rel="noopener"
+                style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--gray-500);padding:6px 8px;text-decoration:none">
+                <i class="ti ti-external-link" style="font-size:11px"></i> DJEN</a>` : ''}
             </div>
           </div>`;
       }
 
-      // ── Card: processo não cadastrado ───────────────────────────
-      const numPrincipal = doc.processos[0] || '';
       return `
         <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);padding:12px 14px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px">
             <div style="display:flex;align-items:center;gap:6px">
               <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:#e8edf5;color:var(--navy);letter-spacing:.03em">
-                PUBLICAÇÃO
+                ${doc.tipoComunicacao || 'PUBLICAÇÃO'}
               </span>
               ${doc.tipoDecisao ? `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;background:#f3f4f6;color:var(--gray-600)">${doc.tipoDecisao}</span>` : ''}
             </div>
-            <span style="font-size:10px;color:var(--gray-400);white-space:nowrap">${fmt(doc.dataDisponibilizacao)} · ed. ${doc.numero}</span>
+            <span style="font-size:10px;color:var(--gray-400);white-space:nowrap">${dataFmt}</span>
           </div>
-
-          <div style="font-size:12px;font-weight:600;color:var(--navy);margin-bottom:6px">
+          <div style="font-size:12px;font-weight:600;color:var(--navy);margin-bottom:2px">
             ${numPrincipal || 'Processo não identificado'}
             ${doc.processos.length > 1 ? `<span style="color:var(--gray-400);font-weight:400"> +${doc.processos.length-1}</span>` : ''}
           </div>
-
+          <div style="font-size:11px;color:var(--gray-500);margin-bottom:4px">${orgao}</div>
+          ${doc.partes?.cliente ? `<div style="font-size:11px;color:var(--gray-600);margin-bottom:4px">
+            <span style="color:var(--gray-400)">Cliente: </span>${doc.partes.cliente}
+            ${doc.partes.contrario ? ` · <span style="color:var(--gray-400)">vs </span>${doc.partes.contrario}` : ''}
+          </div>` : ''}
           <div style="font-size:11px;color:var(--gray-600);line-height:1.6;max-height:60px;overflow:hidden;margin-bottom:10px">${preview}</div>
-
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             ${numPrincipal ? `
               <button class="btn-secondary" style="font-size:11px;padding:6px 12px;gap:5px"
                 onclick="importarProcessoDJe(${i})">
                 <i class="ti ti-plus"></i> Importar processo
               </button>` : ''}
-            ${doc.urlDiario ? `
-              <a href="${doc.urlDiario}" target="_blank" rel="noopener"
-                 style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--navy);font-weight:600;padding:6px 8px;text-decoration:none">
-                <i class="ti ti-external-link" style="font-size:11px"></i> Abrir no DJe
-              </a>` : ''}
+            ${doc.link ? `<a href="${doc.link}" target="_blank" rel="noopener"
+              style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--navy);font-weight:600;padding:6px 8px;text-decoration:none">
+              <i class="ti ti-external-link" style="font-size:11px"></i> Abrir no DJEN
+            </a>` : ''}
           </div>
         </div>`;
     }).join('');
@@ -2662,7 +3335,7 @@ async function rodarMonitorDJe() {
   } catch (e) {
     title.textContent = '';
     lista.innerHTML = `<div style="color:var(--red);font-size:13px;padding:10px">
-      ❌ ${e.message || 'Erro ao acessar o DJe TJDFT.'}
+      ❌ ${e.message || 'Erro ao acessar o DJEN.'}
     </div>`;
   }
 }
@@ -2721,25 +3394,108 @@ async function salvarAtualizacaoDJe(docIndex, processoId, btn) {
   showToast(`Atualização salva em "${proc.apelido || proc.nome}"`);
 }
 
-function importarProcessoDJe(docIndex) {
+async function importarProcessoDJe(docIndex) {
   const doc = (window._djeResultados || [])[docIndex];
-  if (!doc) return;
+  if (!doc || !doc.processos[0]) return;
 
-  closeModal('modal-busca-tribunal');
-  openModal('modal-novo-processo');
+  const jaExiste = (window._processosDB || []).some(p => p.numero === doc.processos[0]);
+  if (jaExiste) { showToast('Processo já está cadastrado.'); return; }
 
-  setTimeout(() => {
-    const num = doc.processos[0] || '';
-    document.getElementById('np-numero').value  = num;
-    document.getElementById('np-nome').value    = doc.tipoDecisao || '';
-    document.getElementById('np-tribunal').value = 'TJDFT';
-    document.getElementById('np-classe').value   = doc.tipoDecisao || '';
-    window._importMovimentos = [{
-      data: doc.dataDisponibilizacao + 'T00:00:00',
-      nome: `DJe ed.${doc.numero} — ${doc.tipoDecisao || 'Publicação'}`,
-    }];
-    showToast('Dados do DJe carregados');
-  }, 100);
+  const btn = document.querySelector(`button[onclick="importarProcessoDJe(${docIndex})"]`);
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Importando…'; }
+
+  const mov = `DJEN — ${doc.tipoComunicacao || 'Publicação'}${doc.tipoDecisao ? ' · ' + doc.tipoDecisao : ''}`;
+  // Usa o nome digitado pelo advogado para processos em segredo de justiça
+  const clienteManual = document.getElementById(`dje-cliente-manual-${docIndex}`)?.value.trim() || null;
+  const clienteFinal  = clienteManual || (doc.partes?.cliente?.length > 2 ? doc.partes.cliente : null);
+  const userId = window._escritorioId || window._user?.id;
+  const numero = doc.processos[0];
+
+  const { error } = await _supabase.from('processos').insert({
+    user_id:         userId,
+    numero,
+    nome:            [doc.nomeClasse, doc.tipoDecisao].filter(Boolean).join(' · ') || doc.tipoComunicacao || 'Publicação DJEN',
+    tribunal:        doc.siglaTribunal    || '',
+    cliente:         clienteFinal,
+    parte_contraria: doc.partes?.contrario?.length > 2 ? doc.partes.contrario : null,
+    area:            _detectarArea(doc.siglaTribunal, doc.nomeClasse),
+    classe:          doc.nomeClasse  || null,
+    orgao_julgador:  doc.nomeOrgao   || null,
+    movimentos_recentes: [{ data: (doc.data_disponibilizacao || '') + 'T00:00:00', nome: mov }],
+    movimentos_hash:     (doc.data_disponibilizacao || '') + mov,
+    ultima_verificacao:  new Date().toISOString(),
+  });
+
+  if (error) {
+    showToast('Erro ao importar: ' + error.message);
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-plus"></i> Importar processo'; }
+    return;
+  }
+
+  if (btn) btn.innerHTML = '<i class="ti ti-check"></i> Importado';
+  showToast(`✓ Processo ${numero} importado! Carregando timeline do CNJ…`, 'success');
+  await carregarProcessos();
+
+  // Enriquece com movimentos completos do DataJud em background
+  _enriquecerComDatajud(numero);
+}
+
+// Busca movimentos completos no DataJud e atualiza o processo recém-importado
+async function _enriquecerComDatajud(numero) {
+  try {
+    const r = await fetch(`/api/buscar-processo?tipo=numero&numero=${encodeURIComponent(numero)}`);
+    if (!r.ok) return;
+    const d = await r.json();
+    const p = d.resultados?.[0];
+    if (!p?.movimentos?.length) return;
+
+    const update = {
+      movimentos_recentes: p.movimentos,
+      movimentos_hash: p.movimentos.slice(0, 20).map(m => (m.data || '') + (m.nome || '')).join('|').slice(0, 500),
+      ultima_verificacao: new Date().toISOString(),
+    };
+    // Aproveita dados extras do DataJud se não vieram do DJEN
+    if (p.tribunal)      update.tribunal      = p.tribunal;
+    if (p.orgaoJulgador) update.orgao_julgador = p.orgaoJulgador;
+    if (p.classe)        update.classe         = p.classe;
+
+    const userId = window._escritorioId || window._user?.id;
+    await _supabase.from('processos').update(update).eq('numero', numero).eq('user_id', userId);
+    await carregarProcessos();
+    showToast(`Timeline completa carregada: ${p.movimentos.length} movimentos`, 'success');
+  } catch (_) { /* silently fail — timeline básica do DJEN já foi salva */ }
+}
+
+async function importarTodosDJe() {
+  const pendentes = (window._djeResultados || []).filter(d => !d.matches.length && d.processos[0]);
+  if (!pendentes.length) { showToast('Nenhum processo novo para importar.'); return; }
+
+  showToast(`Importando ${pendentes.length} processo(s)...`);
+  let ok = 0, erros = 0;
+
+  for (const doc of pendentes) {
+    try {
+      const { error } = await _supabase.from('processos').insert({
+        user_id:         window._escritorioId || window._user?.id,
+        numero:          doc.processos[0],
+        nome:            [doc.nomeClasse, doc.tipoDecisao].filter(Boolean).join(' · ') || doc.tipoComunicacao || 'Publicação DJEN',
+        tribunal:        doc.siglaTribunal || '',
+        cliente:         doc.partes?.cliente   || null,
+        parte_contraria: doc.partes?.contrario || null,
+        area:            _detectarArea(doc.siglaTribunal, doc.nomeClasse),
+        classe:          doc.nomeClasse  || null,
+        orgao_julgador:  doc.nomeOrgao   || null,
+        movimentos_recentes: [{
+          data: (doc.data_disponibilizacao || '') + 'T00:00:00',
+          nome: `DJEN — ${doc.tipoComunicacao || 'Publicação'}${doc.tipoDecisao ? ' · ' + doc.tipoDecisao : ''}`,
+        }],
+      });
+      if (error) erros++; else ok++;
+    } catch (_) { erros++; }
+  }
+
+  await carregarProcessos();
+  showToast(`${ok} importado(s)${erros ? ` · ${erros} com falha` : ''}.`);
 }
 
 async function rodarScraperPJe() {
