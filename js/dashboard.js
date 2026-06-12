@@ -342,24 +342,47 @@ async function buscarAdvogadoDJEN() {
   const label = isOAB ? oabsParsadas.map(o => `${o.uf} ${o.num}`).join(', ') : rawQuery;
 
   try {
-    const base = { dataDisponibilizacaoInicio: dataInicio, dataDisponibilizacaoFim: dataFim, pagina: 1, tamanhoPagina: 100 };
+    const PAGE_SIZE = 100;
+    const base = { dataDisponibilizacaoInicio: dataInicio, dataDisponibilizacaoFim: dataFim, pagina: 1, tamanhoPagina: PAGE_SIZE };
+
+    const _fetchDJEN = (params) => fetch(`${DJEN_API}?${new URLSearchParams(params)}`).then(r => r.ok ? r.json() : { items: [], count: 0 });
 
     let reqs;
     if (isOAB) {
-      reqs = oabsParsadas.map(oab => fetch(`${DJEN_API}?${new URLSearchParams({ ...base, numeroOab: oab.num, ufOab: oab.uf })}`).then(r => r.ok ? r.json() : { items: [], count: 0 }));
+      reqs = oabsParsadas.map(oab => _fetchDJEN({ ...base, numeroOab: oab.num, ufOab: oab.uf }));
     } else {
-      // Busca por nome via parâmetro da API — retorna resultados reais, não só os 100 primeiros do dia
       const params = { ...base, nomeAdvogado: rawQuery };
       if (ufSelecionada) params.ufOab = ufSelecionada;
-      reqs = [fetch(`${DJEN_API}?${new URLSearchParams(params)}`).then(r => r.ok ? r.json() : { items: [], count: 0 })];
+      reqs = [_fetchDJEN(params)];
     }
 
     const resultados = await Promise.all(reqs);
     const vistos = new Set();
-    let items = resultados.flatMap(r => r.items || []).filter(item => { if (vistos.has(item.id)) return false; vistos.add(item.id); return true; })
-      .sort((a, b) => (b.data_disponibilizacao || '').localeCompare(a.data_disponibilizacao || ''));
-
+    let items = resultados.flatMap(r => r.items || []).filter(item => { if (vistos.has(item.id)) return false; vistos.add(item.id); return true; });
     const total = resultados.reduce((s, r) => s + (r.count || 0), 0);
+
+    // Paginação: busca as páginas restantes se houver mais resultados
+    if (total > items.length) {
+      const numPaginas = Math.min(Math.ceil(total / PAGE_SIZE), 10); // máx 10 páginas (1000 resultados)
+      const reqsExtras = [];
+      for (let pg = 2; pg <= numPaginas; pg++) {
+        if (isOAB) {
+          oabsParsadas.forEach(oab => reqsExtras.push(_fetchDJEN({ ...base, pagina: pg, numeroOab: oab.num, ufOab: oab.uf })));
+        } else {
+          const p = { ...base, pagina: pg, nomeAdvogado: rawQuery };
+          if (ufSelecionada) p.ufOab = ufSelecionada;
+          reqsExtras.push(_fetchDJEN(p));
+        }
+      }
+      if (reqsExtras.length) {
+        titulo.textContent = `Carregando mais resultados (${items.length} de ${total})…`;
+        const extras = await Promise.all(reqsExtras);
+        const maisItems = extras.flatMap(r => r.items || []).filter(item => { if (vistos.has(item.id)) return false; vistos.add(item.id); return true; });
+        items = [...items, ...maisItems];
+      }
+    }
+
+    items.sort((a, b) => (b.data_disponibilizacao || '').localeCompare(a.data_disponibilizacao || ''));
 
     if (!items.length) {
       titulo.textContent = `Nenhuma publicação encontrada para "${label}" no período`;
@@ -370,7 +393,7 @@ async function buscarAdvogadoDJEN() {
       return;
     }
 
-    titulo.textContent = `${total} publicação(ões) — exibindo ${items.length}`;
+    titulo.textContent = `${items.length} publicação(ões)${total > items.length ? ` de ${total}` : ''}`;
 
     const stripHtml2 = h => h.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '').replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     const fmt2 = iso => iso ? new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR') : '';
@@ -400,37 +423,55 @@ async function buscarAdvogadoDJEN() {
       </div>` : '';
 
     html += window._djeResultados.map((doc, i) => {
-      const preview      = doc.textoLimpo.slice(0, 200) + (doc.textoLimpo.length > 200 ? '…' : '');
       const numPrincipal = doc.processos[0] || '';
       const dataFmt      = fmt2(doc.data_disponibilizacao);
-      const orgao        = doc.nomeOrgao || doc.siglaTribunal || '';
+      const orgao        = (doc.nomeOrgao || '').slice(0, 60);
       const temMatch     = doc.matches.length > 0;
+      const semNumero    = !numPrincipal;
 
-      const badgeTipo = `<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:${temMatch ? '#dcfce7;color:#166534' : '#e8edf5;color:var(--navy)'};letter-spacing:.03em">${temMatch ? '<i class="ti ti-bell-ringing" style="font-size:10px"></i> ATUALIZAÇÃO' : (doc.tipoComunicacao || 'PUBLICAÇÃO')}</span>`;
-      const badgeDecisao = doc.tipoDecisao ? `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;background:#f3f4f6;color:var(--gray-600)">${doc.tipoDecisao}</span>` : '';
+      const badgeTipo = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;background:${temMatch ? '#dcfce7;color:#166534' : '#e8edf5;color:var(--navy)'};white-space:nowrap">${temMatch ? '✓ No sistema' : (doc.tipoComunicacao || 'PUBLICAÇÃO')}</span>`;
+      const badgeDecisao = doc.tipoDecisao ? `<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#f3f4f6;color:var(--gray-500)">${doc.tipoDecisao}</span>` : '';
 
-      return `<div style="background:${temMatch ? '#f0fdf4;border:1.5px solid #86efac' : 'var(--gray-50);border:1px solid var(--gray-200)'};border-radius:var(--radius);padding:12px 14px">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px">
-          <div style="display:flex;align-items:center;gap:6px">${badgeTipo}${badgeDecisao}</div>
+      // Card compacto para processos já no sistema
+      if (temMatch) {
+        return `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:10px">
+          <div style="flex:1;min-width:0">
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">${badgeTipo}${badgeDecisao}
+              <span style="font-size:10px;color:var(--gray-400);margin-left:auto;white-space:nowrap">${dataFmt} · ${doc.siglaTribunal || ''}</span>
+            </div>
+            <div style="font-size:12px;font-weight:600;color:var(--navy);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${numPrincipal || 'sem número'}${doc.processos.length > 1 ? ` <span style="color:var(--gray-400);font-weight:400">+${doc.processos.length-1}</span>` : ''}</div>
+            ${orgao ? `<div style="font-size:10px;color:var(--gray-500);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${orgao}</div>` : ''}
+          </div>
+          <div style="display:flex;gap:6px;flex-shrink:0">
+            <button class="btn-primary" style="font-size:11px;padding:4px 10px;white-space:nowrap" onclick="salvarAtualizacaoDJe(${i},'${doc.matches[0].id}',this)"><i class="ti ti-check"></i> Salvar</button>
+            <button class="btn-secondary" style="font-size:11px;padding:4px 8px" onclick="abrirProcesso('${doc.matches[0].id}')"><i class="ti ti-arrow-right"></i></button>
+            ${doc.link ? `<a href="${doc.link}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;font-size:11px;color:var(--gray-400);padding:4px 6px;text-decoration:none" title="DJEN"><i class="ti ti-external-link"></i></a>` : ''}
+          </div>
+        </div>`;
+      }
+
+      // Card expandido para processos novos (não cadastrados)
+      const segredo = doc.partes?.cliente?.length <= 2;
+      const clienteHtml = segredo
+        ? `<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;padding:6px 10px;margin:6px 0">
+             <div style="font-size:10px;font-weight:700;color:#92400e;margin-bottom:4px"><i class="ti ti-lock" style="font-size:10px"></i> Segredo de Justiça</div>
+             <input id="dje-cliente-manual-${i}" type="text" class="form-input" placeholder="Nome do cliente" style="font-size:11px;padding:5px 9px">
+           </div>`
+        : (doc.partes?.cliente ? `<div style="font-size:11px;color:var(--gray-700);margin:3px 0"><b>Cliente:</b> ${doc.partes.cliente}${doc.partes.contrario ? ` · <b>vs</b> ${doc.partes.contrario}` : ''}</div>` : '');
+      const preview = semNumero ? '' : doc.textoLimpo.slice(0, 110) + (doc.textoLimpo.length > 110 ? '…' : '');
+
+      return `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:10px 12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:8px">
+          <div style="display:flex;align-items:center;gap:5px">${badgeTipo}${badgeDecisao}</div>
           <span style="font-size:10px;color:var(--gray-400);white-space:nowrap">${dataFmt} · ${doc.siglaTribunal || ''}</span>
         </div>
-        <div style="font-size:12px;font-weight:600;color:var(--navy);margin-bottom:2px">${numPrincipal || 'Processo não identificado'}${doc.processos.length > 1 ? `<span style="color:var(--gray-400);font-weight:400"> +${doc.processos.length-1}</span>` : ''}</div>
-        <div style="font-size:11px;color:var(--gray-500);margin-bottom:${doc.partes?.cliente ? '3px' : '6px'}">${orgao}</div>
-        ${doc.partes?.cliente && doc.partes.cliente.length <= 2
-          ? `<div style="background:#fffbeb;border:1px solid #f59e0b;border-radius:6px;padding:8px 10px;margin-bottom:8px">
-               <div style="font-size:11px;font-weight:700;color:#92400e;margin-bottom:6px"><i class="ti ti-lock" style="font-size:11px"></i> Segredo de Justiça</div>
-               <input id="dje-cliente-manual-${i}" type="text" class="form-input" placeholder="Nome do cliente (salvo só para você)" style="font-size:11px;padding:6px 10px">
-             </div>`
-          : (doc.partes?.cliente
-              ? `<div style="font-size:11px;color:var(--gray-700);margin-bottom:6px"><b>Cliente:</b> ${doc.partes.cliente}${doc.partes.contrario ? ` &nbsp;·&nbsp; <b>vs</b> ${doc.partes.contrario}` : ''}</div>`
-              : '')}
-        <div style="font-size:11px;color:var(--gray-600);line-height:1.6;max-height:48px;overflow:hidden;margin-bottom:10px">${preview}</div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap">
-          ${temMatch ? `
-            <button class="btn-primary" style="font-size:11px;padding:5px 11px" onclick="salvarAtualizacaoDJe(${i},'${doc.matches[0].id}',this)"><i class="ti ti-check"></i> Salvar atualização</button>
-            <button class="btn-secondary" style="font-size:11px;padding:5px 11px" onclick="abrirProcesso('${doc.matches[0].id}')"><i class="ti ti-arrow-right"></i> Ver processo</button>
-          ` : (numPrincipal ? `<button class="btn-secondary" style="font-size:11px;padding:5px 11px" onclick="importarProcessoDJe(${i})"><i class="ti ti-plus"></i> Importar processo</button>` : '')}
-          ${doc.link ? `<a href="${doc.link}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--navy);padding:5px 8px;text-decoration:none"><i class="ti ti-external-link" style="font-size:11px"></i> DJEN</a>` : ''}
+        <div style="font-size:12px;font-weight:600;color:var(--navy)">${numPrincipal || '<span style="color:var(--gray-400);font-style:italic">Sem número</span>'}${doc.processos.length > 1 ? ` <span style="color:var(--gray-400);font-weight:400;font-size:11px">+${doc.processos.length-1}</span>` : ''}</div>
+        ${orgao ? `<div style="font-size:10px;color:var(--gray-500);margin-top:1px">${orgao}</div>` : ''}
+        ${clienteHtml}
+        ${preview ? `<div style="font-size:11px;color:var(--gray-500);margin-top:5px;line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${preview}</div>` : ''}
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+          ${numPrincipal ? `<button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="importarProcessoDJe(${i})"><i class="ti ti-plus"></i> Importar</button>` : ''}
+          ${doc.link ? `<a href="${doc.link}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--gray-400);padding:4px 6px;text-decoration:none"><i class="ti ti-external-link" style="font-size:11px"></i> DJEN</a>` : ''}
         </div>
       </div>`;
     }).join('');
@@ -3607,17 +3648,22 @@ async function _enriquecerComDatajud(numero) {
 }
 
 async function importarTodosDJe() {
-  const pendentes = (window._djeResultados || []).filter(d => !d.matches.length && d.processos[0]);
+  const dbNums = new Set((window._processosDB || []).map(p => p.numero).filter(Boolean));
+  const pendentes = (window._djeResultados || []).filter(d =>
+    d.processos[0] && !d.matches?.length && !dbNums.has(d.processos[0])
+  );
   if (!pendentes.length) { showToast('Nenhum processo novo para importar.'); return; }
 
   showToast(`Importando ${pendentes.length} processo(s)...`);
   let ok = 0, erros = 0;
 
   for (const doc of pendentes) {
+    const numero = doc.processos[0];
+    if (dbNums.has(numero)) continue; // skip se chegou ao DB entre iterações
     try {
       const { error } = await _supabase.from('processos').insert({
         user_id:         window._escritorioId || window._user?.id,
-        numero:          doc.processos[0],
+        numero,
         nome:            [doc.nomeClasse, doc.tipoDecisao].filter(Boolean).join(' · ') || doc.tipoComunicacao || 'Publicação DJEN',
         tribunal:        doc.siglaTribunal || '',
         cliente:         doc.partes?.cliente   || null,
@@ -3630,12 +3676,28 @@ async function importarTodosDJe() {
           nome: `DJEN — ${doc.tipoComunicacao || 'Publicação'}${doc.tipoDecisao ? ' · ' + doc.tipoDecisao : ''}`,
         }],
       });
-      if (error) erros++; else ok++;
+      if (error) { erros++; }
+      else {
+        ok++;
+        dbNums.add(numero);        // evita re-inserir no próximo click
+        doc.matches = [{ numero }]; // evita re-importar sem precisar recarregar resultados
+      }
     } catch (_) { erros++; }
   }
 
   await carregarProcessos();
-  showToast(`${ok} importado(s)${erros ? ` · ${erros} com falha` : ''}.`);
+  // Atualiza matches em _djeResultados com base no DB já atualizado
+  const novosNums = new Set((window._processosDB || []).map(p => p.numero));
+  (window._djeResultados || []).forEach(d => {
+    if (!d.matches?.length && d.processos[0] && novosNums.has(d.processos[0])) {
+      d.matches = [{ numero: d.processos[0] }];
+    }
+  });
+  // Enriquece processos recém-importados com timeline do DataJud em background
+  for (const doc of pendentes) {
+    if (doc.processos[0]) _enriquecerComDatajud(doc.processos[0]);
+  }
+  showToast(`${ok} importado(s)${erros ? ` · ${erros} com falha` : ''}.`, ok > 0 ? 'success' : undefined);
 }
 
 async function rodarScraperPJe() {
