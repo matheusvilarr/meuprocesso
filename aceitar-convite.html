@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aceitar Convite — Meu Processo</title>
+<link rel="icon" type="image/png" href="img/images/logo.png">
+<link rel="apple-touch-icon" href="img/images/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/login.css">
+<style>
+  .state { display: none; }
+  .state.active { display: block; }
+
+  .spinner {
+    width: 44px; height: 44px;
+    border: 3px solid var(--g200);
+    border-top-color: var(--navy);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    margin: 0 auto 20px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .state-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--g900);
+    margin-bottom: 8px;
+    text-align: center;
+  }
+  .state-sub {
+    font-size: 14px;
+    color: var(--g500);
+    text-align: center;
+    line-height: 1.6;
+    margin-bottom: 28px;
+  }
+  .state-sub strong { color: var(--g900); }
+
+  .badge-cargo {
+    display: inline-block;
+    background: #e8f0fe;
+    color: var(--navy);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 20px;
+    margin: 0 auto 24px;
+    display: block;
+    width: fit-content;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .icon-wrap {
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 20px;
+  }
+  .icon-wrap.success { background: #d1fae5; }
+  .icon-wrap.error   { background: #fee2e2; }
+
+  .divider { margin: 20px 0 16px; }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="card">
+
+    <a href="/" class="logo">
+      <img src="img/images/logo.png" alt="Meu Processo">
+    </a>
+
+    <!-- Estado: carregando -->
+    <div class="state active" id="state-loading">
+      <div class="spinner"></div>
+      <p class="state-sub">Verificando convite...</p>
+    </div>
+
+    <!-- Estado: sucesso -->
+    <div class="state" id="state-success">
+      <div class="icon-wrap success">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      </div>
+      <p class="state-title">Convite aceito!</p>
+      <p class="state-sub">Você foi adicionado ao escritório de <strong id="titular-nome"></strong>.</p>
+      <span class="badge-cargo" id="badge-cargo"></span>
+      <button class="btn-submit" onclick="window.location.href='/dashboard'">Ir para o painel</button>
+      <div class="divider"></div>
+      <p class="terms">Você agora tem acesso aos processos e tarefas deste escritório.</p>
+    </div>
+
+    <!-- Estado: já é membro -->
+    <div class="state" id="state-already">
+      <div class="icon-wrap success">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+        </svg>
+      </div>
+      <p class="state-title">Você já é membro</p>
+      <p class="state-sub">Sua conta já faz parte deste escritório. Acesse o painel para continuar.</p>
+      <button class="btn-submit" onclick="window.location.href='/dashboard'">Ir para o painel</button>
+    </div>
+
+    <!-- Estado: erro genérico -->
+    <div class="state" id="state-error">
+      <div class="icon-wrap error">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+        </svg>
+      </div>
+      <p class="state-title">Convite inválido</p>
+      <p class="state-sub" id="error-msg">Este link de convite não é válido ou já foi utilizado.</p>
+      <a href="mailto:contato@meuprocesso.app.br" class="support-link" style="display:block;text-align:center;margin-top:8px">
+        Entrar em contato com o suporte
+      </a>
+    </div>
+
+    <!-- Estado: sem token na URL -->
+    <div class="state" id="state-no-token">
+      <p class="state-title">Link inválido</p>
+      <p class="state-sub">Este link de convite está incompleto. Peça um novo link ao titular do escritório.</p>
+    </div>
+
+  </div>
+  <p class="footer-copy">© 2026 · Meu Processo · Versão 0.1</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="js/supabase-client.js"></script>
+<script>
+(async function () {
+  const params = new URLSearchParams(window.location.search);
+  const token  = params.get('token');
+
+  function showState(id) {
+    document.querySelectorAll('.state').forEach(el => el.classList.remove('active'));
+    document.getElementById(id).classList.add('active');
+  }
+
+  if (!token) {
+    showState('state-no-token');
+    return;
+  }
+
+  // Verifica sessão
+  const { data: { session } } = await _supabase.auth.getSession();
+
+  if (!session) {
+    // Redireciona para login preservando o token
+    const redirect = encodeURIComponent('/aceitar-convite?token=' + token);
+    window.location.href = '/login?redirect=' + redirect;
+    return;
+  }
+
+  // Chama a API
+  try {
+    const resp = await fetch('/api/aceitar-convite', {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': 'Bearer ' + session.access_token,
+      },
+      body: JSON.stringify({ token }),
+    });
+
+    const data = await resp.json();
+
+    if (resp.status === 200 && data.ok) {
+      if (data.already_member) {
+        showState('state-already');
+        return;
+      }
+      document.getElementById('titular-nome').textContent = data.titular_nome || 'Titular';
+      document.getElementById('badge-cargo').textContent  = data.cargo || 'Colaborador';
+      showState('state-success');
+      return;
+    }
+
+    const msg = data.erro || '';
+
+    document.getElementById('error-msg').textContent = msg || 'Erro ao processar o convite.';
+    showState('state-error');
+
+  } catch (err) {
+    document.getElementById('error-msg').textContent = 'Falha na conexão. Tente novamente.';
+    showState('state-error');
+  }
+})();
+</script>
+</body>
+</html>

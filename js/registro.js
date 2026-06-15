@@ -98,7 +98,7 @@ document.getElementById('registroForm').addEventListener('submit', async functio
     password: senha,
     options: {
       data: { full_name: nome, nome, oab },
-      emailRedirectTo: `${window.location.origin}/dashboard`,
+      emailRedirectTo: `${window.location.origin}/cadastro-confirmado`,
     },
   });
 

@@ -5,7 +5,19 @@
     return;
   }
   window._session = session;
-  window._user    = session.user;
+
+  // Verifica se o usuário logado é colaborador de algum escritório
+  const { data: colab } = await _supabase
+    .from('colaboradores')
+    .select('escritorio_id, cargo, nivel_acesso')
+    .eq('user_id', session.user.id)
+    .eq('status', 'ativo')
+    .maybeSingle();
+
+  window._isColaborador   = !!colab;
+  window._escritorioId    = colab ? colab.escritorio_id : session.user.id;
+  window._colaboradorInfo = colab || null;
+  window._user            = session.user;
 
   document.addEventListener('DOMContentLoaded', () => {
     const meta    = session.user.user_metadata || {};
@@ -29,6 +41,15 @@
         const iniciais = nome.trim().split(' ').filter(Boolean).slice(0,2).map(p => p[0].toUpperCase()).join('');
         avatar.textContent      = iniciais || email[0].toUpperCase();
         avatar.style.background = cor;
+      }
+    }
+
+    // Badge "Colaborador" na sidebar se aplicável
+    if (window._isColaborador) {
+      const colabBadge = document.getElementById('sidebar-colab-badge');
+      if (colabBadge) {
+        colabBadge.textContent   = colab.cargo || 'Colaborador';
+        colabBadge.style.display = 'block';
       }
     }
   });

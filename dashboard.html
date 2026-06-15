@@ -44,9 +44,23 @@
       <i class="ti ti-checklist"></i>
       Tarefas
     </div>
+
+    <div class="nav-section">Financeiro</div>
+    <div class="nav-item" onclick="showPage('clientes')">
+      <i class="ti ti-address-book"></i>
+      Clientes
+    </div>
+    <div class="nav-item" onclick="showPage('honorarios')">
+      <i class="ti ti-cash"></i>
+      Honorários
+      <span class="nav-badge" id="badge-honorarios-venc" style="display:none;background:#c0392b">0</span>
+    </div>
+
+    <div class="nav-section">Equipe</div>
     <div class="nav-item" onclick="showPage('colaboradores')">
       <i class="ti ti-users"></i>
-      Colaboradores
+      Parceiros
+      <span class="nav-badge" id="badge-parceiros" style="display:none;background:#7c3aed">0</span>
     </div>
 
     <div class="nav-item" onclick="showPage('arquivados')">
@@ -139,18 +153,13 @@
         <div class="stat-label">Processos Ativos</div>
         <div class="stat-change up" id="stat-processos-sub">—</div>
       </div>
-      <div class="stat-card" onclick="showPage('processos')">
-        <div class="stat-icon gold"><i class="ti ti-bell-ringing"></i></div>
+      <div class="stat-card" onclick="verAtualizacoesSemana()" style="cursor:pointer">
+        <div class="stat-icon gold"><i class="ti ti-trending-up"></i></div>
         <div class="stat-num" id="stat-notificacoes">—</div>
-        <div class="stat-label">Atualizações CNJ</div>
+        <div class="stat-label">Atualizações esta semana</div>
         <div class="stat-change" id="stat-notificacoes-sub">—</div>
       </div>
-      <div class="stat-card" onclick="showPage('arquivados')">
-        <div class="stat-icon" style="background:var(--amber-light);color:var(--amber)"><i class="ti ti-archive"></i></div>
-        <div class="stat-num" id="stat-arquivados">—</div>
-        <div class="stat-label">Arquivados</div>
-        <div class="stat-change" id="stat-arquivados-sub">Sincronização pausada</div>
-      </div>
+
       <div class="stat-card" onclick="showPage('calendario')">
         <div class="stat-icon red"><i class="ti ti-alert-triangle"></i></div>
         <div class="stat-num" id="stat-prazos">—</div>
@@ -190,8 +199,9 @@
           <div class="mini-cal">
             <div class="cal-nav">
               <button class="cal-arrow" onclick="changeCalMonth(-1)"><i class="ti ti-chevron-left"></i></button>
-              <span class="cal-month" id="mini-cal-month">Junho 2025</span>
+              <span class="cal-month" id="mini-cal-month" style="cursor:pointer" onclick="abrirCalExp()">Junho 2025</span>
               <button class="cal-arrow" onclick="changeCalMonth(1)"><i class="ti ti-chevron-right"></i></button>
+              <button class="cal-exp-open-btn" onclick="abrirCalExp()" title="Expandir calendário"><i class="ti ti-arrows-maximize"></i></button>
             </div>
             <div class="cal-grid" id="mini-cal-grid"></div>
           </div>
@@ -259,14 +269,21 @@
         <option>Suspenso</option>
         <option>Encerrado</option>
       </select>
+      <span id="chip-semana" class="filter-chip" style="display:none" onclick="limparFiltroSemana()">
+        <i class="ti ti-calendar-week"></i> Esta semana <i class="ti ti-x"></i>
+      </span>
     </div>
 
     <div class="process-grid" id="lista-processos-db">
       <!-- cards injetados pelo dashboard.js -->
-      <div id="processos-empty" style="grid-column:1/-1;text-align:center;padding:60px 20px;color:var(--gray-400);display:none">
-        <i class="ti ti-briefcase" style="font-size:48px;display:block;margin-bottom:12px;opacity:0.3"></i>
-        <div style="font-size:15px;font-weight:600">Nenhum processo cadastrado</div>
-        <div style="font-size:13px;margin-top:6px">Clique em <strong>Novo Processo</strong> para adicionar ou pesquise pelo número CNJ</div>
+      <div id="processos-empty" style="grid-column:1/-1;text-align:center;padding:60px 20px;display:none">
+        <i class="ti ti-briefcase" style="font-size:52px;display:block;margin-bottom:16px;color:var(--gray-200)"></i>
+        <div style="font-size:16px;font-weight:700;color:var(--navy);margin-bottom:6px">Nenhum processo cadastrado ainda</div>
+        <div style="font-size:13px;color:var(--gray-400);margin-bottom:24px">Adicione um processo manualmente ou busque pelo número CNJ</div>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+          <button class="btn-primary" onclick="abrirModalNovoProcesso()"><i class="ti ti-plus"></i> Novo processo</button>
+          <button class="btn-secondary" onclick="abrirModalBusca()"><i class="ti ti-search"></i> Buscar no CNJ</button>
+        </div>
       </div>
     </div>
   </div>
@@ -283,8 +300,8 @@
         <div class="detail-tags" id="detalhe-tags"></div>
         <div style="display:flex;gap:8px;align-items:center">
           <span id="detalhe-sync-badge" style="display:none"></span>
-          <button class="btn-secondary" style="font-size:11px;padding:5px 12px" id="detalhe-btn-sync"
-            onclick="sincronizarDetalhe()" style="display:none">
+          <button class="btn-secondary" style="font-size:11px;padding:5px 12px;display:none" id="detalhe-btn-sync"
+            onclick="sincronizarDetalhe()">
             <i class="ti ti-refresh"></i> Sincronizar
           </button>
         </div>
@@ -316,10 +333,8 @@
         <div class="card">
           <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('movimentacoes-cnj',this)"><i class="ti ti-timeline"></i> Movimentações CNJ</button>
-            <button class="tab-btn" onclick="switchTab('documentos',this)"><i class="ti ti-files"></i> Documentos</button>
-            <button class="tab-btn" onclick="switchTab('comentarios',this)"><i class="ti ti-message"></i> Comentários</button>
-            <button class="tab-btn" onclick="switchTab('historico',this)"><i class="ti ti-history"></i> Histórico</button>
-            <button class="tab-btn" onclick="switchTab('links',this)"><i class="ti ti-link"></i> Links</button>
+            <button class="tab-btn" onclick="switchTab('documentos',this)"><i class="ti ti-files"></i> Documentos<span id="tab-badge-documentos" style="display:none;background:#7c3aed;color:#fff;font-size:10px;font-weight:700;border-radius:99px;padding:1px 6px;margin-left:5px">0</span></button>
+            <button class="tab-btn" onclick="switchTab('comentarios',this)"><i class="ti ti-message"></i> Comentários<span id="tab-badge-comentarios" style="display:none;background:#7c3aed;color:#fff;font-size:10px;font-weight:700;border-radius:99px;padding:1px 6px;margin-left:5px">0</span></button>
           </div>
 
           <!-- TAB: MOVIMENTAÇÕES CNJ + NOTAS -->
@@ -341,36 +356,42 @@
             <div id="timeline-cnj-wrap" style="padding:20px"></div>
           </div>
 
+          <!-- TAB: DOCUMENTOS -->
           <div id="tab-documentos" class="tab-content">
-            <div style="text-align:center;padding:40px 20px;color:var(--gray-400)">
-              <i class="ti ti-files" style="font-size:32px;display:block;margin-bottom:12px;opacity:0.3"></i>
-              <div style="font-size:13px;font-weight:500;margin-bottom:4px">Anexo de documentos</div>
-              <div style="font-size:12px;opacity:.7">Funcionalidade em desenvolvimento — em breve disponível.</div>
+            <div style="padding:16px 20px;border-bottom:1px solid var(--gray-100)">
+              <label class="doc-upload-area" for="doc-file-input">
+                <i class="ti ti-upload" style="font-size:28px;margin-bottom:8px;display:block;opacity:0.5"></i>
+                <div style="font-size:13px;font-weight:600;margin-bottom:4px">Clique para anexar um documento</div>
+                <div style="font-size:11px;opacity:.6">PDF, Word, imagens · Máximo 2 MB</div>
+                <input type="file" id="doc-file-input" style="display:none"
+                  accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.xlsx,.xls,.txt"
+                  onchange="uploadDocumento(this.files[0])">
+              </label>
             </div>
+            <div id="doc-lista"></div>
           </div>
 
+          <!-- TAB: COMENTÁRIOS -->
           <div id="tab-comentarios" class="tab-content">
-            <div style="text-align:center;padding:40px 20px;color:var(--gray-400)">
-              <i class="ti ti-message" style="font-size:32px;display:block;margin-bottom:12px;opacity:0.3"></i>
-              <div style="font-size:13px;font-weight:500;margin-bottom:4px">Comentários internos</div>
-              <div style="font-size:12px;opacity:.7">Funcionalidade em desenvolvimento — em breve disponível.</div>
+            <div style="padding:12px 16px;border-bottom:1px solid var(--gray-100)">
+              <div id="coment-reply-banner" style="display:none;background:#eff6ff;border-radius:8px;padding:8px 12px;margin-bottom:8px;font-size:12px;color:#1a2e6b">
+                <div style="display:flex;align-items:center;justify-content:space-between">
+                  <span id="coment-reply-label">Respondendo a...</span>
+                  <button onclick="cancelarReply()" style="background:none;border:none;color:var(--gray-400);cursor:pointer;padding:0;line-height:1"><i class="ti ti-x"></i></button>
+                </div>
+              </div>
+              <div style="position:relative">
+                <textarea id="coment-input" class="form-input" rows="2"
+                  placeholder="Escreva um comentário... use @ para mencionar"
+                  style="resize:none;font-size:13px;line-height:1.5;padding-right:52px"
+                  onkeydown="comentTecla(event)"></textarea>
+                <button id="coment-send-btn" onclick="adicionarComentario()"
+                  style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:#1a2e6b;color:#fff;border:none;border-radius:7px;padding:7px 10px;cursor:pointer;font-size:14px;display:flex;align-items:center">
+                  <i class="ti ti-send"></i>
+                </button>
+              </div>
             </div>
-          </div>
-
-          <div id="tab-historico" class="tab-content">
-            <div style="text-align:center;padding:40px 20px;color:var(--gray-400)">
-              <i class="ti ti-history" style="font-size:32px;display:block;margin-bottom:12px;opacity:0.3"></i>
-              <div style="font-size:13px;font-weight:500;margin-bottom:4px">Histórico de alterações</div>
-              <div style="font-size:12px;opacity:.7">Funcionalidade em desenvolvimento — em breve disponível.</div>
-            </div>
-          </div>
-
-          <div id="tab-links" class="tab-content">
-            <div style="text-align:center;padding:40px 20px;color:var(--gray-400)">
-              <i class="ti ti-link" style="font-size:32px;display:block;margin-bottom:12px;opacity:0.3"></i>
-              <div style="font-size:13px;font-weight:500;margin-bottom:4px">Links salvos</div>
-              <div style="font-size:12px;opacity:.7">Funcionalidade em desenvolvimento — em breve disponível.</div>
-            </div>
+            <div id="coment-lista"></div>
           </div>
         </div>
       </div>
@@ -384,12 +405,14 @@
           <div id="detalhe-prazos-lista"></div>
         </div>
 
-        <div class="card">
-          <div class="card-header"><div class="card-title"><i class="ti ti-users"></i> Responsáveis</div></div>
-          <div style="text-align:center;padding:24px 16px;color:var(--gray-400)">
-            <i class="ti ti-user-off" style="font-size:24px;display:block;margin-bottom:8px;opacity:0.3"></i>
-            <div style="font-size:12px;opacity:.7">Colaboradores — em breve disponível.</div>
+        <div class="card" id="card-responsaveis">
+          <div class="card-header">
+            <div class="card-title"><i class="ti ti-handshake"></i> Responsáveis</div>
+            <button class="btn-secondary" style="font-size:12px;padding:5px 10px" onclick="abrirModalCompartilharDetalhe()">
+              <i class="ti ti-user-plus"></i> Convidar
+            </button>
           </div>
+          <div id="responsaveis-lista" style="padding:8px 0"></div>
         </div>
 
         <div class="card">
@@ -506,7 +529,10 @@
       <div class="task-col">
         <div class="task-col-header">
           <span class="task-col-title"><i class="ti ti-circle" style="color:var(--gray-400)"></i> A fazer</span>
-          <span class="task-col-count" id="col-count-a_fazer">0</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span id="col-dot-a_fazer" title="Atualizado por um parceiro" style="display:none;width:7px;height:7px;background:#f97316;border-radius:50%;animation:pulse 1.5s ease-in-out infinite;flex-shrink:0"></span>
+            <span class="task-col-count" id="col-count-a_fazer">0</span>
+          </div>
         </div>
         <div class="task-col-body" id="col-a_fazer"
           ondragover="kanbanDragOver(event)"
@@ -517,7 +543,10 @@
       <div class="task-col">
         <div class="task-col-header">
           <span class="task-col-title"><i class="ti ti-loader" style="color:var(--gold)"></i> Em andamento</span>
-          <span class="task-col-count" id="col-count-em_andamento">0</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span id="col-dot-em_andamento" title="Atualizado por um parceiro" style="display:none;width:7px;height:7px;background:#f97316;border-radius:50%;animation:pulse 1.5s ease-in-out infinite;flex-shrink:0"></span>
+            <span class="task-col-count" id="col-count-em_andamento">0</span>
+          </div>
         </div>
         <div class="task-col-body" id="col-em_andamento"
           ondragover="kanbanDragOver(event)"
@@ -528,7 +557,10 @@
       <div class="task-col">
         <div class="task-col-header">
           <span class="task-col-title"><i class="ti ti-eye" style="color:var(--blue)"></i> Revisão</span>
-          <span class="task-col-count" id="col-count-revisao">0</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span id="col-dot-revisao" title="Atualizado por um parceiro" style="display:none;width:7px;height:7px;background:#f97316;border-radius:50%;animation:pulse 1.5s ease-in-out infinite;flex-shrink:0"></span>
+            <span class="task-col-count" id="col-count-revisao">0</span>
+          </div>
         </div>
         <div class="task-col-body" id="col-revisao"
           ondragover="kanbanDragOver(event)"
@@ -539,7 +571,10 @@
       <div class="task-col">
         <div class="task-col-header">
           <span class="task-col-title"><i class="ti ti-circle-check" style="color:var(--green)"></i> Concluídas</span>
-          <span class="task-col-count" id="col-count-concluida">0</span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span id="col-dot-concluida" title="Atualizado por um parceiro" style="display:none;width:7px;height:7px;background:#f97316;border-radius:50%;animation:pulse 1.5s ease-in-out infinite;flex-shrink:0"></span>
+            <span class="task-col-count" id="col-count-concluida">0</span>
+          </div>
         </div>
         <div class="task-col-body" id="col-concluida"
           ondragover="kanbanDragOver(event)"
@@ -549,47 +584,102 @@
     </div>
   </div>
 
-  <!-- ── COLABORADORES ── -->
+  <!-- ── PARCEIROS & ASSOCIADOS ── -->
   <div id="page-colaboradores" class="page">
     <div class="page-header">
       <div>
-        <div class="page-title">Colaboradores</div>
-        <div class="page-sub" id="colab-page-sub">Equipe do escritório</div>
+        <div class="page-title">Parceiros & Associados</div>
+        <div class="page-sub">Processos compartilhados com outros advogados</div>
       </div>
-      <button class="btn-primary" id="btn-convidar-colab" onclick="abrirModalConvite()">
-        <i class="ti ti-user-plus"></i> Convidar Colaborador
+      <button class="btn-primary" onclick="abrirModalCompartilharSemProcesso()">
+        <i class="ti ti-user-plus"></i> Compartilhar processo
       </button>
     </div>
 
-    <!-- Aviso para colaboradores: não podem gerenciar a equipe -->
-    <div id="colab-aviso-readonly" style="display:none;background:#fffbeb;border:1px solid #fbbf24;border-radius:10px;padding:12px 16px;margin-bottom:20px;font-size:13px;color:#92400e;align-items:center;gap:10px">
-      <i class="ti ti-info-circle" style="font-size:18px;flex-shrink:0"></i>
-      <span>Você é colaborador deste escritório. Apenas o titular pode gerenciar a equipe.</span>
+    <!-- Pendentes recebidos -->
+    <div class="card" id="card-shares-pendentes" style="display:none;margin-bottom:20px">
+      <div style="padding:14px 20px;border-bottom:1px solid var(--gray-100);display:flex;align-items:center;gap:8px">
+        <span style="font-size:13px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em">Aguardando sua resposta</span>
+        <span id="badge-shares-pendentes" style="background:#7c3aed;color:#fff;font-size:10px;font-weight:700;border-radius:99px;padding:2px 7px">0</span>
+      </div>
+      <div id="lista-shares-pendentes" style="padding:8px 0"></div>
     </div>
 
-    <!-- Lista de membros ativos -->
+    <!-- Processos compartilhados comigo (aceitos) -->
     <div class="card" style="margin-bottom:20px">
-      <div style="padding:16px 20px;border-bottom:1px solid var(--gray-100);font-size:13px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em">
-        Membros ativos <span id="colab-count" style="font-weight:400;color:var(--gray-400);margin-left:4px"></span>
+      <div style="padding:14px 20px;border-bottom:1px solid var(--gray-100);font-size:13px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em">
+        Compartilhados comigo
       </div>
-      <div id="colab-lista" style="padding:8px 0">
-        <div style="padding:32px;text-align:center;color:var(--gray-400);font-size:13px">
-          <i class="ti ti-loader-2" style="animation:spin .8s linear infinite;display:block;font-size:24px;margin-bottom:8px"></i>
-          Carregando...
+      <div id="lista-shares-comigo" style="padding:8px 0">
+        <div style="padding:28px;text-align:center;color:var(--gray-400);font-size:13px">
+          <i class="ti ti-loader-2" style="animation:spin .8s linear infinite;display:block;font-size:22px;margin-bottom:8px"></i>Carregando...
         </div>
       </div>
     </div>
 
-    <!-- Convites pendentes -->
-    <div class="card" id="card-convites-pendentes" style="display:none">
-      <div style="padding:16px 20px;border-bottom:1px solid var(--gray-100);font-size:13px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em">
-        Convites pendentes
+    <!-- Processos que compartilhei -->
+    <div class="card" style="margin-bottom:20px">
+      <div style="padding:14px 20px;border-bottom:1px solid var(--gray-100);font-size:13px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em">
+        Compartilhados por mim
       </div>
-      <div id="colab-convites" style="padding:8px 0"></div>
+      <div id="lista-shares-meus" style="padding:8px 0">
+        <div style="padding:28px;text-align:center;color:var(--gray-400);font-size:13px">
+          <i class="ti ti-loader-2" style="animation:spin .8s linear infinite;display:block;font-size:22px;margin-bottom:8px"></i>Carregando...
+        </div>
+      </div>
+    </div>
+
+    <!-- Colaboradores de escritório (desativado temporariamente) -->
+    <div class="card" style="opacity:.5;pointer-events:none;margin-bottom:8px">
+      <div style="padding:14px 20px;border-bottom:1px solid var(--gray-100);display:flex;align-items:center;gap:10px">
+        <span style="font-size:13px;font-weight:600;color:var(--gray-500);text-transform:uppercase;letter-spacing:.05em">Colaboradores de escritório</span>
+        <span style="background:#e5e7eb;color:#6b7280;font-size:10px;font-weight:700;border-radius:99px;padding:2px 8px;letter-spacing:.04em">EM DESENVOLVIMENTO</span>
+      </div>
+      <div style="padding:20px 24px;font-size:13px;color:var(--gray-400);display:flex;align-items:center;gap:10px">
+        <i class="ti ti-building" style="font-size:20px;flex-shrink:0"></i>
+        <span>Convide membros do seu escritório para acessar todos os processos da conta. Disponível em breve.</span>
+      </div>
     </div>
   </div>
 
-  <!-- Modal: Convidar Colaborador -->
+  <!-- Modal: Convidar parceiro -->
+  <div class="modal-backdrop" id="modal-compartilhar" onclick="closeModalOutside(event,'modal-compartilhar')">
+    <div class="modal" style="max-width:440px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-handshake"></i> Convidar parceiro</span>
+        <button class="modal-close" onclick="closeModal('modal-compartilhar')"><i class="ti ti-x"></i></button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+        <div id="share-processo-info" style="background:var(--gray-50);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--gray-600)"></div>
+        <div id="share-processo-select-wrap" style="display:none">
+          <label class="form-label">Processo</label>
+          <select class="form-input" id="share-processo-select"></select>
+        </div>
+        <div>
+          <label class="form-label">E-mail do advogado <span style="color:var(--gray-400);font-weight:400">(cadastrado na plataforma)</span></label>
+          <input class="form-input" id="share-email" type="email" placeholder="advogado@escritorio.com.br"
+            onkeydown="if(event.key==='Enter')convidarParceiro()">
+        </div>
+        <div>
+          <label class="form-label">Nível de acesso</label>
+          <select class="form-input" id="share-nivel">
+            <option value="leitura">Somente leitura — vê a timeline e documentos</option>
+            <option value="comentario">Comentários — vê + pode comentar</option>
+            <option value="total">Acesso total — vê, comenta e envia documentos</option>
+          </select>
+        </div>
+        <div id="share-erro" style="display:none;color:var(--red);font-size:13px;background:#fef2f2;border-radius:8px;padding:10px 14px"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('modal-compartilhar')">Cancelar</button>
+        <button class="btn-primary" id="btn-confirmar-share" onclick="convidarParceiro()">
+          <i class="ti ti-send"></i> Convidar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Convidar Colaborador (mantido para retrocompatibilidade, não usado na UI) -->
   <div class="modal-backdrop" id="modal-convidar-colab" onclick="closeModalOutside(event,'modal-convidar-colab')">
     <div class="modal" style="max-width:460px">
       <div class="modal-header">
@@ -604,19 +694,6 @@
         <div>
           <label class="form-label">Cargo</label>
           <input class="form-input" id="conv-cargo" value="Advogado Associado" placeholder="Ex: Estagiário, Sócio...">
-        </div>
-        <div>
-          <label class="form-label">Escopo do acesso</label>
-          <select class="form-input" id="conv-escopo" onchange="toggleConvProcesso()">
-            <option value="escritorio">Escritório completo</option>
-            <option value="processo">Somente 1 processo</option>
-          </select>
-        </div>
-        <div id="conv-processo-wrap" style="display:none">
-          <label class="form-label">Processo</label>
-          <select class="form-input" id="conv-processo">
-            <option value="">Selecione o processo...</option>
-          </select>
         </div>
         <div>
           <label class="form-label">Nível de acesso</label>
@@ -967,9 +1044,472 @@
     </div>
   </div>
 
+
+  <!-- ── CLIENTES ── -->
+  <!-- ── CLIENTES ── -->
+  <div id="page-clientes" class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Clientes</div>
+        <div class="page-sub" id="clientes-sub">Gerencie seus clientes e vincule aos processos</div>
+      </div>
+      <button class="btn-primary" onclick="openModal('modal-novo-cliente')">
+        <i class="ti ti-user-plus"></i> Novo Cliente
+      </button>
+    </div>
+
+    <div class="filter-bar">
+      <div class="filter-search" style="max-width:360px">
+        <i class="ti ti-search" style="color:var(--gray-400);font-size:16px"></i>
+        <input type="search" id="clientes-search" placeholder="Nome, CPF/CNPJ, e-mail…"
+          oninput="filtrarClientes(this.value)" autocomplete="off">
+      </div>
+    </div>
+
+    <div id="clientes-grid" class="clientes-grid">
+      <div class="fin-empty" id="clientes-empty" style="display:none">
+        <div class="fin-empty-icon"><i class="ti ti-address-book"></i></div>
+        <div class="fin-empty-title">Nenhum cliente cadastrado</div>
+        <div class="fin-empty-sub">Adicione seus clientes para vinculá-los a processos e honorários.</div>
+        <button class="btn-primary" onclick="openModal('modal-novo-cliente')">
+          <i class="ti ti-plus"></i> Adicionar cliente
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── HONORÁRIOS ── -->
+  <div id="page-honorarios" class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Honorários</div>
+        <div class="page-sub">Controle cobranças, parcelas e recorrências</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn-secondary hon-toggle-vis" id="hon-vis-btn" onclick="toggleHonVisibilidade()" title="Ocultar valores">
+          <i class="ti ti-eye" id="hon-vis-icon"></i>
+          <span id="hon-vis-label">Ocultar</span>
+        </button>
+        <button class="btn-primary" onclick="openModal('modal-novo-honorario')">
+          <i class="ti ti-plus"></i> Novo Honorário
+        </button>
+      </div>
+    </div>
+
+    <!-- KPIs -->
+    <div class="hon-kpi-row">
+      <div class="hon-kpi-card">
+        <div class="hon-kpi-left">
+          <div class="hon-kpi-icon blue"><i class="ti ti-coin"></i></div>
+          <div>
+            <div class="hon-kpi-label">A Receber</div>
+            <div class="hon-kpi-val" id="hon-val-receber">—</div>
+          </div>
+        </div>
+      </div>
+      <div class="hon-kpi-card">
+        <div class="hon-kpi-left">
+          <div class="hon-kpi-icon green"><i class="ti ti-trending-up"></i></div>
+          <div>
+            <div class="hon-kpi-label">Recebido este mês</div>
+            <div class="hon-kpi-val" id="hon-val-mes">—</div>
+          </div>
+        </div>
+      </div>
+      <div class="hon-kpi-card" id="hon-kpi-venc">
+        <div class="hon-kpi-left">
+          <div class="hon-kpi-icon red"><i class="ti ti-alert-circle"></i></div>
+          <div>
+            <div class="hon-kpi-label">Vencidos</div>
+            <div class="hon-kpi-val" id="hon-val-venc">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- filtros -->
+    <div class="filter-bar">
+      <div class="filter-search" style="flex:1;max-width:340px">
+        <i class="ti ti-search" style="color:var(--gray-400);font-size:16px"></i>
+        <input type="search" id="hon-search" placeholder="Cliente, processo, descrição…"
+          oninput="filtrarHonorarios()" autocomplete="off">
+      </div>
+      <select id="hon-filtro-status" class="filter-select" onchange="filtrarHonorarios()">
+        <option value="">Todos os status</option>
+        <option value="pendente">Pendente</option>
+        <option value="vencido">Vencido</option>
+        <option value="pago">Pago</option>
+        <option value="cancelado">Cancelado</option>
+      </select>
+      <select id="hon-filtro-tipo" class="filter-select" onchange="filtrarHonorarios()">
+        <option value="">Todos os tipos</option>
+        <option value="fixo">Fixo</option>
+        <option value="exito">Por Êxito</option>
+        <option value="hora">Por Hora</option>
+        <option value="recorrente">Recorrente</option>
+      </select>
+    </div>
+
+    <!-- lista agrupada -->
+    <div id="honorarios-lista">
+      <div class="fin-empty" id="honorarios-empty" style="display:none">
+        <div class="fin-empty-icon"><i class="ti ti-cash"></i></div>
+        <div class="fin-empty-title">Nenhum honorário cadastrado</div>
+        <div class="fin-empty-sub">Registre honorários e vincule-os a clientes ou processos.</div>
+        <button class="btn-primary" onclick="openModal('modal-novo-honorario')">
+          <i class="ti ti-plus"></i> Novo honorário
+        </button>
+      </div>
+    </div>
+  </div>
+
 </div><!-- /main -->
 
 <!-- ── MODALS ── -->
+
+<!-- Modal: Novo Cliente -->
+<div class="modal-backdrop" id="modal-novo-cliente" onclick="closeModalOutside(event,'modal-novo-cliente')">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <span class="modal-title"><i class="ti ti-user-plus" style="margin-right:6px;opacity:.6"></i>Novo Cliente</span>
+      <span class="modal-close" onclick="closeModal('modal-novo-cliente')"><i class="ti ti-x"></i></span>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+      <div class="form-row-2">
+        <div class="form-field">
+          <label class="form-label">Nome completo *</label>
+          <input id="cli-nome" class="form-input" type="text" placeholder="João Silva Santos">
+        </div>
+        <div class="form-field">
+          <label class="form-label">CPF / CNPJ</label>
+          <input id="cli-cpf" class="form-input" type="text" placeholder="000.000.000-00" oninput="maskCpfCnpj(this)" maxlength="18" inputmode="numeric">
+        </div>
+      </div>
+      <div class="form-row-2">
+        <div class="form-field">
+          <label class="form-label">E-mail</label>
+          <input id="cli-email" class="form-input" type="email" placeholder="cliente@email.com">
+        </div>
+        <div class="form-field">
+          <label class="form-label">Telefone / WhatsApp</label>
+          <input id="cli-telefone" class="form-input" type="text" placeholder="(61) 9 9999-9999" oninput="maskTelefone(this)" maxlength="16" inputmode="numeric">
+        </div>
+      </div>
+      <div class="form-field">
+        <label class="form-label">Endereço</label>
+        <input id="cli-endereco" class="form-input" type="text" placeholder="Rua, número, bairro, cidade">
+      </div>
+      <div class="form-field">
+        <label class="form-label">Observações</label>
+        <textarea id="cli-obs" class="form-input" rows="2" placeholder="Notas internas sobre o cliente…" style="resize:vertical"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-novo-cliente')">Cancelar</button>
+      <button class="btn-primary" id="cli-save-btn" onclick="salvarCliente()">
+        <i class="ti ti-check"></i> Salvar Cliente
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Editar Cliente -->
+<div class="modal-backdrop" id="modal-editar-cliente" onclick="closeModalOutside(event,'modal-editar-cliente')">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <span class="modal-title"><i class="ti ti-pencil" style="margin-right:6px;opacity:.6"></i>Editar Cliente</span>
+      <span class="modal-close" onclick="closeModal('modal-editar-cliente')"><i class="ti ti-x"></i></span>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+      <input type="hidden" id="cli-edit-id">
+      <div class="form-row-2">
+        <div class="form-field">
+          <label class="form-label">Nome completo *</label>
+          <input id="cli-edit-nome" class="form-input" type="text">
+        </div>
+        <div class="form-field">
+          <label class="form-label">CPF / CNPJ</label>
+          <input id="cli-edit-cpf" class="form-input" type="text" oninput="maskCpfCnpj(this)" maxlength="18" inputmode="numeric">
+        </div>
+      </div>
+      <div class="form-row-2">
+        <div class="form-field">
+          <label class="form-label">E-mail</label>
+          <input id="cli-edit-email" class="form-input" type="email">
+        </div>
+        <div class="form-field">
+          <label class="form-label">Telefone / WhatsApp</label>
+          <input id="cli-edit-telefone" class="form-input" type="text" oninput="maskTelefone(this)" maxlength="16" inputmode="numeric">
+        </div>
+      </div>
+      <div class="form-field">
+        <label class="form-label">Endereço</label>
+        <input id="cli-edit-endereco" class="form-input" type="text">
+      </div>
+      <div class="form-field">
+        <label class="form-label">Observações</label>
+        <textarea id="cli-edit-obs" class="form-input" rows="2" style="resize:vertical"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-danger-ghost" onclick="excluirCliente(document.getElementById('cli-edit-id').value)">
+        <i class="ti ti-trash"></i> Excluir
+      </button>
+      <button class="btn-secondary" onclick="closeModal('modal-editar-cliente')">Cancelar</button>
+      <button class="btn-primary" onclick="atualizarCliente()">
+        <i class="ti ti-check"></i> Salvar
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Novo Honorário -->
+<div class="modal-backdrop" id="modal-novo-honorario" onclick="closeModalOutside(event,'modal-novo-honorario')">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <span class="modal-title"><i class="ti ti-cash" style="margin-right:6px;opacity:.6"></i>Novo Honorário</span>
+      <span class="modal-close" onclick="closeModal('modal-novo-honorario')"><i class="ti ti-x"></i></span>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:16px">
+      <div class="form-field">
+        <label class="form-label">Descrição *</label>
+        <input id="hon-desc" class="form-input" type="text" placeholder="Ex: Honorários Contratuais — Trabalhista">
+      </div>
+      <div class="form-row-2">
+        <div class="form-field">
+          <label class="form-label">Cliente</label>
+          <select id="hon-cliente" class="form-input"><option value="">— Sem cliente vinculado —</option></select>
+        </div>
+        <div class="form-field">
+          <label class="form-label">Processo vinculado</label>
+          <select id="hon-processo" class="form-input"><option value="">— Sem processo vinculado —</option></select>
+        </div>
+      </div>
+      <div class="form-row-2">
+        <div class="form-field">
+          <label class="form-label">Tipo *</label>
+          <select id="hon-tipo" class="form-input">
+            <option value="fixo">Fixo</option>
+            <option value="exito">Por Êxito</option>
+            <option value="hora">Por Hora</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label class="form-label">Valor total (R$) *</label>
+          <input id="hon-valor" class="form-input" type="number" min="0" step="0.01" placeholder="0,00" oninput="honCalcParcela()">
+        </div>
+      </div>
+
+      <!-- Forma de cobrança -->
+      <div>
+        <label class="form-label" style="display:block;margin-bottom:8px">Forma de cobrança</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="hon-pill active" onclick="honSetCobranca('avista')"    id="hon-pill-avista">    <i class="ti ti-receipt"></i> À vista</button>
+          <button type="button" class="hon-pill"        onclick="honSetCobranca('parcelado')" id="hon-pill-parcelado"> <i class="ti ti-coins"></i> Parcelado</button>
+          <button type="button" class="hon-pill"        onclick="honSetCobranca('recorrente')"id="hon-pill-recorrente"><i class="ti ti-refresh"></i> Recorrente</button>
+        </div>
+        <input type="hidden" id="hon-cobranca-tipo" value="avista">
+
+        <!-- À vista -->
+        <div id="hon-avista-box" style="margin-top:12px">
+          <div class="form-field">
+            <label class="form-label">Vencimento</label>
+            <input id="hon-venc" class="form-input" type="date">
+          </div>
+        </div>
+
+        <!-- Parcelado -->
+        <div id="hon-parcelado-box" style="display:none;margin-top:12px;flex-direction:column;gap:12px">
+          <div class="form-row-2">
+            <div class="form-field">
+              <label class="form-label">Nº de parcelas</label>
+              <select id="hon-parcelas-qtd" class="form-input" onchange="honCalcParcela()">
+                <option value="2">2×</option><option value="3">3×</option><option value="4">4×</option>
+                <option value="6">6×</option><option value="10">10×</option><option value="12">12×</option>
+                <option value="18">18×</option><option value="24">24×</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label class="form-label">1ª parcela em</label>
+              <input id="hon-parcela-inicio" class="form-input" type="date">
+            </div>
+          </div>
+          <div class="hon-parcela-resumo">
+            <span style="opacity:.8">Valor por parcela</span>
+            <strong id="hon-parcela-valor" style="font-size:15px">R$ —</strong>
+          </div>
+        </div>
+
+        <!-- Recorrente -->
+        <div id="hon-recorr-box" style="display:none;margin-top:12px;flex-direction:column;gap:12px">
+          <div class="form-row-2">
+            <div class="form-field">
+              <label class="form-label">Periodicidade</label>
+              <select id="hon-period" class="form-input">
+                <option value="mensal">Mensal</option><option value="quinzenal">Quinzenal</option>
+                <option value="bimestral">Bimestral</option><option value="trimestral">Trimestral</option>
+                <option value="semestral">Semestral</option><option value="anual">Anual</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label class="form-label">1ª cobrança em</label>
+              <input id="hon-recorr-inicio" class="form-input" type="date">
+            </div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">Nº de cobranças <span style="color:var(--gray-400);font-weight:400;font-size:11px">— deixe vazio = indefinido</span></label>
+            <input id="hon-parcelas" class="form-input" type="number" min="1" placeholder="Ex: 12">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-field">
+        <label class="form-label">Notas</label>
+        <textarea id="hon-notas" class="form-input" rows="2" placeholder="Observações internas…" style="resize:vertical"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-novo-honorario')">Cancelar</button>
+      <button class="btn-primary" id="hon-save-btn" onclick="salvarHonorario()">
+        <i class="ti ti-check"></i> Salvar
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Editar Honorário -->
+<div class="modal-backdrop" id="modal-editar-honorario" onclick="closeModalOutside(event,'modal-editar-honorario')">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <span class="modal-title"><i class="ti ti-pencil" style="margin-right:6px;opacity:.6"></i>Editar Honorário</span>
+      <span class="modal-close" onclick="closeModal('modal-editar-honorario')"><i class="ti ti-x"></i></span>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:16px">
+      <input type="hidden" id="hon-edit-id">
+      <div class="form-field">
+        <label class="form-label">Descrição *</label>
+        <input id="hon-edit-desc" class="form-input" type="text">
+      </div>
+      <div class="form-row-2">
+        <div class="form-field">
+          <label class="form-label">Cliente</label>
+          <select id="hon-edit-cliente" class="form-input"><option value="">— Sem cliente vinculado —</option></select>
+        </div>
+        <div class="form-field">
+          <label class="form-label">Processo vinculado</label>
+          <select id="hon-edit-processo" class="form-input"><option value="">— Sem processo vinculado —</option></select>
+        </div>
+      </div>
+      <div class="form-row-2">
+        <div class="form-field">
+          <label class="form-label">Tipo *</label>
+          <select id="hon-edit-tipo" class="form-input">
+            <option value="fixo">Fixo</option>
+            <option value="exito">Por Êxito</option>
+            <option value="hora">Por Hora</option>
+            <option value="recorrente">Recorrente</option>
+          </select>
+        </div>
+        <div class="form-field">
+          <label class="form-label">Valor total (R$) *</label>
+          <input id="hon-edit-valor" class="form-input" type="number" min="0" step="0.01" oninput="honEditCalcParcela()">
+        </div>
+      </div>
+
+      <!-- Forma de cobrança (edit) -->
+      <div>
+        <label class="form-label" style="display:block;margin-bottom:8px">Forma de cobrança</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="hon-pill" onclick="honSetCobrancaEdit('avista')"    id="hon-epill-avista">    <i class="ti ti-receipt"></i> À vista</button>
+          <button type="button" class="hon-pill" onclick="honSetCobrancaEdit('parcelado')" id="hon-epill-parcelado"> <i class="ti ti-coins"></i> Parcelado</button>
+          <button type="button" class="hon-pill" onclick="honSetCobrancaEdit('recorrente')"id="hon-epill-recorrente"><i class="ti ti-refresh"></i> Recorrente</button>
+        </div>
+        <input type="hidden" id="hon-edit-cobranca-tipo" value="avista">
+
+        <div id="hon-edit-avista-box" style="margin-top:12px">
+          <div class="form-field">
+            <label class="form-label">Vencimento</label>
+            <input id="hon-edit-venc" class="form-input" type="date">
+          </div>
+        </div>
+
+        <div id="hon-edit-parcelado-box" style="display:none;margin-top:12px;flex-direction:column;gap:12px">
+          <div class="form-row-2">
+            <div class="form-field">
+              <label class="form-label">Nº de parcelas</label>
+              <select id="hon-edit-parcelas-qtd" class="form-input" onchange="honEditCalcParcela()">
+                <option value="2">2×</option><option value="3">3×</option><option value="4">4×</option>
+                <option value="6">6×</option><option value="10">10×</option><option value="12">12×</option>
+                <option value="18">18×</option><option value="24">24×</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label class="form-label">1ª parcela em</label>
+              <input id="hon-edit-parcela-inicio" class="form-input" type="date">
+            </div>
+          </div>
+          <div class="hon-parcela-resumo">
+            <span style="opacity:.8">Valor por parcela</span>
+            <strong id="hon-edit-parcela-valor" style="font-size:15px">R$ —</strong>
+          </div>
+        </div>
+
+        <div id="hon-edit-recorr-box" style="display:none;margin-top:12px;flex-direction:column;gap:12px">
+          <div class="form-row-2">
+            <div class="form-field">
+              <label class="form-label">Periodicidade</label>
+              <select id="hon-edit-period" class="form-input">
+                <option value="mensal">Mensal</option><option value="quinzenal">Quinzenal</option>
+                <option value="bimestral">Bimestral</option><option value="trimestral">Trimestral</option>
+                <option value="semestral">Semestral</option><option value="anual">Anual</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label class="form-label">1ª cobrança em</label>
+              <input id="hon-edit-recorr-inicio" class="form-input" type="date">
+            </div>
+          </div>
+          <div class="form-field">
+            <label class="form-label">Nº de cobranças <span style="color:var(--gray-400);font-weight:400;font-size:11px">— deixe vazio = indefinido</span></label>
+            <input id="hon-edit-parcelas" class="form-input" type="number" min="1">
+          </div>
+        </div>
+      </div>
+
+      <!-- Status -->
+      <div>
+        <label class="form-label" style="display:block;margin-bottom:8px">Status</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button type="button" class="hon-pill" onclick="honEditSetStatus('pendente')"  id="hon-epill-pendente"> <i class="ti ti-clock"></i> Pendente</button>
+          <button type="button" class="hon-pill" onclick="honEditSetStatus('vencido')"   id="hon-epill-vencido">  <i class="ti ti-alert-circle"></i> Vencido</button>
+          <button type="button" class="hon-pill" onclick="honEditSetStatus('pago')"      id="hon-epill-pago">     <i class="ti ti-check"></i> Pago</button>
+          <button type="button" class="hon-pill" onclick="honEditSetStatus('cancelado')" id="hon-epill-cancelado"><i class="ti ti-ban"></i> Cancelado</button>
+        </div>
+        <input type="hidden" id="hon-edit-status" value="pendente">
+        <div id="hon-pgto-wrap" style="display:none;margin-top:12px">
+          <div class="form-field">
+            <label class="form-label">Data de pagamento</label>
+            <input id="hon-edit-pgto" class="form-input" type="date">
+          </div>
+        </div>
+      </div>
+
+      <div class="form-field">
+        <label class="form-label">Notas</label>
+        <textarea id="hon-edit-notas" class="form-input" rows="2" style="resize:vertical"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-danger-ghost" onclick="excluirHonorario(document.getElementById('hon-edit-id').value)">
+        <i class="ti ti-trash"></i> Excluir
+      </button>
+      <button class="btn-secondary" onclick="closeModal('modal-editar-honorario')">Cancelar</button>
+      <button class="btn-primary" onclick="atualizarHonorario()">
+        <i class="ti ti-check"></i> Salvar
+      </button>
+    </div>
+  </div>
+</div>
 
 <div class="modal-backdrop" id="modal-novo-processo" onclick="closeModalOutside(event,'modal-novo-processo')">
   <div class="modal">
@@ -1080,12 +1620,12 @@
         </div>
       </div>
       <div class="form-field">
-        <label class="form-label">Notificar por e-mail</label>
+        <label class="form-label">Avisar no sistema</label>
         <select id="ev-notificar" class="form-select">
-          <option value="1">1 dia antes</option>
+          <option value="0">Apenas no dia</option>
+          <option value="1" selected>1 dia antes</option>
           <option value="3">3 dias antes</option>
           <option value="7">1 semana antes</option>
-          <option value="0">Apenas no dia</option>
         </select>
       </div>
     </div>
@@ -1109,9 +1649,12 @@
       </div>
       <div class="form-field">
         <label class="form-label">Processo Relacionado <span style="font-size:11px;color:var(--gray-400);font-weight:400">(opcional)</span></label>
-        <select id="tar-processo" class="form-select">
+        <select id="tar-processo" class="form-select" onchange="atualizarHintCompartilhamento()">
           <option value="">— Nenhum processo —</option>
         </select>
+        <div id="tar-processo-hint" style="display:none;font-size:11px;color:#7c3aed;margin-top:6px;display:none;align-items:center;gap:4px">
+          <i class="ti ti-handshake" style="font-size:11px"></i> Esta tarefa ficará visível para os parceiros deste processo
+        </div>
       </div>
       <div class="form-row">
         <div class="form-field">
@@ -1453,6 +1996,74 @@
     </div>
   </div>
   <div id="dia-popover-lista" style="padding:10px 12px;display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto"></div>
+</div>
+
+<!-- Mini modal: vincular tarefa a processo -->
+<div class="modal-backdrop" id="modal-vincular-tarefa" style="display:none" onclick="if(event.target.id==='modal-vincular-tarefa')fecharVincularTarefa()">
+  <div class="modal" style="max-width:360px;padding:20px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+      <span style="font-size:14px;font-weight:700;color:var(--navy)"><i class="ti ti-link"></i> Vincular a processo</span>
+      <button onclick="fecharVincularTarefa()" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:16px"><i class="ti ti-x"></i></button>
+    </div>
+    <input id="vincular-busca" type="text" class="form-input" placeholder="Buscar por nome ou número..."
+      oninput="filtrarVincularTarefa()" style="font-size:13px;padding:9px 12px;margin-bottom:10px">
+    <div id="vincular-lista" style="max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"></div>
+    <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--gray-100)">
+      <button onclick="vincularTarefaProcesso(_vincularTaskId, null);fecharVincularTarefa()"
+        style="background:none;border:none;font-size:12px;color:var(--gray-400);cursor:pointer;padding:0">
+        <i class="ti ti-unlink"></i> Deixar tarefa sem processo (privada)
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Calendário Expandido -->
+<div class="modal-backdrop" id="modal-cal-exp" onclick="closeModalOutside(event,'modal-cal-exp')">
+  <div class="modal" style="max-width:960px;width:96%;max-height:92vh;display:flex;flex-direction:column;padding:0;overflow:hidden">
+    <div class="cal-exp-header">
+      <div style="display:flex;align-items:center;gap:6px">
+        <button class="cal-arrow" onclick="calExpNav(-1)"><i class="ti ti-chevron-left"></i></button>
+        <div style="position:relative;display:inline-block">
+          <button id="cal-exp-titulo" class="cal-exp-titulo-btn" onclick="calExpToggleAno()">Junho 2026</button>
+          <div id="cal-ano-picker" style="display:none;position:absolute;top:calc(100% + 6px);left:0;background:var(--white);border:1px solid var(--gray-200);border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.15);padding:12px;z-index:500;min-width:220px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <button onclick="calAnoPickerNav(-12)" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:16px;padding:4px 6px;border-radius:6px" onmouseover="this.style.background='var(--gray-100)'" onmouseout="this.style.background=''"><i class="ti ti-chevron-left"></i></button>
+              <span id="cal-ano-picker-range" style="font-size:12px;font-weight:700;color:var(--gray-500)"></span>
+              <button onclick="calAnoPickerNav(12)" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:16px;padding:4px 6px;border-radius:6px" onmouseover="this.style.background='var(--gray-100)'" onmouseout="this.style.background=''"><i class="ti ti-chevron-right"></i></button>
+            </div>
+            <div id="cal-ano-picker-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px"></div>
+          </div>
+        </div>
+        <button class="cal-arrow" onclick="calExpNav(1)"><i class="ti ti-chevron-right"></i></button>
+        <button id="cal-exp-btn-hoje" onclick="calExpHoje()" style="background:none;border:1px solid var(--gray-200);border-radius:7px;padding:4px 10px;font-size:11px;font-weight:600;color:var(--gray-500);cursor:pointer;margin-left:4px;transition:all .15s" onmouseover="this.style.borderColor='var(--navy)';this.style.color='var(--navy)'" onmouseout="this.style.borderColor='var(--gray-200)';this.style.color='var(--gray-500)'">Hoje</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div class="cal-view-switch">
+          <button id="cal-exp-btn-mes"    class="cal-view-btn active" onclick="setCalExpView('mes')">Mês</button>
+          <button id="cal-exp-btn-semana" class="cal-view-btn"        onclick="setCalExpView('semana')">Semana</button>
+          <button id="cal-exp-btn-ano"    class="cal-view-btn"        onclick="setCalExpView('ano')">Ano</button>
+        </div>
+        <button class="btn-primary" style="font-size:12px;padding:6px 14px" onclick="calExpNovoEvento()">
+          <i class="ti ti-plus"></i> Novo
+        </button>
+        <button onclick="closeModal('modal-cal-exp')" style="background:none;border:none;cursor:pointer;color:var(--gray-400);font-size:18px;padding:4px;line-height:1;border-radius:6px" onmouseover="this.style.background='var(--gray-100)'" onmouseout="this.style.background=''"><i class="ti ti-x"></i></button>
+      </div>
+    </div>
+    <div id="cal-exp-body" class="cal-exp-body"></div>
+  </div>
+</div>
+
+<!-- Modal de confirmação customizado -->
+<div class="modal-backdrop" id="modal-confirmar" style="display:none">
+  <div class="modal" style="max-width:380px;text-align:center;padding:36px 32px">
+    <div id="confirmar-icon" style="font-size:36px;margin-bottom:14px">⚠️</div>
+    <div id="confirmar-titulo" style="font-size:16px;font-weight:700;color:var(--navy);margin-bottom:10px">Confirmar ação</div>
+    <p id="confirmar-msg" style="color:var(--gray-500);font-size:14px;line-height:1.55;margin-bottom:28px"></p>
+    <div style="display:flex;gap:10px;justify-content:center">
+      <button class="btn-secondary" style="min-width:100px" onclick="_confirmarRejeitar()">Cancelar</button>
+      <button class="btn-primary" id="confirmar-btn-ok" style="min-width:100px" onclick="_confirmarResolver()">Confirmar</button>
+    </div>
+  </div>
 </div>
 
 <script src="js/supabase-client.js"></script>

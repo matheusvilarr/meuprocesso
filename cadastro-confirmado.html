@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cadastro confirmado — Meu Processo</title>
+<link rel="icon" type="image/png" href="img/images/logo.png">
+<link rel="apple-touch-icon" href="img/images/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/login.css">
+<style>
+  .confirmed-icon {
+    width: 68px;
+    height: 68px;
+    background: #f0fdf4;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 24px;
+  }
+  .confirmed-icon svg {
+    width: 32px;
+    height: 32px;
+    stroke: #16a34a;
+    stroke-width: 2.5;
+    fill: none;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .confirmed-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: #111827;
+    text-align: center;
+    margin-bottom: 10px;
+  }
+  .confirmed-sub {
+    font-size: 14px;
+    color: #6b7280;
+    text-align: center;
+    line-height: 1.6;
+    margin-bottom: 32px;
+  }
+  .confirmed-sub strong {
+    color: #111827;
+  }
+  .btn-login {
+    display: block;
+    width: 100%;
+    padding: 15px;
+    background: #1a2e6b;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    text-align: center;
+    text-decoration: none;
+    transition: background .15s, transform .15s, box-shadow .15s;
+  }
+  .btn-login:hover {
+    background: #152459;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(26,46,107,.25);
+  }
+  .card-body {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <div class="card">
+
+    <a href="/" class="logo">
+      <img src="img/images/logo.png" alt="Meu Processo">
+    </a>
+
+    <div class="card-body">
+      <div class="confirmed-icon">
+        <svg viewBox="0 0 24 24">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      </div>
+
+      <h1 class="confirmed-title">E-mail confirmado!</h1>
+      <p class="confirmed-sub">
+        Sua conta no <strong>Meu Processo</strong> está ativa.<br>
+        Agora é só entrar e começar a gerenciar seus processos.
+      </p>
+
+      <a href="/login" class="btn-login">Ir para o login</a>
+    </div>
+
+  </div>
+
+  <p class="footer-copy">© 2026 · Meu Processo · Versão 0.1</p>
+</div>
+
+</body>
+</html>

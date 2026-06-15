@@ -1,3 +1,7 @@
+// Caches globais — declarados aqui para evitar TDZ em chamadas síncronas de inicialização
+let _clientesDB   = [];
+let _honorariosDB = [];
+
 // Navigation
 const pages = {
   'dashboard': 'Dashboard',
@@ -5,6 +9,8 @@ const pages = {
   'processo-detalhe': 'Detalhe do Processo',
   'calendario': 'Calendário',
   'tarefas': 'Tarefas',
+  'clientes': 'Clientes',
+  'honorarios': 'Honorários',
   'colaboradores': 'Colaboradores',
   'configuracoes': 'Configurações',
   'arquivados': 'Arquivados & Encerrados',
@@ -27,11 +33,18 @@ function showPage(id) {
     fullCalDate = new Date(miniCalDate.getFullYear(), miniCalDate.getMonth(), 1);
     carregarEventos();
   }
+  if (id === 'processos' && !window._filtroSemanaNavegando) {
+    window._filtroSemana = false;
+    filtrarProcessos();
+  }
+  window._filtroSemanaNavegando = false;
   if (id === 'tarefas')       carregarTarefas();
   if (id === 'arquivados')    carregarArquivados();
   if (id === 'configuracoes') carregarConfiguracoes();
-  if (id === 'colaboradores') carregarColaboradores();
+  if (id === 'colaboradores') carregarParceiros();
   if (id === 'tjdft') { verificarBackendPython(); inicializarDatesDJe(); }
+  if (id === 'clientes')      carregarClientes();
+  if (id === 'honorarios') { carregarHonorarios(); _aplicarVisHonorarios(); }
 }
 
 function showProcessDetail() {
@@ -46,6 +59,34 @@ function switchTab(id, btn) {
   card.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + id).classList.add('active');
   btn.classList.add('active');
+  if (id === 'comentarios' && _processoAtual) {
+    popularComentarios(_processoAtual);
+    _zerarBadgeTab('comentarios', _processoAtual.id);
+  }
+  if (id === 'documentos' && _processoAtual) {
+    popularDocumentos(_processoAtual);
+    _zerarBadgeTab('documentos', _processoAtual.id);
+  }
+}
+
+function _zerarBadgeTab(tipo, processoId) {
+  const badge = document.getElementById('tab-badge-' + tipo);
+  if (badge) badge.style.display = 'none';
+  if (processoId) localStorage.setItem(`lastSeen_${tipo}_${processoId}`, Date.now());
+}
+
+function _atualizarBadgesDetalhe(proc) {
+  if (!proc) return;
+  const comentarios = (proc.historico || []).filter(h => h.tipo === 'comentario');
+  const documentos  = (proc.historico || []).filter(h => h.tipo === 'documento');
+  const lastComment = parseInt(localStorage.getItem(`lastSeen_comentarios_${proc.id}`) || '0');
+  const lastDoc     = parseInt(localStorage.getItem(`lastSeen_documentos_${proc.id}`)  || '0');
+  const novosComent = comentarios.filter(h => new Date(h.created_at).getTime() > lastComment).length;
+  const novosDocs   = documentos.filter(h => new Date(h.created_at).getTime() > lastDoc).length;
+  const bc = document.getElementById('tab-badge-comentarios');
+  const bd = document.getElementById('tab-badge-documentos');
+  if (bc) { bc.textContent = novosComent; bc.style.display = novosComent ? 'inline' : 'none'; }
+  if (bd) { bd.textContent = novosDocs;   bd.style.display = novosDocs   ? 'inline' : 'none'; }
 }
 
 // Modal
@@ -71,11 +112,106 @@ function openModal(id) {
 }
 
 function closeModal(id) {
-  document.getElementById(id).classList.remove('open');
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('open');
+  el.style.zIndex = ''; // limpa z-index elevado (ex: aberto sobre o calendário)
 }
 
 function closeModalOutside(e, id) {
   if (e.target.id === id) closeModal(id);
+}
+
+// ── RECÊNCIA E ORDENAÇÃO ────────────────────────────────────────────────────
+function _ultimaAtividade(proc) {
+  return proc.movimentos_recentes?.[0]?.data || proc.created_at || '2000-01-01';
+}
+
+function _ultimaAtividadeDias(proc) {
+  const d = proc.movimentos_recentes?.[0]?.data;
+  if (!d) return 9999;
+  return Math.floor((Date.now() - new Date(d)) / 86400000);
+}
+
+function _recenciaInfo(proc) {
+  const d = proc.movimentos_recentes?.[0]?.data;
+  if (!d) return null;
+  const dias = Math.floor((Date.now() - new Date(d)) / 86400000);
+  if (dias <= 1)  return { cls: 'rec-verde',   label: dias === 0 ? 'Hoje' : 'Ontem' };
+  if (dias <= 5)  return { cls: 'rec-azul',    label: `há ${dias}d` };
+  if (dias <= 7)  return { cls: 'rec-ambar',   label: `há ${dias}d` };
+  if (dias <= 15) return { cls: 'rec-laranja', label: `há ${dias}d` };
+  const meses = Math.floor(dias / 30);
+  return { cls: 'rec-cinza', label: meses >= 1 ? `há ${meses} ${meses === 1 ? 'mês' : 'meses'}` : `há ${dias}d` };
+}
+
+function _sortRecente(a, b) {
+  return _ultimaAtividade(b).localeCompare(_ultimaAtividade(a));
+}
+
+// Filtro rápido "esta semana" ativado pelo card do dashboard
+window._filtroSemana = false;
+
+function verAtualizacoesSemana() {
+  window._filtroSemana = true;
+  window._filtroSemanaNavegando = true;
+  showPage('processos');
+  filtrarProcessos();
+}
+
+function limparFiltroSemana() {
+  window._filtroSemana = false;
+  const chip = document.getElementById('chip-semana');
+  if (chip) chip.style.display = 'none';
+  filtrarProcessos();
+}
+
+async function favoritar(event, id) {
+  event.stopPropagation();
+  const proc = (window._processosDB || []).find(p => p.id === id);
+  if (!proc || proc._isShared) return;
+  const novoValor = !proc.favorito;
+  const { error } = await _supabase.from('processos').update({ favorito: novoValor }).eq('id', id);
+  if (error) { showToast('Erro ao salvar favorito: ' + error.message, 'error'); return; }
+  proc.favorito = novoValor;
+  filtrarProcessos();
+}
+
+// Modal de confirmação customizado
+let _confirmarResolve = null;
+
+function _confirmar(msg, titulo = 'Confirmar', { textoOk = 'Confirmar', perigo = false, icone = '⚠️' } = {}) {
+  return new Promise(resolve => {
+    _confirmarResolve = resolve;
+    document.getElementById('confirmar-msg').textContent       = msg;
+    document.getElementById('confirmar-titulo').textContent    = titulo;
+    document.getElementById('confirmar-icon').textContent      = icone;
+    const btnOk = document.getElementById('confirmar-btn-ok');
+    btnOk.textContent        = textoOk;
+    btnOk.style.background   = perigo ? '#dc2626' : '';
+    btnOk.style.borderColor  = perigo ? '#dc2626' : '';
+    document.getElementById('modal-confirmar').style.display   = 'flex';
+  });
+}
+
+function _confirmarResolver() {
+  document.getElementById('modal-confirmar').style.display = 'none';
+  if (_confirmarResolve) { _confirmarResolve(true); _confirmarResolve = null; }
+}
+
+function _confirmarRejeitar() {
+  document.getElementById('modal-confirmar').style.display = 'none';
+  if (_confirmarResolve) { _confirmarResolve(false); _confirmarResolve = null; }
+}
+
+// Tempo relativo para datas
+function _tempoRelativo(iso) {
+  if (!iso) return null;
+  const diff = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (diff < 60)    return 'agora mesmo';
+  if (diff < 3600)  return `há ${Math.floor(diff / 60)} min`;
+  if (diff < 86400) return `há ${Math.floor(diff / 3600)}h`;
+  return `há ${Math.floor(diff / 86400)} dia${Math.floor(diff / 86400) > 1 ? 's' : ''}`;
 }
 
 // Toast
@@ -114,6 +250,16 @@ function buildMiniCal() {
       .map(e => new Date(e.data + 'T12:00:00').getDate())
   );
 
+  // honorários com vencimento neste mês
+  const honorDias = {};
+  (_honorariosDB || []).forEach(h => {
+    if (!h.data_vencimento || h.status === 'pago' || h.status === 'cancelado') return;
+    const d = new Date(h.data_vencimento + 'T12:00:00');
+    if (d.getFullYear() === miniCalDate.getFullYear() && d.getMonth() === miniCalDate.getMonth()) {
+      honorDias[d.getDate()] = honorDias[d.getDate()] || h.status;
+    }
+  });
+
   for (let i = 0; i < first.getDay(); i++) {
     const d = new Date(first);
     d.setDate(d.getDate() - (first.getDay() - i));
@@ -125,7 +271,9 @@ function buildMiniCal() {
   for (let d = 1; d <= last.getDate(); d++) {
     const isToday  = ano === today.getFullYear() && mes === today.getMonth() && d === today.getDate();
     const hasEvent = eventoDias.has(d);
-    html += `<div class="cal-day ${isToday ? 'today' : ''} ${hasEvent ? 'has-event' : ''}" onclick="abrirDiaPopover(${ano},${mes},${d},this)">${d}</div>`;
+    const honStatus = honorDias[d];
+    const moneyBadge = honStatus ? `<span class="cal-day-money${honStatus==='vencido'?' vencido':''}">$</span>` : '';
+    html += `<div class="cal-day ${isToday ? 'today' : ''} ${hasEvent ? 'has-event' : ''}" onclick="abrirDiaPopover(${ano},${mes},${d},this)">${d}${moneyBadge}</div>`;
   }
 
   grid.innerHTML = html;
@@ -163,14 +311,18 @@ function abrirDiaPopover(ano, mes, dia, celEl) {
   const eventos   = (_eventosDB || []).filter(e => e.data === isoDate);
 
   lista.innerHTML = eventos.length
-    ? eventos.map(e => `
+    ? eventos.map(e => {
+        const sh = e.processo_id ? window._sharedSet?.[e.processo_id] : null;
+        return `
         <div style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:8px;background:var(--gray-50)">
           <div style="width:3px;min-height:34px;border-radius:4px;background:${corTipo[e.tipo] || '#94a3b8'};flex-shrink:0;margin-top:2px"></div>
           <div style="flex:1;min-width:0">
             <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.titulo}</div>
             <div style="font-size:11px;color:var(--gray-400);margin-top:1px">${tipoLabel[e.tipo] || e.tipo}${e.hora ? ' · ' + e.hora : ''}</div>
+            ${sh ? `<div style="font-size:10px;color:#7c3aed;margin-top:2px"><i class="ti ti-handshake" style="font-size:10px"></i> ${_esc(sh.owner_nome)}</div>` : ''}
           </div>
-        </div>`).join('')
+        </div>`;
+      }).join('')
     : `<div style="text-align:center;padding:16px 0;color:var(--gray-300)">
          <i class="ti ti-calendar-off" style="font-size:24px;display:block;margin-bottom:6px"></i>
          <div style="font-size:12px">Nenhum compromisso</div>
@@ -223,6 +375,273 @@ function abrirNovoEventoDia() {
   if (evData) evData.value = isoDate;
 }
 
+// ── CALENDÁRIO EXPANDIDO ────────────────────────────────────────────────────
+let _calExpDate    = new Date();
+let _calExpView    = 'mes';
+let _calExpEventos = [];
+let _calExpDiaSel  = null;
+
+const _calCorTipo = {
+  prazo_processual: { bg:'#fee2e2', txt:'#b91c1c', border:'#ef4444' },
+  audiencia:        { bg:'#dbeafe', txt:'#1d4ed8', border:'#3b82f6' },
+  lembrete:         { bg:'#fef9c3', txt:'#a16207', border:'#f59e0b' },
+  reuniao:          { bg:'#f3e8ff', txt:'#7c3aed', border:'#8b5cf6' },
+};
+const _calLabel   = { prazo_processual:'Prazo', audiencia:'Audiência', lembrete:'Lembrete', reuniao:'Reunião' };
+const _calMeses   = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const _calMesesAb = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+async function abrirCalExp() {
+  _calExpDate = new Date(miniCalDate.getFullYear(), miniCalDate.getMonth(), 1);
+  _calExpView = 'mes';
+  openModal('modal-cal-exp');
+  await _calExpCarregar();
+  _calExpRender();
+}
+
+async function _calExpCarregar() {
+  if (!window._user) return;
+  const [ini, fim] = _calExpPeriodo();
+  const { data } = await _supabase.from('eventos').select('*')
+    .gte('data', ini).lte('data', fim).order('data', { ascending: true });
+  if (data) _calExpEventos = data;
+}
+
+function _calExpPeriodo() {
+  const a = _calExpDate.getFullYear(), m = _calExpDate.getMonth();
+  if (_calExpView === 'ano') return [`${a}-01-01`, `${a}-12-31`];
+  if (_calExpView === 'semana') {
+    const ini = new Date(_calExpDate); ini.setDate(ini.getDate() - ini.getDay());
+    const fim = new Date(ini); fim.setDate(ini.getDate() + 6);
+    return [ini.toISOString().slice(0,10), fim.toISOString().slice(0,10)];
+  }
+  return [new Date(a,m,1).toISOString().slice(0,10), new Date(a,m+1,0).toISOString().slice(0,10)];
+}
+
+function _calExpRender() {
+  const a = _calExpDate.getFullYear(), m = _calExpDate.getMonth();
+  const titulo = document.getElementById('cal-exp-titulo');
+  if (_calExpView === 'mes')    { if (titulo) titulo.textContent = _calMeses[m] + ' ' + a; _buildCalExpMes(); }
+  if (_calExpView === 'semana') { _buildCalExpSemana(); }
+  if (_calExpView === 'ano')    { if (titulo) titulo.textContent = String(a); _buildCalExpAno(); }
+  ['mes','semana','ano'].forEach(v => {
+    document.getElementById('cal-exp-btn-'+v)?.classList.toggle('active', v === _calExpView);
+  });
+}
+
+async function calExpNav(dir) {
+  if (_calExpView === 'mes')    _calExpDate.setMonth(_calExpDate.getMonth() + dir);
+  if (_calExpView === 'semana') _calExpDate.setDate(_calExpDate.getDate() + dir * 7);
+  if (_calExpView === 'ano')    _calExpDate.setFullYear(_calExpDate.getFullYear() + dir);
+  await _calExpCarregar();
+  _calExpRender();
+}
+
+async function setCalExpView(v) {
+  _calExpView = v;
+  await _calExpCarregar();
+  _calExpRender();
+}
+
+async function calExpHoje() {
+  _calExpDate = new Date();
+  await _calExpCarregar();
+  _calExpRender();
+}
+
+function calExpToggleAno() {
+  // Se já está em ano, volta pra mês. Caso contrário abre o seletor de ano.
+  if (_calExpView === 'ano') { setCalExpView('mes'); return; }
+  const picker = document.getElementById('cal-ano-picker');
+  if (!picker) return;
+  if (picker.style.display !== 'none') { picker.style.display = 'none'; return; }
+  _calAnoPickerBase = _calExpDate.getFullYear() - 5;
+  _renderAnoPicker();
+  picker.style.display = 'block';
+  setTimeout(() => document.addEventListener('click', _fecharAnoPickerFora, { once: true }), 50);
+}
+
+let _calAnoPickerBase = new Date().getFullYear() - 5;
+
+function _renderAnoPicker() {
+  const grid  = document.getElementById('cal-ano-picker-grid');
+  const range = document.getElementById('cal-ano-picker-range');
+  if (!grid) return;
+  const atual = _calExpDate.getFullYear();
+  range.textContent = `${_calAnoPickerBase} – ${_calAnoPickerBase + 11}`;
+  grid.innerHTML = Array.from({ length: 12 }, (_, i) => {
+    const a = _calAnoPickerBase + i;
+    const isAtual = a === atual;
+    return `<button onclick="calAnoPickerSelect(${a})"
+      style="padding:7px 4px;border:none;border-radius:8px;font-size:13px;font-weight:${isAtual?'700':'500'};
+      cursor:pointer;transition:all .12s;
+      background:${isAtual?'var(--navy)':'none'};
+      color:${isAtual?'var(--white)':'var(--gray-700)'}"
+      onmouseover="if(!${isAtual})this.style.background='var(--gray-100)'"
+      onmouseout="if(!${isAtual})this.style.background='none'">${a}</button>`;
+  }).join('');
+}
+
+function calAnoPickerNav(delta) {
+  _calAnoPickerBase += delta;
+  _renderAnoPicker();
+}
+
+async function calAnoPickerSelect(ano) {
+  document.getElementById('cal-ano-picker').style.display = 'none';
+  _calExpDate.setFullYear(ano);
+  if (_calExpView === 'ano') { await _calExpCarregar(); _calExpRender(); return; }
+  await _calExpCarregar();
+  _calExpRender();
+}
+
+function _fecharAnoPickerFora(e) {
+  const picker = document.getElementById('cal-ano-picker');
+  if (picker && !picker.contains(e.target) && e.target.id !== 'cal-exp-titulo') {
+    picker.style.display = 'none';
+  } else if (picker && picker.style.display !== 'none') {
+    setTimeout(() => document.addEventListener('click', _fecharAnoPickerFora, { once: true }), 50);
+  }
+}
+
+function calExpNovoEvento() {
+  const lemEl = document.getElementById('modal-lembrete');
+  if (lemEl) lemEl.style.zIndex = '400';
+  openModal('modal-lembrete');
+  if (_calExpDiaSel) {
+    const el = document.getElementById('ev-data');
+    if (el) el.value = _calExpDiaSel;
+  }
+}
+
+function _calExpEvHtml(ev, compact) {
+  const c = _calCorTipo[ev.tipo] || { bg:'#f3f4f6', txt:'#6b7280', border:'#9ca3af' };
+  if (compact) {
+    return `<span class="cal-exp-ev" style="background:${c.bg};color:${c.txt};border-left-color:${c.border}"
+      onclick="event.stopPropagation()" title="${_esc(ev.titulo)}">${_esc(ev.titulo)}</span>`;
+  }
+  return `<div class="cal-exp-sev" style="background:${c.bg};border-left-color:${c.border}">
+    <div class="cal-exp-sev-titulo" style="color:${c.txt}">${_esc(ev.titulo)}</div>
+    ${ev.hora ? `<div class="cal-exp-sev-hora">${ev.hora}</div>` : ''}
+    <div class="cal-exp-sev-hora">${_calLabel[ev.tipo] || ev.tipo}</div>
+  </div>`;
+}
+
+function _buildCalExpMes() {
+  const body = document.getElementById('cal-exp-body');
+  const a = _calExpDate.getFullYear(), m = _calExpDate.getMonth();
+  const today = new Date();
+  const first = new Date(a, m, 1), last = new Date(a, m+1, 0);
+  const dias = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+
+  let html = `<div class="cal-exp-mes-grid">`;
+  html += dias.map(d => `<div class="cal-exp-dh">${d}</div>`).join('');
+
+  // Dias do mês anterior
+  for (let i = 0; i < first.getDay(); i++) {
+    const d = new Date(first); d.setDate(d.getDate() - (first.getDay() - i));
+    html += `<div class="cal-exp-day other-month"><div class="cal-exp-day-num"><span>${d.getDate()}</span></div></div>`;
+  }
+
+  // Dias do mês atual
+  for (let d = 1; d <= last.getDate(); d++) {
+    const iso = `${a}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isToday = a===today.getFullYear() && m===today.getMonth() && d===today.getDate();
+    const evs = _calExpEventos.filter(e => e.data === iso);
+    const visiveis = evs.slice(0, 3), extra = evs.length - 3;
+    const hons = (_honorariosDB||[]).filter(h => h.data_vencimento === iso && h.status !== 'pago' && h.status !== 'cancelado');
+    const honHtml = hons.map(h => `<div class="cal-exp-ev" style="background:${h.status==='vencido'?'var(--red-light)':'var(--green-light)'};color:${h.status==='vencido'?'var(--red)':'var(--green)'};border-left:3px solid ${h.status==='vencido'?'var(--red)':'var(--green)'}" onclick="event.stopPropagation();abrirEditarHonorario('${h.id}')">
+      <i class="ti ti-cash" style="font-size:10px"></i> ${h.descricao.substring(0,22)}
+    </div>`).join('');
+    html += `<div class="cal-exp-day${isToday?' today':''}" onclick="calExpClickDia('${iso}')">
+      <div class="cal-exp-day-num">
+        <span>${d}</span>
+        <button class="cal-exp-add-btn" onclick="event.stopPropagation();calExpNoDia('${iso}')">+</button>
+      </div>
+      ${visiveis.map(e => _calExpEvHtml(e, true)).join('')}
+      ${honHtml}
+      ${extra > 0 ? `<div class="cal-exp-more" onclick="event.stopPropagation();calExpClickDia('${iso}')">+${extra} mais</div>` : ''}
+    </div>`;
+  }
+  html += `</div>`;
+  body.innerHTML = html;
+}
+
+function _buildCalExpSemana() {
+  const body = document.getElementById('cal-exp-body');
+  const today = new Date();
+  const dom = new Date(_calExpDate); dom.setDate(_calExpDate.getDate() - _calExpDate.getDay());
+  const titulo = document.getElementById('cal-exp-titulo');
+  const fmt = d => d.toLocaleDateString('pt-BR', { day:'2-digit', month:'short' });
+  const fim = new Date(dom); fim.setDate(dom.getDate() + 6);
+  if (titulo) titulo.textContent = fmt(dom) + ' – ' + fmt(fim);
+
+  let html = `<div class="cal-exp-semana-grid">`;
+  const dnames = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(dom); d.setDate(dom.getDate() + i);
+    const iso = d.toISOString().slice(0,10);
+    const isToday = d.toDateString() === today.toDateString();
+    const evs = _calExpEventos.filter(e => e.data === iso);
+    html += `<div class="cal-exp-scol${isToday?' today':''}">
+      <div class="cal-exp-scol-header">
+        <div class="s-dname">${dnames[d.getDay()]}</div>
+        <div class="s-dnum${isToday?' today':''}">${d.getDate()}</div>
+      </div>
+      <div class="cal-exp-scol-eventos" onclick="calExpNoDia('${iso}')">
+        ${evs.length ? evs.map(e => _calExpEvHtml(e, false)).join('') : ''}
+      </div>
+    </div>`;
+  }
+  html += `</div>`;
+  body.innerHTML = html;
+}
+
+function _buildCalExpAno() {
+  const body = document.getElementById('cal-exp-body');
+  const a = _calExpDate.getFullYear(), today = new Date();
+  let html = `<div class="cal-exp-ano-grid">`;
+  for (let m = 0; m < 12; m++) {
+    const first = new Date(a, m, 1), last = new Date(a, m+1, 0);
+    let mini = `<div class="cal-exp-ano-mini">`;
+    mini += ['D','S','T','Q','Q','S','S'].map(d => `<div class="cal-exp-ano-dh">${d}</div>`).join('');
+    for (let i = 0; i < first.getDay(); i++) mini += `<div class="cal-exp-ano-d other-m"></div>`;
+    for (let d = 1; d <= last.getDate(); d++) {
+      const iso = `${a}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const isToday = a===today.getFullYear() && m===today.getMonth() && d===today.getDate();
+      const hasEv   = _calExpEventos.some(e => e.data === iso);
+      mini += `<div class="cal-exp-ano-d${isToday?' today':''}${hasEv?' has-ev':''}">${d}</div>`;
+    }
+    mini += `</div>`;
+    html += `<div class="cal-exp-ano-mes" onclick="calExpClickMes(${m})">
+      <div class="cal-exp-ano-mes-titulo">${_calMesesAb[m]}</div>
+      ${mini}
+    </div>`;
+  }
+  html += `</div>`;
+  body.innerHTML = html;
+}
+
+async function calExpClickMes(m) {
+  _calExpDate.setMonth(m);
+  await setCalExpView('mes');
+}
+
+function calExpClickDia(iso) {
+  _calExpDiaSel = iso;
+  // Mostra popover ou destaca o dia — por ora só define seleção
+}
+
+function calExpNoDia(iso) {
+  _calExpDiaSel = iso;
+  // Mantém o calendário aberto por baixo — eleva o lembrete acima dele
+  const lemEl = document.getElementById('modal-lembrete');
+  if (lemEl) lemEl.style.zIndex = '400';
+  openModal('modal-lembrete');
+  const el = document.getElementById('ev-data');
+  if (el) el.value = iso;
+}
+
 // Full Calendar
 let fullCalDate = new Date();
 
@@ -265,11 +684,13 @@ function buildFullCal() {
     const isToday = fullCalDate.getFullYear() === today.getFullYear() &&
                     fullCalDate.getMonth() === today.getMonth() && d === today.getDate();
     const events  = eventosPorDia[d] || [];
-    const evHtml  = events.map(e =>
-      `<div class="fcal-event ${_tipoEvtCls[e.tipo] || 'event-lembrete'}"
+    const evHtml  = events.map(e => {
+      const sh = e.processo_id ? window._sharedSet?.[e.processo_id] : null;
+      const shIcon = sh ? `<i class="ti ti-handshake" title="Compartilhado por ${sh.owner_nome}" style="font-size:9px;margin-left:3px;opacity:.8"></i>` : '';
+      return `<div class="fcal-event ${_tipoEvtCls[e.tipo] || 'event-lembrete'}"
             onclick="event.stopPropagation();excluirEvento('${e.id}')"
-            title="${e.titulo} (clique para excluir)">${e.titulo}</div>`
-    ).join('');
+            title="${e.titulo}${sh ? ' · Compartilhado por ' + sh.owner_nome : ''} (clique para excluir)">${e.titulo}${shIcon}</div>`;
+    }).join('');
     html += `<div class="fcal-day ${isToday ? 'today' : ''}"><div class="fcal-day-num">${d}</div>${evHtml}</div>`;
   }
 
@@ -426,6 +847,8 @@ async function buscarAdvogadoDJEN() {
       return { ...item, textoLimpo, processos, tipoDecisao, partes, matches };
     });
 
+    window._djeResultados = _deduplicarDJe(window._djeResultados);
+
     const semCadastro = window._djeResultados.filter(d => !d.matches.length && d.processos[0]);
     let html = semCadastro.length > 1 ? `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 2px 10px">
@@ -441,6 +864,9 @@ async function buscarAdvogadoDJEN() {
       const orgao        = (doc.nomeOrgao || '').slice(0, 60);
       const temMatch     = doc.matches.length > 0;
       const semNumero    = !numPrincipal;
+      const badgePubs    = (doc._pubCount || 1) > 1
+        ? `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:8px;background:#fef3c7;color:#92400e;white-space:nowrap">${doc._pubCount} publicações</span>`
+        : '';
 
       const badgeTipo = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;background:${temMatch ? '#dcfce7;color:#166534' : '#e8edf5;color:var(--navy)'};white-space:nowrap">${temMatch ? '✓ No sistema' : (doc.tipoComunicacao || 'PUBLICAÇÃO')}</span>`;
       const badgeDecisao = doc.tipoDecisao ? `<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#f3f4f6;color:var(--gray-500)">${doc.tipoDecisao}</span>` : '';
@@ -449,7 +875,7 @@ async function buscarAdvogadoDJEN() {
       if (temMatch) {
         return `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:10px">
           <div style="flex:1;min-width:0">
-            <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">${badgeTipo}${badgeDecisao}
+            <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">${badgeTipo}${badgeDecisao}${badgePubs}
               <span style="font-size:10px;color:var(--gray-400);margin-left:auto;white-space:nowrap">${dataFmt} · ${doc.siglaTribunal || ''}</span>
             </div>
             <div style="font-size:12px;font-weight:600;color:var(--navy);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${numPrincipal || 'sem número'}${doc.processos.length > 1 ? ` <span style="color:var(--gray-400);font-weight:400">+${doc.processos.length-1}</span>` : ''}</div>
@@ -475,7 +901,7 @@ async function buscarAdvogadoDJEN() {
 
       return `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:10px 12px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:8px">
-          <div style="display:flex;align-items:center;gap:5px">${badgeTipo}${badgeDecisao}</div>
+          <div style="display:flex;align-items:center;gap:5px">${badgeTipo}${badgeDecisao}${badgePubs}</div>
           <span style="font-size:10px;color:var(--gray-400);white-space:nowrap">${dataFmt} · ${doc.siglaTribunal || ''}</span>
         </div>
         <div style="font-size:12px;font-weight:600;color:var(--navy)">${numPrincipal || '<span style="color:var(--gray-400);font-style:italic">Sem número</span>'}${doc.processos.length > 1 ? ` <span style="color:var(--gray-400);font-weight:400;font-size:11px">+${doc.processos.length-1}</span>` : ''}</div>
@@ -948,70 +1374,107 @@ async function salvarProcesso() {
 async function carregarProcessos() {
   if (!window._user) return;
 
-  const { data, error } = await _supabase
-    .from('processos')
-    .select('*')
-    .neq('status', 'Arquivado')
-    .order('created_at', { ascending: false });
+  const uid = window._user.id;
+
+  // Carrega processos + compartilhamentos em paralelo
+  const [processosRes, countArqRes, sharedWithMeRes, mySharesRes, pendentesRes] = await Promise.all([
+    _supabase.from('processos').select('*').neq('status', 'Arquivado').order('created_at', { ascending: false }),
+    _supabase.from('processos').select('id', { count: 'exact', head: true }).eq('status', 'Arquivado'),
+    _supabase.from('processo_compartilhamentos').select('processo_id,owner_nome,nivel_acesso').eq('shared_with_id', uid).eq('status', 'aceito'),
+    _supabase.from('processo_compartilhamentos').select('processo_id,shared_with_nome,nivel_acesso').eq('owner_id', uid).eq('status', 'aceito'),
+    _supabase.from('processo_compartilhamentos').select('id', { count: 'exact', head: true }).eq('shared_with_id', uid).eq('status', 'pendente'),
+  ]);
+
+  const data = processosRes.data;
+  if (processosRes.error || !data) return;
+
+  // Mapas de compartilhamento para renderização dos cards
+  window._sharedSet   = {};  // processo_id → { nivel_acesso, owner_nome } — compartilhados comigo
+  window._mySharesMap = {};  // processo_id → [{ nome, nivel }] — que eu compartilhei
+
+  for (const s of (sharedWithMeRes.data || [])) {
+    window._sharedSet[s.processo_id] = { nivel_acesso: s.nivel_acesso, owner_nome: s.owner_nome };
+  }
+  for (const s of (mySharesRes.data || [])) {
+    if (!window._mySharesMap[s.processo_id]) window._mySharesMap[s.processo_id] = [];
+    window._mySharesMap[s.processo_id].push({ nome: s.shared_with_nome, nivel: s.nivel_acesso });
+  }
 
   // Reordena pelo movimento mais recente (mais ativo primeiro)
-  if (data) {
-    data.sort((a, b) => {
-      const dA = a.movimentos_recentes?.[0]?.data || a.ultima_verificacao || a.created_at || '';
-      const dB = b.movimentos_recentes?.[0]?.data || b.ultima_verificacao || b.created_at || '';
-      return dB.localeCompare(dA);
-    });
-  }
+  data.sort((a, b) => {
+    const dA = a.movimentos_recentes?.[0]?.data || a.ultima_verificacao || a.created_at || '';
+    const dB = b.movimentos_recentes?.[0]?.data || b.ultima_verificacao || b.created_at || '';
+    return dB.localeCompare(dA);
+  });
 
-  if (error || !data) return;
-
-  // Atualiza badge de processos
+  // Badge de processos (exclui os que eu não possuo — shared)
+  const meus = data.filter(p => !window._sharedSet[p.id]);
   const badge = document.getElementById('badge-processos');
   if (badge) {
-    badge.textContent    = data.length;
-    badge.style.display  = data.length ? 'inline-flex' : 'none';
+    badge.textContent   = meus.length;
+    badge.style.display = meus.length ? 'inline-flex' : 'none';
   }
 
-  // Atualiza badge de arquivados
-  const { count: countArq } = await _supabase
-    .from('processos')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'Arquivado');
+  // Badge de arquivados
+  const countArq = countArqRes.count || 0;
   const badgeArq = document.getElementById('badge-arquivados');
   if (badgeArq) {
-    badgeArq.textContent   = countArq || 0;
+    badgeArq.textContent   = countArq;
     badgeArq.style.display = countArq ? 'inline-flex' : 'none';
+  }
+
+  // Badge de pendentes recebidos
+  const countPend = pendentesRes.count || 0;
+  const badgeParc = document.getElementById('badge-parceiros');
+  if (badgeParc) {
+    badgeParc.textContent   = countPend || 0;
+    badgeParc.style.display = countPend ? 'inline-flex' : 'none';
   }
 
   window._processosDB = data;
   renderizarListaProcessos(data);
-  atualizarDashboard(data, countArq || 0);
+  atualizarDashboard(meus, countArq);
   atualizarBell();
 
+  // Carrega clientes e honorários em background para ficarem disponíveis no detalhe do processo
+  carregarClientes();
+  carregarHonorarios();
+
   // Enriquece em background processos com número CNJ mas sem datajud_index
-  _enriquecerPendentes(data);
+  _enriquecerPendentes(meus);
 }
 
 // Roda _enriquecerComDatajud para processos que têm número mas nunca cruzaram com DataJud
 // Processa em lotes de 3 para não sobrecarregar a API
+const _ENR_COOLDOWN_KEY = 'enriquecimento_ultimo';
+const _ENR_COOLDOWN_MS  = 60 * 60 * 1000; // 1h
+
 async function _enriquecerPendentes(lista) {
+  const ultimo = parseInt(localStorage.getItem(_ENR_COOLDOWN_KEY) || '0', 10);
+  if (Date.now() - ultimo < _ENR_COOLDOWN_MS) return;
+
   const pendentes = (lista || []).filter(p =>
     p.numero && !p.datajud_index && p.numero.match(/\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/)
   );
   if (!pendentes.length) return;
 
+  localStorage.setItem(_ENR_COOLDOWN_KEY, String(Date.now()));
+
+  // Favoritos primeiro
+  pendentes.sort((a, b) => (b.favorito ? 1 : 0) - (a.favorito ? 1 : 0));
+
   for (let i = 0; i < pendentes.length; i += 3) {
     const lote = pendentes.slice(i, i + 3);
     await Promise.all(lote.map(p => _enriquecerComDatajud(p.numero)));
-    // Pausa entre lotes para não throttle
     if (i + 3 < pendentes.length) await new Promise(r => setTimeout(r, 1500));
   }
 }
 
 function atualizarDashboard(processos, totalArquivados) {
-  const ativos    = processos.length;
-  const comNotif  = processos.filter(p => p.notificacao_pendente).length;
-  const comSync   = processos.filter(p => p.datajud_index).length;
+  const sharedCount = Object.keys(window._sharedSet || {}).length;
+  const ativos      = processos.length + sharedCount;
+  const comSync     = processos.filter(p => p.datajud_index).length;
+  const essaSemana  = (window._processosDB || []).filter(p => _ultimaAtividadeDias(p) <= 7).length;
 
   // Saudação com nome real
   const nome = window._user?.user_metadata?.full_name || window._user?.email?.split('@')[0] || '';
@@ -1028,13 +1491,16 @@ function atualizarDashboard(processos, totalArquivados) {
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
 
   set('stat-processos-ativos', ativos);
-  set('stat-processos-sub', comSync > 0 ? `${comSync} sincronizado(s) com CNJ` : 'Nenhum sincronizado');
+  const subProcessos = sharedCount > 0
+    ? `${processos.length} próprio${processos.length !== 1 ? 's' : ''} + ${sharedCount} compartilhado${sharedCount !== 1 ? 's' : ''}`
+    : comSync > 0 ? `${comSync} sincronizado(s) com CNJ` : 'Nenhum sincronizado';
+  set('stat-processos-sub', subProcessos);
 
-  set('stat-notificacoes', comNotif);
+  set('stat-notificacoes', essaSemana || '0');
   const elNotiSub = document.getElementById('stat-notificacoes-sub');
   if (elNotiSub) {
-    elNotiSub.textContent = comNotif > 0 ? `${comNotif} aguardando leitura` : 'Tudo em dia';
-    elNotiSub.className   = `stat-change ${comNotif > 0 ? 'alert' : 'up'}`;
+    elNotiSub.textContent = essaSemana > 0 ? `${essaSemana} processo(s) com atividade` : 'Nenhuma atualização';
+    elNotiSub.className   = `stat-change ${essaSemana > 0 ? 'up' : ''}`;
   }
 
   set('stat-arquivados', totalArquivados);
@@ -1047,9 +1513,14 @@ function atualizarDashboard(processos, totalArquivados) {
   if (!wrap) return;
 
   if (!processos.length) {
-    wrap.innerHTML = `<div style="text-align:center;padding:30px;color:var(--gray-400);font-size:13px">
-      <i class="ti ti-briefcase" style="font-size:24px;display:block;margin-bottom:8px;opacity:0.3"></i>
-      Nenhum processo cadastrado ainda
+    wrap.innerHTML = `<div style="text-align:center;padding:36px 20px">
+      <i class="ti ti-briefcase" style="font-size:36px;display:block;margin-bottom:12px;color:var(--gray-200)"></i>
+      <div style="font-size:14px;font-weight:600;color:var(--navy);margin-bottom:6px">Nenhum processo ainda</div>
+      <div style="font-size:12px;color:var(--gray-400);margin-bottom:18px">Adicione processos para acompanhar aqui</div>
+      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+        <button class="btn-primary" style="font-size:12px;padding:7px 14px" onclick="abrirModalNovoProcesso()"><i class="ti ti-plus"></i> Novo processo</button>
+        <button class="btn-secondary" style="font-size:12px;padding:7px 14px" onclick="abrirModalBusca()"><i class="ti ti-search"></i> Buscar no CNJ</button>
+      </div>
     </div>`;
     return;
   }
@@ -1164,10 +1635,14 @@ function renderizarListaProcessos(lista) {
   const empty = document.getElementById('processos-empty');
   if (!grid) return;
 
-  grid.querySelectorAll('.process-card[data-db]').forEach(el => el.remove());
+  grid.querySelectorAll('.process-card[data-db], .section-sep[data-dyn]').forEach(el => el.remove());
 
   const sub = document.getElementById('processos-sub-header');
   if (sub) sub.textContent = lista.length ? `${lista.length} processo(s) ativo(s)` : 'Nenhum processo cadastrado';
+
+  // Separar favoritos × outros e ordenar por recência
+  const favs   = lista.filter(p => p.favorito && !p._isShared).sort(_sortRecente);
+  const outros = lista.filter(p => !p.favorito || p._isShared).sort(_sortRecente);
 
   if (!lista.length) {
     if (empty) empty.style.display = 'block';
@@ -1186,44 +1661,68 @@ function renderizarListaProcessos(lista) {
   const statusCls = s => (s || 'Ativo').toLowerCase().replace(/\s/g, '-');
   const areaMap   = { 'Cível':'civil','Trabalhista':'trabalhista','Criminal':'criminal','Tributário':'tributario','Família':'familia','Previdenciário':'previdenciario' };
 
-  const cards = lista.map(p => {
-    const temSync  = !!p.datajud_index;
-    const temNotif = !!p.notificacao_pendente;
+  const criarCard = p => {
+    const temSync    = !!p.datajud_index;
+    const temNotif   = !!p.notificacao_pendente;
+    const isShared   = !!window._sharedSet?.[p.id];
+    const sharedInfo = isShared ? window._sharedSet[p.id] : null;
+    const myShares   = window._mySharesMap?.[p.id] || [];
+    const rec        = _recenciaInfo(p);
 
     const card = document.createElement('div');
-    card.className = `process-card${temNotif ? ' pc-notif' : ''}`;
+    card.className = `process-card${temNotif ? ' pc-notif' : ''}${isShared ? ' pc-compartilhado' : ''}`;
     card.setAttribute('data-db', p.id);
     card.onclick = () => abrirProcesso(p.id);
 
-    // Pontinho de sincronização
     const diasSemVerif = p.ultima_verificacao
       ? (Date.now() - new Date(p.ultima_verificacao)) / 86400000 : 999;
     const syncDot = diasSemVerif <= 7
-      ? (temSync ? '#22c55e' : '#60a5fa')   // verde=CNJ, azul=DJEN/recente
-      : (temSync ? '#f59e0b' : '#d1d5db');  // âmbar=CNJ desatualizado, cinza=manual
+      ? (temSync ? '#22c55e' : '#60a5fa')
+      : (temSync ? '#f59e0b' : '#d1d5db');
     const syncTip = diasSemVerif <= 7
       ? (temSync ? 'Atualizado via CNJ DataJud' : 'Verificado recentemente')
       : (temSync ? 'CNJ — verificação desatualizada' : 'Sem sincronização automática');
 
+    const avatarHtml = myShares.length ? (() => {
+      const visiveis = myShares.slice(0, 3);
+      const extra    = myShares.length - visiveis.length;
+      const dots     = visiveis.map(s => {
+        const iniciais = s.nome.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+        const nv       = s.nivel === 'total' ? 'nivel-total' : s.nivel === 'comentario' ? 'nivel-comentario' : 'nivel-leitura';
+        const label    = s.nivel === 'total' ? 'Acesso total' : s.nivel === 'comentario' ? 'Comentários' : 'Leitura';
+        return `<div class="pc-avatar-dot ${nv}" title="${_esc(s.nome)} — ${label}">${iniciais}</div>`;
+      }).join('');
+      const extraHtml = extra ? `<div class="pc-avatar-dot" style="background:#9ca3af" title="+ ${extra} pessoa(s)">+${extra}</div>` : '';
+      return `<div class="pc-avatars">${dots}${extraHtml}</div>`;
+    })() : '';
+
     card.innerHTML = `
       <div class="pc-top">
-        <span class="pc-num">${p.numero || '—'}</span>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span class="pc-num">${p.numero || '—'}</span>
+          ${rec ? `<span class="recencia-badge ${rec.cls}">${rec.label}</span>` : ''}
+        </div>
         <div style="display:flex;align-items:center;gap:5px">
+          ${isShared ? `<span class="pc-share-badge"><i class="ti ti-share" style="font-size:9px"></i> ${_esc(sharedInfo.owner_nome.split(' ')[0])}</span>` : ''}
           <span title="${syncTip}" style="width:7px;height:7px;border-radius:50%;background:${syncDot};flex-shrink:0;display:inline-block"></span>
           <span class="pc-status status-${statusCls(p.status)}">${p.status || 'Ativo'}</span>
-          <button class="btn-arquivar-card" title="Arquivar processo"
-            onclick="pedirArquivar(event,'${p.id}','${(p.nome||'').replace(/'/g,'\\x27')}')">
-            <i class="ti ti-archive"></i>
-          </button>
+          ${!isShared ? `
+            <button class="pc-fav-btn${p.favorito ? ' ativo' : ''}" onclick="favoritar(event,'${p.id}')" title="${p.favorito ? 'Remover dos favoritos' : 'Favoritar'}">
+              <i class="ti ${p.favorito ? 'ti-star-filled' : 'ti-star'}"></i>
+            </button>
+            <button class="btn-arquivar-card" title="Arquivar processo"
+              onclick="pedirArquivar(event,'${p.id}','${(p.nome||'').replace(/'/g,'\\x27')}')">
+              <i class="ti ti-archive"></i>
+            </button>` : ''}
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:4px;min-width:0" class="pc-title-row">
         <div class="pc-title" style="flex:1;min-width:0" id="pc-title-${p.id}">${p.apelido || p.nome}</div>
-        <button onclick="editarApelidoCard(event,'${p.id}')" title="Editar apelido"
+        ${!isShared ? `<button onclick="editarApelidoCard(event,'${p.id}')" title="Editar apelido"
           style="background:none;border:none;padding:2px 4px;cursor:pointer;color:var(--gray-400);font-size:12px;flex-shrink:0;opacity:0;transition:opacity .15s"
           class="btn-edit-apelido-card">
           <i class="ti ti-pencil"></i>
-        </button>
+        </button>` : ''}
       </div>
       ${p.apelido ? `<div style="font-size:11px;color:var(--gray-400);margin-top:-2px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.nome}</div>` : ''}
       <div class="pc-client">
@@ -1231,13 +1730,17 @@ function renderizarListaProcessos(lista) {
         ${p.cliente || 'Cliente não informado'}
         ${p.classe ? `<span style="margin-left:6px;color:var(--gray-400)">· ${p.classe}</span>` : ''}
       </div>
-      <div class="pc-meta">
+      <div class="pc-meta" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span class="badge badge-${areaMap[p.area] || 'civil'}">${p.area || 'Cível'}</span>
-        ${temSync ? `
+        ${temSync && !isShared ? `
           <button class="btn-atualizar-mini"
             onclick="verificarProcessoAgora(event,'${p.id}','${p.datajud_index}','${p.numero}')">
             <i class="ti ti-refresh"></i> Atualizar
           </button>` : ''}
+        ${!isShared ? `<button class="pc-share-btn" onclick="abrirModalCompartilhar(event,'${p.id}')" title="Compartilhar processo">
+          <i class="ti ti-user-plus" style="font-size:11px"></i> Compartilhar
+        </button>` : `<span class="share-nivel-badge ${sharedInfo.nivel_acesso}">${sharedInfo.nivel_acesso === 'total' ? 'Acesso total' : sharedInfo.nivel_acesso === 'comentario' ? 'Comentários' : 'Leitura'}</span>`}
+        ${avatarHtml}
       </div>
       ${(() => {
         const ultimoMov = p.movimentos_recentes?.[0];
@@ -1259,9 +1762,25 @@ function renderizarListaProcessos(lista) {
       })()}`;
 
     return card;
-  });
+  };
 
-  cards.forEach(c => grid.appendChild(c));
+  // Injetar separadores e cards por seção
+  const mkSep = (icon, texto, extraCls = '') => {
+    const sep = document.createElement('div');
+    sep.className = `section-sep${extraCls ? ' ' + extraCls : ''}`;
+    sep.setAttribute('data-dyn', '1');
+    sep.innerHTML = `<i class="ti ${icon}"></i> ${texto}`;
+    return sep;
+  };
+
+  if (favs.length) {
+    grid.insertBefore(mkSep('ti-star-filled', 'Favoritos', 'fav-sep'), empty);
+    favs.forEach(p => grid.insertBefore(criarCard(p), empty));
+  }
+  if (favs.length && outros.length) {
+    grid.insertBefore(mkSep('ti-list', 'Todos os processos'), empty);
+  }
+  outros.forEach(p => grid.insertBefore(criarCard(p), empty));
 }
 
 function filtrarProcessos() {
@@ -1282,6 +1801,14 @@ function filtrarProcessos() {
   }
   if (area)   lista = lista.filter(p => (p.area   || 'Cível') === area);
   if (status) lista = lista.filter(p => (p.status || 'Ativo') === status);
+  if (window._filtroSemana) {
+    lista = lista.filter(p => _ultimaAtividadeDias(p) <= 7);
+    const chip = document.getElementById('chip-semana');
+    if (chip) chip.style.display = 'inline-flex';
+  } else {
+    const chip = document.getElementById('chip-semana');
+    if (chip) chip.style.display = 'none';
+  }
 
   renderizarListaProcessos(lista);
 }
@@ -1368,6 +1895,8 @@ function filtrarCalendario(q) {
     const dia = dt.toLocaleDateString('pt-BR', { day: '2-digit' });
     const mes = dt.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
     const cls = _tipoEvtCls[e.tipo] || 'event-lembrete';
+    const sh  = e.processo_id ? window._sharedSet?.[e.processo_id] : null;
+    const shLine = sh ? `<div style="font-size:10px;color:#7c3aed;margin-top:2px"><i class="ti ti-handshake" style="font-size:10px"></i> ${_esc(sh.owner_nome)}</div>` : '';
     return `
       <div class="prazo-item">
         <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
@@ -1375,6 +1904,7 @@ function filtrarCalendario(q) {
         <div class="prazo-info">
           <div class="prazo-name">${e.titulo}</div>
           <div class="prazo-type"><span class="badge ${cls}">${tipoLabel[e.tipo] || 'Lembrete'}</span></div>
+          ${shLine}
         </div>
         <button onclick="excluirEvento('${e.id}')" title="Excluir"
           style="background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:14px;padding:4px;line-height:1">
@@ -1437,7 +1967,11 @@ async function abrirProcesso(id) {
     proc = data;
   }
 
-  _processoAtual = proc;
+  // Enriquece processo com metadados de compartilhamento (se for shared)
+  _processoAtual              = { ...proc };
+  _processoAtual._isShared    = !!window._sharedSet?.[id];
+  _processoAtual._sharedNivel = window._sharedSet?.[id]?.nivel_acesso || null;
+  _processoAtual._sharedOwner = window._sharedSet?.[id]?.owner_nome   || null;
 
   // Marca notificação como lida
   if (proc.notificacao_pendente) {
@@ -1473,7 +2007,7 @@ function popularDetalhe(proc) {
   const syncBadge = document.getElementById('detalhe-sync-badge');
   const syncBtn   = document.getElementById('detalhe-btn-sync');
   if (proc.datajud_index) {
-    const fmtH = iso => iso ? `· verificado ${fmtHora(iso)}` : '';
+    const fmtH = iso => iso ? `· verificado ${_tempoRelativo(iso) || fmtHora(iso)}` : '';
     syncBadge.style.display = 'inline-flex';
     syncBadge.className     = 'pc-sync-badge';
     syncBadge.innerHTML     = `<i class="ti ti-cloud-check"></i> CNJ DataJud ${fmtH(proc.ultima_verificacao)}`;
@@ -1505,14 +2039,41 @@ function popularDetalhe(proc) {
 
   // Grid de campos
   const fmt = iso => iso ? new Date(iso).toLocaleDateString('pt-BR') : '—';
+  const clienteVinculado = proc.cliente_id
+    ? (_clientesDB || []).find(c => c.id === proc.cliente_id)
+    : null;
+  const clienteNome = clienteVinculado?.nome || proc.cliente || '—';
+  const clienteLink = clienteVinculado
+    ? `<span style="font-size:11px;color:var(--blue);cursor:pointer;margin-left:6px" onclick="showPage('clientes')">
+         <i class="ti ti-arrow-right"></i>ver ficha
+       </span>`
+    : '';
+
+  const honsProc = (_honorariosDB || []).filter(h => h.processo_id === proc.id && h.status !== 'cancelado');
+  const honTotal = honsProc.reduce((s, h) => s + Number(h.valor), 0);
+  const honVenc  = honsProc.filter(h => h.status === 'vencido').length;
+  const honHtml  = honsProc.length
+    ? `<span style="color:var(--navy);font-weight:600">R$ ${_fmtValor(honTotal)}</span>
+       ${honVenc ? `<span style="color:var(--red);font-size:11px;margin-left:6px">(${honVenc} vencido${honVenc>1?'s':''})</span>` : ''}
+       <span style="font-size:11px;color:var(--blue);cursor:pointer;margin-left:6px" onclick="showPage('honorarios')">
+         <i class="ti ti-arrow-right"></i>ver honorários
+       </span>`
+    : `<span style="color:var(--gray-400)">—</span>
+       <span style="font-size:11px;color:var(--blue);cursor:pointer;margin-left:6px" onclick="openModal('modal-novo-honorario');setTimeout(()=>{const s=document.getElementById('hon-processo');if(s)s.value='${proc.id}'},100)">
+         <i class="ti ti-plus"></i> adicionar
+       </span>`;
+
   document.getElementById('detalhe-grid').innerHTML = `
-    <div class="detail-field"><label>Cliente</label><p>${proc.cliente || '—'}</p></div>
+    <div class="detail-field"><label>Cliente</label><p>${clienteNome}${clienteLink}</p></div>
     <div class="detail-field"><label>Classe</label><p>${proc.classe || '—'}</p></div>
     <div class="detail-field"><label>Tribunal</label><p>${proc.tribunal || '—'}</p></div>
-    <div class="detail-field"><label>Distribuído em</label><p>${fmt(proc.data_ajuizamento)}</p></div>`;
+    <div class="detail-field"><label>Distribuído em</label><p>${fmt(proc.data_ajuizamento)}</p></div>
+    <div class="detail-field" style="grid-column:1/-1"><label>Honorários vinculados</label><p>${honHtml}</p></div>`;
 
   // Timeline
   renderizarTimelineCNJ(proc);
+  _atualizarBadgesDetalhe(proc);
+  _renderizarResponsaveis(proc.id);
 }
 
 function fmtHora(iso) {
@@ -1523,15 +2084,48 @@ function fmtHora(iso) {
   return `há ${Math.floor(h / 24)}d`;
 }
 
+function _urlTribunalPublico(idx) {
+  if (!idx) return null;
+  const c = idx.replace('api_publica_', '');
+  const especiais = {
+    stf:  'https://portal.stf.jus.br/processos/',
+    stj:  'https://processo.stj.jus.br/processo/pesquisa/',
+    tst:  'https://www.tst.jus.br/consulta-unificada',
+    tjsp: 'https://esaj.tjsp.jus.br/cpopg/open.do',
+    tjsc: 'https://esaj.tjsc.jus.br/cpopg/open.do',
+    tjce: 'https://esaj.tjce.jus.br/cpopg/open.do',
+    tjba: 'https://pje.tjba.jus.br/pje/ConsultaPublica/listView.seam',
+    tjpe: 'https://pje.tjpe.jus.br/1grau/ConsultaPublica/listView.seam',
+    tjrj: 'https://www3.tjrj.jus.br/consultaprocessual/pages/consulta/defConsulta.seam',
+    tjmg: 'https://www4.tjmg.jus.br/juridico/sf/proc_complemento2.jsp',
+    tjrs: 'https://www.tjrs.jus.br/novo/busca/?categoria=processo',
+    tjpr: 'https://projudi.tjpr.jus.br/projudi/',
+    tjgo: 'https://projudi.tjgo.jus.br/BuscaProcesso',
+    trf1: 'https://processual.trf1.jus.br/consultaProcessual/',
+    trf2: 'https://consultaprocessual.trf2.jus.br/consultaprocessual/servlet/ServletTRF2',
+    trf3: 'https://web.trf3.jus.br/consulta/processual/Consulta/PesquisarProcesso',
+    trf4: 'https://eproc.trf4.jus.br/eproc2trf4/controlador.php?acao=processo_consulta_publica',
+    trf5: 'https://pje.trf5.jus.br/pje/ConsultaPublica/listView.seam',
+    trf6: 'https://pje.trf6.jus.br/pje/ConsultaPublica/listView.seam',
+  };
+  if (especiais[c]) return especiais[c];
+  // TRTs → PJe padrão
+  if (c.startsWith('trt')) return `https://pje.${c}.jus.br/consultaprocessual/pages/consulta/ConsultaProcessual.seam`;
+  // TJs estaduais → PJe padrão
+  if (c.startsWith('tj'))  return `https://pje.${c}.jus.br/consultapublica/ConsultaPublica/listView.seam`;
+  return null;
+}
+
 function renderizarTimelineCNJ(proc) {
   const wrap = document.getElementById('timeline-cnj-wrap');
   if (!wrap) return;
 
-  const movsCNJ  = (proc.movimentos_recentes || []).map(m => ({ ...m, _tipo: 'cnj' }));
-  const notas    = (proc.notas_manuais || []).map(n => ({ nome: n.texto, data: n.created_at, _tipo: 'nota', _id: n.id }));
-  const novosSet = new Set((proc.novos_movimentos || []).map(m => m.data + m.nome));
+  const linkTribunal = _urlTribunalPublico(proc.datajud_index);
+  const movsCNJ   = (proc.movimentos_recentes || []).map(m => ({ ...m, _tipo: 'cnj' }));
+  const notas     = (proc.notas_manuais || []).map(n => ({ nome: n.texto, data: n.created_at, _tipo: 'nota', _id: n.id }));
+  const novosSet  = new Set((proc.novos_movimentos || []).map(m => m.data + m.nome));
 
-  // Mescla e ordena por data (mais recente primeiro)
+  // LOG (historico) removido da timeline principal — contabilizado nos badges das abas
   const todos = [...movsCNJ, ...notas].sort((a, b) => new Date(b.data) - new Date(a.data));
 
   const fmt = iso => {
@@ -1559,15 +2153,15 @@ function renderizarTimelineCNJ(proc) {
     return;
   }
 
-  const totalCNJ = movsCNJ.length;
+  const totalCNJ   = movsCNJ.length;
   const totalNotas = notas.length;
 
   wrap.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:6px">
       <div style="font-size:13px;font-weight:600;color:var(--navy)">
-        ${totalCNJ ? `<span style="color:var(--navy)">${totalCNJ} movimentação(ões)</span>` : ''}
+        ${totalCNJ     ? `<span style="color:var(--navy)">${totalCNJ} movimentação(ões)</span>` : ''}
         ${totalCNJ && totalNotas ? ' · ' : ''}
-        ${totalNotas ? `<span style="color:var(--amber)">${totalNotas} anotação(ões)</span>` : ''}
+        ${totalNotas   ? `<span style="color:var(--amber)">${totalNotas} anotação(ões)</span>` : ''}
       </div>
       ${proc.datajud_index
         ? `<button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="sincronizarDetalhe()">
@@ -1581,25 +2175,34 @@ function renderizarTimelineCNJ(proc) {
     </div>
     <div class="cnj-timeline">
       ${todos.map(m => {
-        const isNovo  = m._tipo === 'cnj' && novosSet.has(m.data + m.nome);
-        const isNota  = m._tipo === 'nota';
+        const isNovo      = m._tipo === 'cnj' && novosSet.has(m.data + m.nome);
+        const isNota      = m._tipo === 'nota';
+        const isHistorico = m._tipo === 'historico';
         return `
-        <div class="cnj-tl-item ${isNovo ? 'cnj-tl-item--novo' : ''}">
-          <div class="cnj-tl-dot ${isNovo ? 'cnj-tl-dot--novo' : isNota ? 'cnj-tl-dot--nota' : ''}"></div>
+        <div class="cnj-tl-item ${isNovo ? 'cnj-tl-item--novo' : ''} ${isHistorico ? 'cnj-tl-item--historico' : ''}">
+          <div class="cnj-tl-dot ${isNovo ? 'cnj-tl-dot--novo' : isNota ? 'cnj-tl-dot--nota' : isHistorico ? 'cnj-tl-dot--historico' : ''}"></div>
           <div class="cnj-tl-body">
             <div class="cnj-tl-data">
               ${fmt(m.data)}
               ${isNota
                 ? `<span style="margin-left:6px;background:var(--amber-light);color:var(--amber);font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px">NOTA</span>`
-                : m._fonte === 'djen'
-                  ? '<span style="margin-left:6px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px">DJEN</span>'
-                  : '<span style="margin-left:6px;background:#e8f0fe;color:#1a2e6b;font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px">CNJ</span>'
+                : isHistorico
+                  ? `<span style="margin-left:6px;background:var(--gray-100);color:var(--gray-400);font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px">LOG</span>`
+                  : m._fonte === 'djen'
+                    ? '<span style="margin-left:6px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px">DJEN</span>'
+                    : '<span style="margin-left:6px;background:#e8f0fe;color:#1a2e6b;font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px">CNJ</span>'
               }
-              ${m._url ? `<a href="${m._url}" target="_blank" rel="noopener" title="Ver publicação" style="margin-left:6px;color:var(--gray-400);font-size:11px;text-decoration:none;vertical-align:middle"><i class="ti ti-external-link"></i></a>` : ''}
+              ${m._url
+                ? `<a href="${m._url}" target="_blank" rel="noopener" title="Ver publicação" style="margin-left:6px;color:var(--gray-400);font-size:11px;text-decoration:none;vertical-align:middle"><i class="ti ti-external-link"></i></a>`
+                : (!isNota && !isHistorico && linkTribunal)
+                  ? `<a href="${linkTribunal}" target="_blank" rel="noopener" title="Ver no tribunal" style="margin-left:6px;color:var(--gray-400);font-size:11px;text-decoration:none;vertical-align:middle;opacity:.7;transition:opacity .15s" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.7"><i class="ti ti-external-link"></i></a>`
+                  : ''}
             </div>
             <div class="cnj-tl-nome">
-              ${isNota ? `<i class="ti ti-pencil" style="font-size:11px;color:var(--amber);margin-right:4px"></i>` : ''}
+              ${isNota      ? `<i class="ti ti-pencil" style="font-size:11px;color:var(--amber);margin-right:4px"></i>` : ''}
+              ${isHistorico ? `<i class="ti ti-history" style="font-size:11px;color:var(--gray-400);margin-right:4px"></i>` : ''}
               ${m.nome}
+              ${isHistorico && m._autor ? `<span style="color:var(--gray-300);font-size:11px;font-style:normal;margin-left:4px">— ${m._autor}</span>` : ''}
               ${isNovo ? '<span class="cnj-tl-novo-badge">NOVO</span>' : ''}
             </div>
             ${isNota ? `
@@ -1635,6 +2238,7 @@ async function adicionarNota() {
 
   _processoAtual.notas_manuais = notas;
   input.value = '';
+  await logHistorico('nota_add', 'Adicionou uma anotação à timeline');
   renderizarTimelineCNJ(_processoAtual);
   showToast('Anotação registrada na timeline.');
 }
@@ -1651,8 +2255,278 @@ async function excluirNota(notaId) {
   if (error) { showToast('Erro ao remover anotação.'); return; }
 
   _processoAtual.notas_manuais = notas;
+  await logHistorico('nota_remove', 'Removeu uma anotação da timeline');
   renderizarTimelineCNJ(_processoAtual);
   showToast('Anotação removida.');
+}
+
+// ── HISTÓRICO ──────────────────────────────────────────────────────────────
+async function logHistorico(tipo, descricao) {
+  if (!_processoAtual) return;
+  const entrada = {
+    id: crypto.randomUUID(),
+    tipo,
+    descricao,
+    autor_id:   window._user?.id,
+    autor_nome: window._user?.user_metadata?.nome || window._user?.email || 'Usuário',
+    created_at: new Date().toISOString(),
+  };
+  const historico = [...(_processoAtual.historico || []), entrada];
+  _processoAtual.historico = historico;
+  await _supabase.from('processos').update({ historico }).eq('id', _processoAtual.id);
+  renderizarTimelineCNJ(_processoAtual);
+}
+
+// ── COMENTÁRIOS ────────────────────────────────────────────────────────────
+function popularComentarios(proc) {
+  const lista  = document.getElementById('coment-lista');
+  if (!lista) return;
+  lista.innerHTML = renderComentarios(proc.comentarios || []);
+
+  // Bloqueia entrada de comentários para nível "leitura"
+  const podeEscrever = !proc._isShared || proc._sharedNivel !== 'leitura';
+  const area         = document.getElementById('coment-input');
+  const sendBtn      = document.getElementById('coment-send-btn');
+  if (area)    area.disabled    = !podeEscrever;
+  if (sendBtn) sendBtn.disabled = !podeEscrever;
+  if (area && !podeEscrever) area.placeholder = 'Você tem acesso de somente leitura neste processo.';
+}
+
+function renderComentarios(comentarios) {
+  if (!comentarios.length) {
+    return '<p style="color:var(--gray-400);font-size:13px;text-align:center;padding:24px 0">Nenhum comentário ainda.</p>';
+  }
+  const tops = comentarios.filter(c => !c.reply_to_id);
+  return tops.map(c => {
+    const replies = comentarios.filter(r => r.reply_to_id === c.id);
+    return `
+      <div class="coment-item" id="coment-${c.id}">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+          <span class="coment-autor">${_esc(c.autor_nome)}</span>
+          <span class="coment-data">${_fmtDataComent(c.created_at)}</span>
+          <button class="coment-action-btn" onclick="responderComentario('${c.id}','${_esc(c.autor_nome).replace(/'/g,"\\'")}')">
+            <i class="ti ti-corner-down-right"></i> Responder
+          </button>
+          ${c.autor_id === window._user?.id ? `<button class="coment-action-btn danger" onclick="excluirComentario('${c.id}')"><i class="ti ti-trash"></i></button>` : ''}
+        </div>
+        <div class="coment-texto">${_fmtTextoComent(c.texto)}</div>
+        ${replies.map(r => `
+          <div class="coment-reply-item" id="coment-${r.id}">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap">
+              <span class="coment-autor">${_esc(r.autor_nome)}</span>
+              <span class="coment-data">${_fmtDataComent(r.created_at)}</span>
+              ${r.autor_id === window._user?.id ? `<button class="coment-action-btn danger" onclick="excluirComentario('${r.id}')"><i class="ti ti-trash"></i></button>` : ''}
+            </div>
+            <div class="coment-texto">${_fmtTextoComent(r.texto)}</div>
+          </div>
+        `).join('')}
+      </div>`;
+  }).join('');
+}
+
+async function adicionarComentario() {
+  if (!_processoAtual) return;
+  const area    = document.getElementById('coment-input');
+  const sendBtn = document.getElementById('coment-send-btn');
+  const texto   = area?.value.trim();
+  if (!texto) return;
+
+  if (sendBtn) { sendBtn.disabled = true; sendBtn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .6s linear infinite"></i>'; }
+
+  const entry = {
+    id:          crypto.randomUUID(),
+    autor_id:    window._user?.id,
+    autor_nome:  window._user?.user_metadata?.nome || window._user?.email || 'Usuário',
+    texto,
+    reply_to_id: window._replyToId || null,
+    created_at:  new Date().toISOString(),
+  };
+  const comentarios = [...(_processoAtual.comentarios || []), entry];
+  _processoAtual.comentarios = comentarios;
+
+  const { error } = await _supabase.from('processos').update({ comentarios }).eq('id', _processoAtual.id);
+
+  if (sendBtn) { sendBtn.disabled = false; sendBtn.innerHTML = '<i class="ti ti-send"></i>'; }
+
+  if (error) { showToast('Erro ao salvar comentário.', 'error'); return; }
+
+  area.value = '';
+  cancelarReply();
+  popularComentarios(_processoAtual);
+  showToast('Comentário publicado!', 'success');
+  await logHistorico('coment_add', 'Adicionou um comentário');
+}
+
+async function excluirComentario(id) {
+  if (!_processoAtual) return;
+  const todos = _processoAtual.comentarios || [];
+  const alvo  = todos.find(c => c.id === id);
+  if (!alvo || alvo.autor_id !== window._user?.id) return;
+
+  const { error } = await _supabase.rpc('excluir_comentario', {
+    p_processo_id: _processoAtual.id,
+    p_comment_id:  id,
+  });
+  if (error) { showToast('Erro ao excluir comentário.', 'error'); return; }
+
+  _processoAtual.comentarios = todos.filter(c => c.id !== id && c.reply_to_id !== id);
+  popularComentarios(_processoAtual);
+  await logHistorico('coment_remove', 'Removeu um comentário');
+}
+
+function responderComentario(id, nomeAutor) {
+  window._replyToId   = id;
+  window._replyToNome = nomeAutor;
+  const banner = document.getElementById('coment-reply-banner');
+  const label  = document.getElementById('coment-reply-label');
+  if (banner) banner.style.display = 'flex';
+  if (label)  label.textContent    = `Respondendo @${nomeAutor}`;
+  document.getElementById('coment-input')?.focus();
+}
+
+function cancelarReply() {
+  window._replyToId   = null;
+  window._replyToNome = null;
+  const banner = document.getElementById('coment-reply-banner');
+  if (banner) banner.style.display = 'none';
+}
+
+function comentTecla(event) {
+  if (event.key === 'Enter' && !event.shiftKey) {
+    event.preventDefault();
+    adicionarComentario();
+  }
+}
+
+function _esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function _fmtDataComent(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric' }) + ' ' +
+         d.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+}
+
+function _fmtTextoComent(texto) {
+  return _esc(texto).replace(/@(\w+)/g, '<span class="coment-mention">@$1</span>');
+}
+
+// ── DOCUMENTOS ─────────────────────────────────────────────────────────────
+let _docList = [];
+
+async function popularDocumentos(proc) {
+  const lista = document.getElementById('doc-lista');
+  if (!lista) return;
+
+  // Esconde área de upload para quem não tem nível 'total'
+  const podeUpload = !proc._isShared || proc._sharedNivel === 'total';
+  const uploadArea = document.querySelector('.doc-upload-area');
+  if (uploadArea) uploadArea.style.display = podeUpload ? 'block' : 'none';
+
+  lista.innerHTML = '<p style="color:var(--gray-400);font-size:13px;text-align:center;padding:16px">Carregando...</p>';
+
+  const { data: docs, error } = await _supabase
+    .from('documentos')
+    .select('*')
+    .eq('processo_id', proc.id)
+    .order('created_at', { ascending: false });
+
+  if (error) { lista.innerHTML = '<p style="color:var(--red);font-size:13px;padding:12px">Erro ao carregar documentos.</p>'; return; }
+
+  _docList = docs || [];
+
+  if (!_docList.length) {
+    lista.innerHTML = '<p style="color:var(--gray-400);font-size:13px;text-align:center;padding:24px 0">Nenhum documento ainda.</p>';
+    return;
+  }
+
+  lista.innerHTML = _docList.map((d, i) => `
+    <div class="doc-item">
+      <i class="ti ${_docIcone(d.tipo_mime)}" style="font-size:20px;color:var(--navy);flex-shrink:0"></i>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600;color:var(--gray-800);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(d.nome)}</div>
+        <div style="font-size:11px;color:var(--gray-400)">${_fmtTamanho(d.tamanho)} · ${_esc(d.uploader_nome)} · ${_fmtDataComent(d.created_at)}</div>
+      </div>
+      <button class="doc-btn" onclick="baixarDocumento(${i})" title="Baixar"><i class="ti ti-download"></i></button>
+      <button class="doc-btn danger" onclick="excluirDocumento(${i})" title="Excluir"><i class="ti ti-trash"></i></button>
+    </div>
+  `).join('');
+}
+
+async function uploadDocumento(file) {
+  if (!_processoAtual || !file) return;
+  if (file.size > 2 * 1024 * 1024) { showToast('Arquivo muito grande. Limite: 2 MB.'); return; }
+
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const path     = `${window._escritorioId}/${_processoAtual.id}/${Date.now()}_${safeName}`;
+
+  const { error: upErr } = await _supabase.storage.from('documentos').upload(path, file, { contentType: file.type });
+  if (upErr) { showToast('Erro no upload: ' + upErr.message); return; }
+
+  const { error: insErr } = await _supabase.from('documentos').insert({
+    processo_id:   _processoAtual.id,
+    escritorio_id: window._escritorioId,
+    nome:          file.name,
+    storage_path:  path,
+    tamanho:       file.size,
+    tipo_mime:     file.type || '',
+    uploader_id:   window._user.id,
+    uploader_nome: window._user?.user_metadata?.nome || window._user?.email || 'Usuário',
+  });
+
+  if (insErr) {
+    await _supabase.storage.from('documentos').remove([path]);
+    showToast('Erro ao registrar documento: ' + insErr.message);
+    return;
+  }
+
+  const input = document.getElementById('doc-file-input');
+  if (input) input.value = '';
+
+  showToast('Documento enviado com sucesso.');
+  await logHistorico('doc_add', `Adicionou o documento "${file.name}"`);
+  popularDocumentos(_processoAtual);
+}
+
+async function baixarDocumento(idx) {
+  const doc = _docList[idx];
+  if (!doc) return;
+  const { data, error } = await _supabase.storage.from('documentos').createSignedUrl(doc.storage_path, 60);
+  if (error) { showToast('Erro ao gerar link de download.'); return; }
+  window.open(data.signedUrl, '_blank');
+}
+
+async function excluirDocumento(idx) {
+  const doc = _docList[idx];
+  if (!doc) return;
+  if (!await _confirmar(`Excluir o documento "${doc.nome}"? Esta ação não pode ser desfeita.`, 'Excluir documento', { textoOk: 'Excluir', perigo: true, icone: '🗑️' })) return;
+
+  await _supabase.storage.from('documentos').remove([doc.storage_path]);
+  const { error } = await _supabase.from('documentos').delete().eq('id', doc.id);
+  if (error) { showToast('Erro ao excluir documento.'); return; }
+
+  showToast('Documento excluído.');
+  await logHistorico('doc_remove', `Removeu o documento "${doc.nome}"`);
+  popularDocumentos(_processoAtual);
+}
+
+function _docIcone(mime) {
+  if (!mime) return 'ti-file';
+  if (mime.includes('pdf'))                                    return 'ti-file-type-pdf';
+  if (mime.includes('image'))                                  return 'ti-photo';
+  if (mime.includes('word') || mime.includes('document'))      return 'ti-file-type-doc';
+  if (mime.includes('sheet') || mime.includes('excel'))        return 'ti-file-type-xls';
+  if (mime.includes('zip')  || mime.includes('compressed'))    return 'ti-file-zip';
+  return 'ti-file';
+}
+
+function _fmtTamanho(bytes) {
+  if (!bytes) return '0 B';
+  if (bytes < 1024)        return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
 async function sincronizarDetalhe() {
@@ -1747,6 +2621,7 @@ async function salvarApelido() {
   }
   carregarProcessos();
   showToast(novo ? 'Apelido salvo.' : 'Apelido removido.');
+  await logHistorico('apelido_change', novo ? `Alterou o apelido para "${novo}"` : 'Removeu o apelido do processo');
 }
 
 function editarApelidoCard(event, processoId) {
@@ -2365,8 +3240,8 @@ async function gerarConvite() {
   const email      = document.getElementById('conv-email').value.trim();
   const cargo      = document.getElementById('conv-cargo').value.trim() || 'Advogado Associado';
   const nivel      = document.getElementById('conv-nivel').value;
-  const escopo     = document.getElementById('conv-escopo').value;
-  const processoId = escopo === 'processo' ? (document.getElementById('conv-processo').value || null) : null;
+  const escopo     = document.getElementById('conv-escopo')?.value || 'escritorio';
+  const processoId = escopo === 'processo' ? (document.getElementById('conv-processo')?.value || null) : null;
   const erroEl     = document.getElementById('conv-erro');
   const btn        = document.getElementById('btn-gerar-convite');
 
@@ -2420,7 +3295,7 @@ function copiarLinkConvite() {
 }
 
 async function removerColaborador(id) {
-  if (!confirm('Remover este colaborador do escritório?')) return;
+  if (!await _confirmar('O colaborador perderá o acesso ao escritório imediatamente.', 'Remover colaborador?', { textoOk: 'Remover', perigo: true, icone: '👤' })) return;
   const { error } = await _supabase
     .from('colaboradores')
     .update({ status: 'removido' })
@@ -2432,7 +3307,7 @@ async function removerColaborador(id) {
 }
 
 async function cancelarConvite(id) {
-  if (!confirm('Cancelar este convite?')) return;
+  if (!await _confirmar('O link de convite ficará inativo e o destinatário não conseguirá mais aceitar.', 'Cancelar convite?', { textoOk: 'Cancelar convite', perigo: true, icone: '✉️' })) return;
   const { error } = await _supabase
     .from('convites')
     .update({ status: 'expirado' })
@@ -2441,6 +3316,360 @@ async function cancelarConvite(id) {
   if (error) { showToast('Erro ao cancelar convite.'); return; }
   showToast('Convite cancelado.');
   carregarColaboradores();
+}
+
+// ── PARCEIROS & COMPARTILHAMENTO ──────────────────────────────────────────
+
+let _shareProcessoId   = null;  // id do processo que está sendo compartilhado
+let _shareUsuarioFound = null;  // usuário encontrado pelo e-mail
+
+async function carregarParceiros() {
+  const uid = window._user?.id;
+  if (!uid) return;
+
+  const [sharedWithMeRes, mySharesRes, pendentesRes, myPendentesRes] = await Promise.all([
+    _supabase.from('processo_compartilhamentos')
+      .select('id,processo_id,owner_nome,nivel_acesso,created_at')
+      .eq('shared_with_id', uid).eq('status', 'aceito').order('created_at', { ascending: false }),
+    _supabase.from('processo_compartilhamentos')
+      .select('id,processo_id,shared_with_nome,shared_with_email,nivel_acesso,created_at')
+      .eq('owner_id', uid).eq('status', 'aceito').order('created_at', { ascending: false }),
+    _supabase.rpc('buscar_convites_pendentes'),
+    _supabase.from('processo_compartilhamentos')
+      .select('id,processo_id,shared_with_nome,shared_with_email,nivel_acesso,created_at')
+      .eq('owner_id', uid).eq('status', 'pendente').order('created_at', { ascending: false }),
+  ]);
+
+  // Pendentes recebidos — usa RPC para ter nome/número do processo
+  const pendentes = pendentesRes.data || [];
+  const cardPend  = document.getElementById('card-shares-pendentes');
+  const listaPend = document.getElementById('lista-shares-pendentes');
+  const badgePend = document.getElementById('badge-shares-pendentes');
+
+  if (cardPend) cardPend.style.display = pendentes.length ? 'block' : 'none';
+  if (badgePend) badgePend.textContent = pendentes.length;
+
+  const fmtDia = iso => iso ? new Date(iso).toLocaleDateString('pt-BR', { day:'2-digit', month:'short', year:'numeric' }) : '';
+
+  if (listaPend) {
+    listaPend.innerHTML = pendentes.length ? pendentes.map(s => {
+      const iniciais = (s.owner_nome || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+      return `
+        <div style="padding:16px 20px;border-bottom:1px solid var(--gray-100);display:flex;gap:14px;align-items:flex-start">
+          <div class="pc-avatar-dot nivel-${s.nivel_acesso}" style="width:40px;height:40px;font-size:14px;flex-shrink:0;margin-top:2px">${iniciais}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:700;color:var(--gray-800);margin-bottom:2px">${_esc(s.processo_nome)}</div>
+            ${s.processo_numero ? `<div style="font-size:11px;color:var(--gray-400);margin-bottom:6px;font-family:monospace">${_esc(s.processo_numero)}</div>` : ''}
+            <div style="display:flex;flex-wrap:wrap;gap:8px;font-size:12px;color:var(--gray-500);margin-bottom:8px">
+              ${s.cliente_nome ? `<span><i class="ti ti-user" style="font-size:11px"></i> ${_esc(s.cliente_nome)}</span>` : ''}
+              <span><i class="ti ti-send" style="font-size:11px"></i> ${_esc(s.owner_nome)}</span>
+              <span><i class="ti ti-calendar" style="font-size:11px"></i> ${fmtDia(s.created_at)}</span>
+              <span class="share-nivel-badge ${s.nivel_acesso}">${_nivelLabel(s.nivel_acesso)}</span>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="btn-secondary" style="font-size:12px;padding:5px 14px;color:var(--red);border-color:var(--red)" onclick="recusarCompartilhamento('${s.id}')">Recusar</button>
+              <button class="btn-primary" style="font-size:12px;padding:5px 14px" onclick="aceitarCompartilhamento('${s.id}')">Aceitar convite</button>
+            </div>
+          </div>
+        </div>`;
+    }).join('') : '';
+  }
+
+  // Compartilhados comigo (aceitos)
+  const comigo     = sharedWithMeRes.data || [];
+  const listaComigo = document.getElementById('lista-shares-comigo');
+  if (listaComigo) {
+    listaComigo.innerHTML = comigo.length ? comigo.map(s => {
+      const proc = (window._processosDB || []).find(p => p.id === s.processo_id);
+      const nomeProcesso = proc ? (proc.apelido || proc.nome) : `Processo ${s.processo_id.slice(0, 8)}…`;
+      return `
+        <div class="share-item">
+          <div class="pc-avatar-dot nivel-${s.nivel_acesso}" style="width:36px;height:36px;font-size:13px;flex-shrink:0">
+            ${s.owner_nome.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}
+          </div>
+          <div class="share-item-info">
+            <div class="share-item-titulo" style="cursor:pointer" onclick="abrirProcesso('${s.processo_id}')">${_esc(nomeProcesso)}</div>
+            <div class="share-item-meta">Compartilhado por <b>${_esc(s.owner_nome)}</b> · <span class="share-nivel-badge ${s.nivel_acesso}">${_nivelLabel(s.nivel_acesso)}</span></div>
+          </div>
+          <button class="btn-secondary" style="font-size:12px;padding:6px 12px;color:var(--red);border-color:var(--red)" onclick="sairCompartilhamento('${s.id}')">Sair</button>
+        </div>`;
+    }).join('') : '<div style="padding:24px;text-align:center;color:var(--gray-400);font-size:13px">Nenhum processo compartilhado com você ainda.</div>';
+  }
+
+  // Processos que compartilhei (aceitos + pendentes enviados)
+  const meus         = mySharesRes.data    || [];
+  const meusPend     = myPendentesRes.data || [];
+  const listaMeus    = document.getElementById('lista-shares-meus');
+  if (listaMeus) {
+    const totalMeus = meus.length + meusPend.length;
+    if (!totalMeus) {
+      listaMeus.innerHTML = '<div style="padding:24px;text-align:center;color:var(--gray-400);font-size:13px">Você ainda não compartilhou nenhum processo.</div>';
+    } else {
+      const renderItem = (s, pendente) => {
+        const proc        = (window._processosDB || []).find(p => p.id === s.processo_id);
+        const nomeProcesso = proc ? (proc.apelido || proc.nome) : `Processo ${s.processo_id.slice(0, 8)}…`;
+        const iniciais    = s.shared_with_nome.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+        const clickProc   = proc ? `style="cursor:pointer;color:var(--navy)" onclick="showPage('processos');abrirProcesso('${proc.id}')"` : '';
+        return `
+          <div class="share-item" style="${pendente ? 'opacity:.75' : ''}">
+            <div class="pc-avatar-dot nivel-${s.nivel_acesso}" style="width:36px;height:36px;font-size:13px;flex-shrink:0">${iniciais}</div>
+            <div class="share-item-info">
+              <div class="share-item-titulo" ${clickProc}>${_esc(nomeProcesso)}</div>
+              <div class="share-item-meta">
+                <b>${_esc(s.shared_with_nome)}</b> · ${_esc(s.shared_with_email)} ·
+                ${pendente
+                  ? '<span style="color:#d97706;font-weight:600">Aguardando aceitação</span>'
+                  : `<span class="share-nivel-badge ${s.nivel_acesso}">${_nivelLabel(s.nivel_acesso)}</span>`}
+              </div>
+            </div>
+            ${pendente ? '' : `
+            <select class="form-input" style="width:auto;font-size:12px;padding:5px 8px" onchange="alterarNivelShare('${s.id}',this.value)">
+              <option value="leitura"    ${s.nivel_acesso==='leitura'    ?'selected':''}>Leitura</option>
+              <option value="comentario" ${s.nivel_acesso==='comentario' ?'selected':''}>Comentários</option>
+              <option value="total"      ${s.nivel_acesso==='total'      ?'selected':''}>Total</option>
+            </select>`}
+            <button class="btn-secondary" style="font-size:12px;padding:6px 12px;color:var(--red);border-color:var(--red)" onclick="revogarCompartilhamento('${s.id}')">
+              ${pendente ? 'Cancelar' : 'Revogar'}
+            </button>
+          </div>`;
+      };
+      listaMeus.innerHTML =
+        meusPend.map(s => renderItem(s, true)).join('') +
+        meus.map(s => renderItem(s, false)).join('');
+    }
+  }
+}
+
+// ── Responsáveis no detalhe do processo ──
+
+async function _renderizarResponsaveis(processoId) {
+  const lista = document.getElementById('responsaveis-lista');
+  if (!lista || !processoId) return;
+
+  const { data } = await _supabase
+    .from('processo_compartilhamentos')
+    .select('id,shared_with_nome,shared_with_email,nivel_acesso,status,owner_id,created_at,updated_at')
+    .eq('processo_id', processoId)
+    .order('created_at', { ascending: true });
+
+  const shares = data || [];
+  if (!shares.length) {
+    lista.innerHTML = `<div style="padding:16px;text-align:center;color:var(--gray-400);font-size:12px">Nenhum parceiro vinculado.</div>`;
+    return;
+  }
+
+  const fmtData = iso => iso ? new Date(iso).toLocaleDateString('pt-BR', { day:'2-digit', month:'short' }) : '';
+
+  lista.innerHTML = shares.map(s => {
+    const iniciais = (s.shared_with_nome || '?').split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+    const isOwner  = s.owner_id === window._user?.id;
+    const ativo    = s.status === 'aceito';
+    const labels   = { pendente: 'Aguardando aceite', aceito: _nivelLabel(s.nivel_acesso), recusado: 'Recusou o convite', saiu: `Saiu em ${fmtData(s.updated_at)}` };
+    const labelColor = { pendente: '#d97706', aceito: 'var(--gray-400)', recusado: 'var(--red)', saiu: 'var(--gray-400)' };
+    const opacity    = !ativo ? 'opacity:.55;' : '';
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 16px;${opacity}">
+        <div class="pc-avatar-dot nivel-${ativo ? s.nivel_acesso : 'inativo'}" style="width:30px;height:30px;font-size:11px;flex-shrink:0">${iniciais}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;color:var(--gray-700);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(s.shared_with_nome)}</div>
+          <div style="font-size:11px;color:${labelColor[s.status]}">${labels[s.status] || s.status}</div>
+        </div>
+        ${isOwner && ativo ? `<button onclick="revogarCompartilhamento('${s.id}')" title="Revogar acesso"
+          style="background:none;border:none;color:var(--gray-300);cursor:pointer;padding:4px;line-height:1;font-size:14px">
+          <i class="ti ti-x"></i></button>` : ''}
+        ${isOwner && s.status === 'saiu' ? `<button onclick="convidarNovamente('${s.id}')" title="Re-convidar"
+          style="background:none;border:none;color:var(--navy);cursor:pointer;padding:4px;line-height:1;font-size:12px">
+          <i class="ti ti-refresh"></i></button>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function abrirModalCompartilharDetalhe() {
+  if (!_processoAtual) return;
+  abrirModalCompartilhar({ stopPropagation: () => {} }, _processoAtual.id);
+}
+
+// ── Modal de compartilhar processo ──
+
+function _resetModalShare() {
+  const emailEl = document.getElementById('share-email');
+  const erro    = document.getElementById('share-erro');
+  if (emailEl) emailEl.value        = '';
+  if (erro)    erro.style.display   = 'none';
+}
+
+function abrirModalCompartilhar(event, processoId) {
+  event.stopPropagation();
+  _shareProcessoId = processoId;
+  _resetModalShare();
+
+  const proc       = (window._processosDB || []).find(p => p.id === processoId);
+  const nome       = proc ? (proc.apelido || proc.nome) : '';
+  const info       = document.getElementById('share-processo-info');
+  const selectWrap = document.getElementById('share-processo-select-wrap');
+  if (info)        { info.style.display = 'block'; info.innerHTML = `<i class="ti ti-briefcase" style="margin-right:6px;color:var(--navy)"></i><b>${_esc(nome)}</b>`; }
+  if (selectWrap)  selectWrap.style.display = 'none';
+
+  openModal('modal-compartilhar');
+  setTimeout(() => document.getElementById('share-email')?.focus(), 150);
+}
+
+function abrirModalCompartilharSemProcesso() {
+  _shareProcessoId = null;
+  _resetModalShare();
+
+  const info       = document.getElementById('share-processo-info');
+  const selectWrap = document.getElementById('share-processo-select-wrap');
+  const sel        = document.getElementById('share-processo-select');
+  if (info)       info.style.display       = 'none';
+  if (selectWrap) selectWrap.style.display = 'block';
+  if (sel) {
+    const lista = (window._processosDB || []).filter(p => !p.arquivado)
+      .sort((a, b) => (a.apelido || a.nome).localeCompare(b.apelido || b.nome));
+    sel.innerHTML = '<option value="">— Selecione um processo —</option>' +
+      lista.map(p => `<option value="${p.id}">${_esc(p.apelido || p.nome)}</option>`).join('');
+    sel.onchange = () => { _shareProcessoId = sel.value || null; };
+  }
+
+  openModal('modal-compartilhar');
+  setTimeout(() => document.getElementById('share-email')?.focus(), 150);
+}
+
+async function convidarParceiro() {
+  if (!_shareProcessoId) {
+    _shareProcessoId = document.getElementById('share-processo-select')?.value || null;
+  }
+  const email = document.getElementById('share-email')?.value.trim();
+  const erro  = document.getElementById('share-erro');
+  const btn   = document.getElementById('btn-confirmar-share');
+
+  if (erro) { erro.style.display = 'none'; erro.textContent = ''; }
+
+  if (!_shareProcessoId) {
+    if (erro) { erro.textContent = 'Selecione um processo.'; erro.style.display = 'block'; }
+    return;
+  }
+  if (!email || !email.includes('@')) {
+    if (erro) { erro.textContent = 'Digite um e-mail válido.'; erro.style.display = 'block'; }
+    return;
+  }
+
+  if (btn) btn.disabled = true;
+
+  const { data: usuario, error: rpcError } = await _supabase.rpc('buscar_usuario_por_email', { email_input: email });
+
+  if (btn) btn.disabled = false;
+
+  if (rpcError) {
+    if (erro) { erro.textContent = 'Erro: ' + rpcError.message; erro.style.display = 'block'; }
+    return;
+  }
+  if (!usuario) {
+    if (erro) { erro.textContent = 'Nenhum advogado com este e-mail encontrado. Peça para criar conta no Meu Processo.'; erro.style.display = 'block'; }
+    return;
+  }
+
+  const nivel   = document.getElementById('share-nivel')?.value || 'leitura';
+  const ownNome = window._user?.user_metadata?.nome || window._user?.email || 'Advogado';
+
+  const { error } = await _supabase.from('processo_compartilhamentos').upsert({
+    processo_id:       _shareProcessoId,
+    owner_id:          window._user.id,
+    owner_nome:        ownNome,
+    shared_with_id:    usuario.id,
+    shared_with_email: usuario.email,
+    shared_with_nome:  usuario.nome,
+    nivel_acesso:      nivel,
+    status:            'pendente',
+    updated_at:        new Date().toISOString(),
+  }, { onConflict: 'processo_id,shared_with_id' });
+
+  if (error) {
+    if (erro) { erro.textContent = 'Erro ao convidar: ' + error.message; erro.style.display = 'block'; }
+    return;
+  }
+
+  closeModal('modal-compartilhar');
+  showToast(`Convite enviado para ${usuario.nome}!`, 'success');
+  _shareProcessoId = null;
+  carregarProcessos();
+  carregarParceiros();
+  if (_processoAtual) _renderizarResponsaveis(_processoAtual.id);
+}
+
+async function aceitarCompartilhamento(shareId) {
+  const { error } = await _supabase
+    .from('processo_compartilhamentos')
+    .update({ status: 'aceito' })
+    .eq('id', shareId);
+  if (error) { showToast('Erro ao aceitar compartilhamento.'); return; }
+  showToast('Compartilhamento aceito!');
+  carregarProcessos();
+  carregarParceiros();
+}
+
+async function recusarCompartilhamento(shareId) {
+  if (!await _confirmar('Você não terá acesso a este processo.', 'Recusar convite?', { textoOk: 'Recusar', perigo: true, icone: '🚫' })) return;
+  const { error } = await _supabase
+    .from('processo_compartilhamentos')
+    .update({ status: 'recusado' })
+    .eq('id', shareId);
+  if (error) { showToast('Erro ao recusar.'); return; }
+  showToast('Compartilhamento recusado.');
+  carregarProcessos();
+  carregarParceiros();
+}
+
+async function sairCompartilhamento(shareId) {
+  if (!await _confirmar('Você perderá o acesso a este processo e seus dados vinculados.', 'Sair do compartilhamento?', { textoOk: 'Sair', perigo: true, icone: '👋' })) return;
+  const { error } = await _supabase
+    .from('processo_compartilhamentos')
+    .update({ status: 'saiu', updated_at: new Date().toISOString() })
+    .eq('id', shareId);
+  if (error) { showToast('Erro ao sair do compartilhamento.'); return; }
+  showToast('Você saiu do compartilhamento.');
+  carregarProcessos();
+  carregarParceiros();
+}
+
+async function revogarCompartilhamento(shareId) {
+  if (!await _confirmar('O advogado perderá o acesso ao processo imediatamente.', 'Revogar acesso?', { textoOk: 'Revogar', perigo: true, icone: '🔒' })) return;
+  const { error } = await _supabase
+    .from('processo_compartilhamentos')
+    .update({ status: 'saiu', updated_at: new Date().toISOString() })
+    .eq('id', shareId);
+  if (error) { showToast('Erro ao revogar acesso.'); return; }
+  showToast('Acesso revogado.');
+  carregarProcessos();
+  carregarParceiros();
+  if (_processoAtual) _renderizarResponsaveis(_processoAtual.id);
+}
+
+async function convidarNovamente(shareId) {
+  const { error } = await _supabase
+    .from('processo_compartilhamentos')
+    .update({ status: 'pendente', updated_at: new Date().toISOString() })
+    .eq('id', shareId);
+  if (error) { showToast('Erro ao re-convidar.'); return; }
+  showToast('Convite re-enviado!', 'success');
+  if (_processoAtual) _renderizarResponsaveis(_processoAtual.id);
+  carregarParceiros();
+}
+
+async function alterarNivelShare(shareId, novoNivel) {
+  const { error } = await _supabase
+    .from('processo_compartilhamentos')
+    .update({ nivel_acesso: novoNivel })
+    .eq('id', shareId);
+  if (error) { showToast('Erro ao alterar nível.'); return; }
+  showToast('Nível de acesso atualizado.');
+  carregarProcessos();
+}
+
+function _nivelLabel(nivel) {
+  if (nivel === 'total')      return 'Acesso total';
+  if (nivel === 'comentario') return 'Comentários';
+  return 'Leitura';
 }
 
 // ── CONFIGURAÇÕES / PERFIL ────────────────────────────────────────────────
@@ -2753,6 +3982,10 @@ async function carregarEventosDashboard() {
 async function carregarEventos() {
   if (!window._user) return;
 
+  // Renderiza imediatamente com o cache (calendário aparece sem delay)
+  buildFullCal();
+  buildMiniCal();
+
   const agora  = new Date();
   const inicio = new Date(fullCalDate.getFullYear(), fullCalDate.getMonth(), 1).toISOString().slice(0, 10);
   const fim    = new Date(fullCalDate.getFullYear(), fullCalDate.getMonth() + 1, 0).toISOString().slice(0, 10);
@@ -2794,7 +4027,7 @@ function renderizarEsteMes() {
 }
 
 async function excluirEvento(id) {
-  if (!confirm('Excluir este evento?')) return;
+  if (!await _confirmar('O evento será removido do calendário permanentemente.', 'Excluir evento?', { textoOk: 'Excluir', perigo: true, icone: '📅' })) return;
   const { error } = await _supabase.from('eventos').delete().eq('id', id);
   if (error) { showToast('Erro ao excluir evento.'); return; }
   showToast('Evento excluído.');
@@ -2950,11 +4183,85 @@ function abrirModalTipo(tipo) {
 function preencherProcessosModal(selectId) {
   const sel = document.getElementById(selectId);
   if (!sel) return;
-  const procs = window._processosDB || [];
-  const opcoes = procs.map(p =>
-    `<option value="${p.id}">${p.numero ? p.numero + ' — ' : ''}${p.apelido || p.nome}</option>`
-  ).join('');
-  sel.innerHTML = `<option value="">— Nenhum processo —</option>${opcoes}`;
+  const procs  = window._processosDB || [];
+  const shared = window._sharedSet   || {};
+
+  const meus = procs.filter(p => !shared[p.id]);
+  const comp  = procs.filter(p =>  shared[p.id]);
+
+  const toOption = p => `<option value="${p.id}">${p.numero ? p.numero + ' — ' : ''}${p.apelido || p.nome}</option>`;
+
+  let html = `<option value="">— Nenhum processo —</option>`;
+  if (meus.length) html += `<optgroup label="Meus processos">${meus.map(toOption).join('')}</optgroup>`;
+  if (comp.length) html += `<optgroup label="🤝 Compartilhados comigo">${comp.map(toOption).join('')}</optgroup>`;
+
+  sel.innerHTML = html;
+}
+
+function atualizarHintCompartilhamento() {
+  const sel   = document.getElementById('tar-processo');
+  const hint  = document.getElementById('tar-processo-hint');
+  if (!sel || !hint) return;
+  const isShared = sel.value && window._sharedSet?.[sel.value];
+  hint.style.display = isShared ? 'flex' : 'none';
+}
+
+let _vincularTaskId = null;
+
+function abrirVincularTarefa(taskId) {
+  _vincularTaskId = taskId;
+  document.getElementById('vincular-busca').value = '';
+  filtrarVincularTarefa();
+  document.getElementById('modal-vincular-tarefa').style.display = 'flex';
+  setTimeout(() => document.getElementById('vincular-busca').focus(), 80);
+}
+
+function fecharVincularTarefa() {
+  document.getElementById('modal-vincular-tarefa').style.display = 'none';
+  _vincularTaskId = null;
+}
+
+function filtrarVincularTarefa() {
+  const q     = (document.getElementById('vincular-busca')?.value || '').toLowerCase();
+  const procs = (window._processosDB || []);
+  const shared = window._sharedSet || {};
+
+  const filtrados = q
+    ? procs.filter(p => (p.apelido || p.nome || '').toLowerCase().includes(q) || (p.numero || '').includes(q))
+    : procs;
+
+  const lista = document.getElementById('vincular-lista');
+  if (!lista) return;
+
+  if (!filtrados.length) {
+    lista.innerHTML = `<div style="text-align:center;padding:16px;color:var(--gray-400);font-size:12px">Nenhum processo encontrado</div>`;
+    return;
+  }
+
+  lista.innerHTML = filtrados.slice(0, 20).map(p => {
+    const isShared = shared[p.id];
+    const label    = p.apelido || p.nome;
+    const num      = p.numero ? `<span style="color:var(--gray-400);font-size:10px">${p.numero}</span>` : '';
+    const tag      = isShared ? `<span style="font-size:10px;color:#7c3aed;margin-left:4px"><i class="ti ti-handshake"></i> compartilhado</span>` : '';
+    return `<button onclick="vincularTarefaProcesso('${p.id}');fecharVincularTarefa()"
+      style="text-align:left;background:none;border:1px solid var(--gray-200);border-radius:8px;padding:8px 12px;cursor:pointer;width:100%;transition:background .1s"
+      onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background='none'">
+      <div style="font-size:13px;font-weight:500;color:var(--navy)">${_esc(label)}${tag}</div>
+      ${num}
+    </button>`;
+  }).join('');
+}
+
+async function vincularTarefaProcesso(processoId) {
+  if (!_vincularTaskId && processoId !== null) return;
+  const taskId  = _vincularTaskId;
+  const meuNome = window._user?.user_metadata?.full_name || window._user?.email?.split('@')[0] || '';
+  const { error } = await _supabase.from('tarefas')
+    .update({ processo_id: processoId || null, updated_at: new Date().toISOString(), updated_by_nome: meuNome })
+    .eq('id', taskId);
+  if (error) { showToast('Erro ao vincular processo.', 'error'); return; }
+  showToast(processoId ? 'Tarefa vinculada ao processo!' : 'Vínculo removido.', 'success');
+  carregarTarefas();
 }
 
 // ── KANBAN: TAREFAS DO BANCO ──────────────────────────────────────────────
@@ -2980,19 +4287,35 @@ async function carregarTarefas() {
   const procMap = {};
   for (const p of (window._processosDB || [])) procMap[p.id] = p.apelido || p.nome;
 
-  renderizarKanban(_tarefasDB, procMap);
+  const lastSeen = localStorage.getItem('kanban_last_seen') || '0';
+  const meuNome  = window._user?.user_metadata?.full_name || window._user?.email?.split('@')[0] || '';
+
+  renderizarKanban(_tarefasDB, procMap, lastSeen, meuNome);
+
+  // Marca kanban como visto agora (dots somem na próxima vez que carregar)
+  localStorage.setItem('kanban_last_seen', new Date().toISOString());
 }
 
-function renderizarKanban(tarefas, procMap) {
+function renderizarKanban(tarefas, procMap, lastSeen, meuNome) {
   const colunas = ['a_fazer','em_andamento','revisao','concluida'];
+  lastSeen  = lastSeen  || '0';
+  meuNome   = meuNome   || '';
 
   for (const col of colunas) {
     const el    = document.getElementById('col-' + col);
     const badge = document.getElementById('col-count-' + col);
+    const dot   = document.getElementById('col-dot-' + col);
     if (!el) continue;
 
     const itens = tarefas.filter(t => t.coluna === col);
     if (badge) badge.textContent = itens.length;
+
+    // Dot laranja se alguma tarefa de parceiro foi atualizada desde a última visita
+    const temNovo = itens.some(t =>
+      t.updated_at && t.updated_at > lastSeen &&
+      t.updated_by_nome && t.updated_by_nome !== meuNome
+    );
+    if (dot) dot.style.display = temNovo ? 'inline-block' : 'none';
 
     if (!itens.length) {
       el.innerHTML = `<div style="text-align:center;padding:24px 12px;color:var(--gray-400);font-size:12px;opacity:0.7">
@@ -3002,17 +4325,44 @@ function renderizarKanban(tarefas, procMap) {
       continue;
     }
 
-    el.innerHTML = itens.map(t => criarCardTarefa(t, procMap || {})).join('');
+    el.innerHTML = itens.map(t => criarCardTarefa(t, procMap || {}, lastSeen, meuNome)).join('');
   }
 }
 
-function criarCardTarefa(t, procMap) {
+function criarCardTarefa(t, procMap, lastSeen, meuNome) {
   const priCls  = { urgente: '#dc2626', media: '#d97706', baixa: '#6b7280' };
   const priLbl  = { urgente: 'Urgente', media: 'Média', baixa: 'Baixa' };
   const cor     = priCls[t.prioridade]  || priCls.baixa;
   const lbl     = priLbl[t.prioridade] || 'Baixa';
+  const shared  = t.processo_id ? window._sharedSet?.[t.processo_id] : null;
   const proc    = t.processo_id && procMap[t.processo_id] ? `<div style="font-size:11px;color:var(--gray-400);margin-top:4px"><i class="ti ti-briefcase" style="font-size:10px"></i> ${procMap[t.processo_id]}</div>` : '';
+  const sharedTag = shared ? `<div style="font-size:10px;color:#7c3aed;margin-top:4px;display:flex;align-items:center;gap:3px"><i class="ti ti-handshake" style="font-size:10px"></i> ${_esc(shared.owner_nome)}</div>` : '';
   const prazo   = t.prazo ? `<div style="font-size:11px;color:var(--gray-400);margin-top:4px"><i class="ti ti-calendar" style="font-size:10px"></i> ${new Date(t.prazo + 'T12:00:00').toLocaleDateString('pt-BR')}</div>` : '';
+
+  // Indicador de atividade de parceiro: quem moveu e quando
+  const atividadeNova = t.updated_by_nome && t.updated_by_nome !== (meuNome || '') &&
+                        t.updated_at && t.updated_at > (lastSeen || '0');
+  const atividadeTag = atividadeNova
+    ? `<div style="font-size:10px;color:#f97316;margin-top:5px;display:flex;align-items:center;gap:3px">
+        <i class="ti ti-activity" style="font-size:10px"></i>
+        ${_esc(t.updated_by_nome)} · ${_tempoRelativo(t.updated_at) || ''}
+       </div>`
+    : (t.updated_by_nome && !atividadeNova && (shared || procMap[t.processo_id])
+        ? `<div style="font-size:10px;color:var(--gray-400);margin-top:5px;display:flex;align-items:center;gap:3px">
+            <i class="ti ti-activity" style="font-size:10px"></i>
+            ${_esc(t.updated_by_nome)} · ${_tempoRelativo(t.updated_at) || ''}
+           </div>`
+        : '');
+
+  // Ícone de vincular processo (mini modal com busca)
+  const linkIcon = !t.processo_id
+    ? `<button onclick="abrirVincularTarefa('${t.id}')" title="Vincular a processo"
+        style="background:none;border:none;color:var(--gray-300);cursor:pointer;font-size:13px;padding:0;line-height:1;flex-shrink:0;transition:color .15s"
+        onmouseover="this.style.color='#7c3aed'" onmouseout="this.style.color='var(--gray-300)'">
+        <i class="ti ti-link"></i>
+       </button>`
+    : '';
+  const shareBtn = '';
 
   return `
     <div class="task-card" draggable="true"
@@ -3020,15 +4370,19 @@ function criarCardTarefa(t, procMap) {
       ondragend="kanbanDragEnd(event)">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
         <div style="font-size:13px;font-weight:500;line-height:1.4;flex:1">${t.titulo}</div>
-        <button onclick="excluirTarefa('${t.id}')" title="Excluir"
-          style="background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:13px;padding:0;line-height:1;flex-shrink:0">
-          <i class="ti ti-x"></i>
-        </button>
+        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
+          ${linkIcon}
+          <button onclick="excluirTarefa('${t.id}')" title="Excluir"
+            style="background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:13px;padding:0;line-height:1">
+            <i class="ti ti-x"></i>
+          </button>
+        </div>
       </div>
-      ${proc}${prazo}
+      ${proc}${sharedTag}${prazo}${atividadeTag}
       <div style="margin-top:8px">
         <span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:8px;background:${cor}18;color:${cor}">${lbl}</span>
       </div>
+      ${shareBtn}
     </div>`;
 }
 
@@ -3057,9 +4411,10 @@ async function kanbanDrop(e, coluna) {
   e.currentTarget.classList.remove('drag-over');
   if (!_dragTaskId) return;
 
+  const meuNome = window._user?.user_metadata?.full_name || window._user?.email?.split('@')[0] || '';
   const { error } = await _supabase
     .from('tarefas')
-    .update({ coluna, updated_at: new Date().toISOString() })
+    .update({ coluna, updated_at: new Date().toISOString(), updated_by_nome: meuNome })
     .eq('id', _dragTaskId);
 
   _dragTaskId = null;
@@ -3079,13 +4434,16 @@ async function salvarTarefa() {
   const btn = document.getElementById('btn-salvar-tarefa');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Salvando...'; }
 
+  const meuNome = window._user?.user_metadata?.full_name || window._user?.email?.split('@')[0] || '';
   const { error } = await _supabase.from('tarefas').insert({
-    user_id:     window._escritorioId,
+    user_id:          window._escritorioId,
     titulo,
-    processo_id: processo || null,
+    processo_id:      processo || null,
     coluna,
     prioridade,
-    prazo:       prazo || null,
+    prazo:            prazo || null,
+    updated_by_nome:  meuNome,
+    updated_at:       new Date().toISOString(),
   });
 
   if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-check"></i> Criar Tarefa'; }
@@ -3103,7 +4461,7 @@ async function salvarTarefa() {
 }
 
 async function excluirTarefa(id) {
-  if (!confirm('Excluir esta tarefa?')) return;
+  if (!await _confirmar('A tarefa será excluída permanentemente do quadro.', 'Excluir tarefa?', { textoOk: 'Excluir', perigo: true, icone: '✅' })) return;
   const { error } = await _supabase.from('tarefas').delete().eq('id', id);
   if (error) { showToast('Erro ao excluir tarefa.'); return; }
   showToast('Tarefa excluída.');
@@ -3322,6 +4680,29 @@ function _tipoQueryDJe(q) {
 }
 
 // Extrai tipo de decisão do texto do DJe
+// Agrupa publicações DJe pelo número CNJ principal — evita cards duplicados
+function _deduplicarDJe(resultados) {
+  const seen = new Map(); // numero → índice em deduped
+  const deduped = [];
+  for (const doc of resultados) {
+    const num = doc.processos?.[0];
+    if (!num) { deduped.push({ ...doc, _pubCount: 1 }); continue; }
+    if (!seen.has(num)) {
+      seen.set(num, deduped.length);
+      deduped.push({ ...doc, _pubCount: 1 });
+    } else {
+      const idx = seen.get(num);
+      deduped[idx]._pubCount = (deduped[idx]._pubCount || 1) + 1;
+      // Mantém a publicação mais recente como entrada principal
+      if ((doc.data_disponibilizacao || '') > (deduped[idx].data_disponibilizacao || '')) {
+        const count = deduped[idx]._pubCount;
+        deduped[idx] = { ...doc, _pubCount: count };
+      }
+    }
+  }
+  return deduped;
+}
+
 function _extrairTipoDecisao(txt) {
   const tipos = ['ACÓRDÃO', 'SENTENÇA', 'DECISÃO INTERLOCUTÓRIA', 'DESPACHO', 'CERTIDÃO', 'PORTARIA', 'RESOLUÇÃO', 'ATO'];
   for (const t of tipos) {
@@ -3455,6 +4836,8 @@ async function rodarMonitorDJe() {
         .filter(Boolean);
       return { ...item, textoLimpo, processos, tipoDecisao, partes, matches };
     });
+
+    window._djeResultados = _deduplicarDJe(window._djeResultados);
 
     // Botão "Importar todos" no topo dos resultados
     const semCadastro = window._djeResultados.filter(d => !d.matches.length && d.processos[0]);
@@ -3779,4 +5162,651 @@ async function rodarScraperPJe() {
       ❌ ${e.message.includes('fetch') ? 'Servidor Python não está rodando em localhost:8000' : e.message}
     </td></tr>`;
   }
+}
+
+// ── MÁSCARAS DE INPUT ─────────────────────────────────────────────────────────
+
+function maskCpfCnpj(el) {
+  const pos = el.selectionStart;
+  const prev = el.value.length;
+  let v = el.value.replace(/\D/g, '').substring(0, 14);
+  if (v.length <= 11) {
+    // CPF: 000.000.000-00
+    v = v.replace(/(\d{3})(\d)/, '$1.$2');
+    v = v.replace(/(\d{3})(\d)/, '$1.$2');
+    v = v.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+  } else {
+    // CNPJ: 00.000.000/0000-00
+    v = v.replace(/(\d{2})(\d)/, '$1.$2');
+    v = v.replace(/(\d{3})(\d)/, '$1.$2');
+    v = v.replace(/(\d{3})(\d)/, '$1/$2');
+    v = v.replace(/(\d{4})(\d{1,2})$/, '$1-$2');
+  }
+  el.value = v;
+  const diff = el.value.length - prev;
+  el.setSelectionRange(pos + diff, pos + diff);
+}
+
+function maskTelefone(el) {
+  const pos = el.selectionStart;
+  const prev = el.value.length;
+  let v = el.value.replace(/\D/g, '').substring(0, 11);
+  if (v.length <= 10) {
+    // Fixo: (00) 0000-0000
+    v = v.replace(/(\d{2})(\d)/, '($1) $2');
+    v = v.replace(/(\d{4})(\d{1,4})$/, '$1-$2');
+  } else {
+    // Celular: (00) 9 0000-0000
+    v = v.replace(/(\d{2})(\d)/, '($1) $2');
+    v = v.replace(/(\d{1})(\d{4})(\d{1,4})$/, '$1 $2-$3');
+  }
+  el.value = v;
+  const diff = el.value.length - prev;
+  el.setSelectionRange(pos + diff, pos + diff);
+}
+
+// ── CLIENTES ──────────────────────────────────────────────────────────────────
+
+async function carregarClientes() {
+  const uid = window._escritorioId || window._user?.id;
+  if (!uid) return;
+  const { data } = await _supabase
+    .from('clientes')
+    .select('*')
+    .order('nome');
+  _clientesDB = data || [];
+  _renderClientes(_clientesDB);
+  _popularSelectsClientes();
+}
+
+function _renderClientes(lista) {
+  const grid  = document.getElementById('clientes-grid');
+  const empty = document.getElementById('clientes-empty');
+  if (!grid) return;
+  grid.querySelectorAll('.cliente-card').forEach(c => c.remove());
+
+  const sub = document.getElementById('clientes-sub');
+  if (sub) sub.textContent = `${lista.length} cliente${lista.length !== 1 ? 's' : ''} cadastrado${lista.length !== 1 ? 's' : ''}`;
+
+  if (!lista.length) { if (empty) empty.style.display = 'flex'; return; }
+  if (empty) empty.style.display = 'none';
+
+  lista.forEach(cli => {
+    const iniciais = cli.nome.split(' ').slice(0,2).map(w => w[0]).join('').toUpperCase();
+    const honorsCli = _honorariosDB.filter(h => h.cliente_id === cli.id);
+    const procsCli  = [...new Set(honorsCli.map(h => h.processo_id).filter(Boolean))];
+    const vencidos  = honorsCli.filter(h => h.status === 'vencido').length;
+
+    const card = document.createElement('div');
+    card.className = 'cliente-card';
+    card.dataset.id = cli.id;
+    card.innerHTML = `
+      <div class="cliente-card-header">
+        <div class="cliente-avatar">${iniciais}</div>
+        <div style="min-width:0">
+          <div class="cliente-nome">${cli.nome}</div>
+          <div class="cliente-doc">${cli.cpf_cnpj || '—'}</div>
+        </div>
+      </div>
+      <div class="cliente-card-info">
+        ${cli.email    ? `<div class="cliente-info-row"><i class="ti ti-mail"></i>${cli.email}</div>` : ''}
+        ${cli.telefone ? `<div class="cliente-info-row"><i class="ti ti-phone"></i>${cli.telefone}</div>` : ''}
+      </div>
+      <div class="cliente-card-footer">
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${procsCli.length   ? `<span class="cliente-pill processos"><i class="ti ti-briefcase"></i>${procsCli.length} processo${procsCli.length>1?'s':''}</span>` : ''}
+          ${honorsCli.length  ? `<span class="cliente-pill honorarios"><i class="ti ti-cash"></i>${honorsCli.length} honorário${honorsCli.length>1?'s':''}</span>` : ''}
+          ${vencidos          ? `<span class="cliente-pill vencidos"><i class="ti ti-alert-circle"></i>${vencidos} vencido${vencidos>1?'s':''}</span>` : ''}
+        </div>
+        <button class="cliente-edit-btn" title="Editar cliente" onclick="event.stopPropagation();abrirEditarCliente('${cli.id}')">
+          <i class="ti ti-pencil"></i>
+        </button>
+      </div>`;
+    card.addEventListener('click', () => abrirDetalheCliente(cli.id));
+    grid.insertBefore(card, empty);
+  });
+}
+
+function filtrarClientes(q) {
+  const t = (q || '').toLowerCase();
+  const filtrado = t
+    ? _clientesDB.filter(c =>
+        c.nome.toLowerCase().includes(t) ||
+        (c.cpf_cnpj || '').toLowerCase().includes(t) ||
+        (c.email    || '').toLowerCase().includes(t))
+    : _clientesDB;
+  _renderClientes(filtrado);
+}
+
+async function salvarCliente() {
+  const nome = document.getElementById('cli-nome').value.trim();
+  if (!nome) { showToast('Informe o nome do cliente.', 'error'); return; }
+  const btn = document.getElementById('cli-save-btn');
+  btn.disabled = true;
+  const uid = window._escritorioId || window._user?.id;
+  const { error } = await _supabase.from('clientes').insert({
+    user_id:   uid,
+    nome,
+    cpf_cnpj:  document.getElementById('cli-cpf').value.trim()     || null,
+    email:     document.getElementById('cli-email').value.trim()    || null,
+    telefone:  document.getElementById('cli-telefone').value.trim() || null,
+    endereco:  document.getElementById('cli-endereco').value.trim() || null,
+    observacoes: document.getElementById('cli-obs').value.trim()    || null,
+  });
+  btn.disabled = false;
+  if (error) { showToast('Erro ao salvar: ' + error.message, 'error'); return; }
+  showToast('Cliente salvo com sucesso!', 'success');
+  closeModal('modal-novo-cliente');
+  ['cli-nome','cli-cpf','cli-email','cli-telefone','cli-endereco','cli-obs'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  await carregarClientes();
+}
+
+function abrirEditarCliente(id) {
+  const cli = _clientesDB.find(c => c.id === id);
+  if (!cli) return;
+  document.getElementById('cli-edit-id').value       = cli.id;
+  document.getElementById('cli-edit-nome').value     = cli.nome || '';
+  document.getElementById('cli-edit-email').value    = cli.email || '';
+  document.getElementById('cli-edit-endereco').value = cli.endereco || '';
+  document.getElementById('cli-edit-obs').value      = cli.observacoes || '';
+  // Popula e formata CPF/CNPJ e telefone
+  const cpfEl = document.getElementById('cli-edit-cpf');
+  cpfEl.value = cli.cpf_cnpj || '';
+  if (cpfEl.value) maskCpfCnpj(cpfEl);
+  const telEl = document.getElementById('cli-edit-telefone');
+  telEl.value = cli.telefone || '';
+  if (telEl.value) maskTelefone(telEl);
+  openModal('modal-editar-cliente');
+}
+
+async function atualizarCliente() {
+  const id   = document.getElementById('cli-edit-id').value;
+  const nome = document.getElementById('cli-edit-nome').value.trim();
+  if (!nome) { showToast('Informe o nome.', 'error'); return; }
+  const { error } = await _supabase.from('clientes').update({
+    nome,
+    cpf_cnpj:    document.getElementById('cli-edit-cpf').value.trim()      || null,
+    email:       document.getElementById('cli-edit-email').value.trim()     || null,
+    telefone:    document.getElementById('cli-edit-telefone').value.trim()  || null,
+    endereco:    document.getElementById('cli-edit-endereco').value.trim()  || null,
+    observacoes: document.getElementById('cli-edit-obs').value.trim()       || null,
+  }).eq('id', id);
+  if (error) { showToast('Erro: ' + error.message, 'error'); return; }
+  showToast('Cliente atualizado!', 'success');
+  closeModal('modal-editar-cliente');
+  await carregarClientes();
+}
+
+async function excluirCliente(id) {
+  if (!confirm('Excluir este cliente? Os honorários vinculados perderão a referência.')) return;
+  await _supabase.from('clientes').delete().eq('id', id);
+  showToast('Cliente removido.', 'success');
+  closeModal('modal-editar-cliente');
+  await carregarClientes();
+}
+
+function abrirDetalheCliente(id) {
+  // Atalho: abre honorários filtrado pelo cliente
+  showPage('honorarios');
+  const sel = document.getElementById('hon-filtro-status');
+  if (sel) sel.value = '';
+  window._honFiltroCliente = id;
+  filtrarHonorarios();
+}
+
+// ── HONORÁRIOS ────────────────────────────────────────────────────────────────
+
+const _HON_VIS_KEY = 'hon_valores_ocultos';
+
+function _aplicarVisHonorarios() {
+  const oculto = localStorage.getItem(_HON_VIS_KEY) === '1';
+  const page   = document.getElementById('page-honorarios');
+  const icon   = document.getElementById('hon-vis-icon');
+  const label  = document.getElementById('hon-vis-label');
+  if (!page) return;
+  if (oculto) {
+    page.classList.add('hon-oculto');
+    if (icon)  { icon.className  = 'ti ti-eye-off'; }
+    if (label) { label.textContent = 'Mostrar'; }
+  } else {
+    page.classList.remove('hon-oculto');
+    if (icon)  { icon.className  = 'ti ti-eye'; }
+    if (label) { label.textContent = 'Ocultar'; }
+  }
+}
+
+function toggleHonVisibilidade() {
+  const oculto = localStorage.getItem(_HON_VIS_KEY) === '1';
+  localStorage.setItem(_HON_VIS_KEY, oculto ? '0' : '1');
+  _aplicarVisHonorarios();
+}
+
+async function carregarHonorarios() {
+  const uid = window._escritorioId || window._user?.id;
+  if (!uid) return;
+  const { data } = await _supabase
+    .from('honorarios')
+    .select('*, clientes(nome)')
+    .order('data_vencimento', { ascending: true });
+  _honorariosDB = (data || []).map(h => ({
+    ...h,
+    cliente_nome: h.clientes?.nome || null,
+  }));
+  _atualizarVencidos();
+  _renderHonorarios(_honorariosDB);
+  _atualizarKpisHon();
+  _atualizarBadgeHon();
+  _popularSelectsClientes();
+  _popularSelectsProcessos();
+}
+
+function _atualizarVencidos() {
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  _honorariosDB.forEach(h => {
+    if (h.status === 'pendente' && h.data_vencimento) {
+      const d = new Date(h.data_vencimento + 'T00:00:00');
+      if (d < hoje) h.status = 'vencido';
+    }
+  });
+}
+
+function _statusGrupo(h) {
+  if (h.status === 'pago')     return 'pago';
+  if (h.status === 'cancelado') return 'cancelado';
+  if (h.status === 'vencido')  return 'vencido';
+  if (!h.data_vencimento)      return 'pendente';
+  const hoje = new Date(); hoje.setHours(0,0,0,0);
+  const d    = new Date(h.data_vencimento + 'T00:00:00');
+  const diff = Math.floor((d - hoje) / 86400000);
+  if (diff <= 7 && diff >= 0) return 'semana';
+  return 'pendente';
+}
+
+function _renderHonorarios(lista) {
+  const container = document.getElementById('honorarios-lista');
+  const empty     = document.getElementById('honorarios-empty');
+  if (!container) return;
+  container.querySelectorAll('.hon-grupo,.hon-card').forEach(el => el.remove());
+
+  if (!lista.length) { if (empty) empty.style.display = 'flex'; return; }
+  if (empty) empty.style.display = 'none';
+
+  const grupos = { vencido:[], semana:[], pendente:[], pago:[], cancelado:[] };
+  lista.forEach(h => grupos[_statusGrupo(h)].push(h));
+
+  const labels = {
+    vencido:   { icon:'ti-alert-circle', label:'Vencidos' },
+    semana:    { icon:'ti-clock',        label:'Vencem esta semana' },
+    pendente:  { icon:'ti-coin',         label:'Pendentes' },
+    pago:      { icon:'ti-circle-check', label:'Pagos' },
+    cancelado: { icon:'ti-ban',          label:'Cancelados' },
+  };
+
+  ['vencido','semana','pendente','pago','cancelado'].forEach(g => {
+    if (!grupos[g].length) return;
+    const titulo = document.createElement('div');
+    titulo.className = `hon-grupo-titulo ${g} hon-grupo`;
+    titulo.innerHTML = `<i class="ti ${labels[g].icon}"></i>${labels[g].label} (${grupos[g].length})`;
+    container.insertBefore(titulo, empty);
+
+    grupos[g].forEach(h => {
+      const card = _buildHonCard(h, g);
+      container.insertBefore(card, empty);
+    });
+  });
+}
+
+function _buildHonCard(h, grupo) {
+  const card = document.createElement('div');
+  card.className = `hon-card ${grupo}`;
+  card.dataset.id = h.id;
+
+  const tipoIcone = { fixo:'ti-file-dollar', exito:'ti-trophy', hora:'ti-clock-hour-4', recorrente:'ti-refresh' };
+  const tipoLabel = { fixo:'Fixo', exito:'Êxito', hora:'Hora', recorrente:'Recorrente' };
+
+  const vencStr  = h.data_vencimento ? _fmtData(h.data_vencimento) : '—';
+  const procLabel = h.processo_id
+    ? (window._processosDB||[]).find(p => p.id === h.processo_id)?.apelido
+      || (window._processosDB||[]).find(p => p.id === h.processo_id)?.nome
+      || 'Processo vinculado'
+    : null;
+
+  const pagar = (grupo === 'vencido' || grupo === 'semana' || grupo === 'pendente')
+    ? `<button class="hon-pagar-btn" onclick="event.stopPropagation();marcarPago('${h.id}')">
+        <i class="ti ti-check"></i> Marcar como pago
+       </button>`
+    : '';
+
+  // Badge de status só para pago/cancelado — pendentes já estão identificados pelo grupo
+  const statusBadge = (grupo === 'pago' || grupo === 'cancelado')
+    ? `<span class="hon-status-badge ${grupo}">${_statusLabel(h.status)}</span>`
+    : '';
+
+  card.innerHTML = `
+    <div class="hon-card-icon"><i class="ti ${tipoIcone[h.tipo] || 'ti-cash'}"></i></div>
+    <div class="hon-card-body">
+      <div class="hon-card-desc">${h.descricao}</div>
+      <div class="hon-card-meta">
+        ${h.cliente_nome ? `<span class="hon-meta-item"><i class="ti ti-user"></i>${h.cliente_nome}</span>` : ''}
+        ${procLabel      ? `<span class="hon-meta-item"><i class="ti ti-briefcase"></i>${procLabel}</span>` : ''}
+        <span class="hon-meta-item"><i class="ti ti-calendar"></i>${vencStr}</span>
+        <span class="hon-tipo-badge">${tipoLabel[h.tipo] || h.tipo}</span>
+      </div>
+    </div>
+    <div class="hon-card-right">
+      <div class="hon-valor">R$ ${_fmtValor(h.valor)}</div>
+      ${statusBadge}
+      ${pagar}
+    </div>`;
+  card.addEventListener('click', () => abrirEditarHonorario(h.id));
+  return card;
+}
+
+function _statusLabel(s) {
+  return { pendente:'Pendente', pago:'Pago', vencido:'Vencido', cancelado:'Cancelado' }[s] || s;
+}
+
+function _fmtValor(v) {
+  return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 });
+}
+
+function _fmtData(d) {
+  if (!d) return '—';
+  const [y,m,day] = d.split('-');
+  return `${day}/${m}/${y}`;
+}
+
+function _atualizarKpisHon() {
+  const agora = new Date(); agora.setHours(0,0,0,0);
+  const mesAtual = agora.getMonth(); const anoAtual = agora.getFullYear();
+  let receber = 0, mesPago = 0, vencidos = 0;
+  _honorariosDB.forEach(h => {
+    if (h.status === 'pago') {
+      const d = h.data_pagamento ? new Date(h.data_pagamento + 'T00:00:00') : null;
+      if (d && d.getMonth() === mesAtual && d.getFullYear() === anoAtual) mesPago += Number(h.valor);
+    } else if (h.status === 'vencido') {
+      vencidos += Number(h.valor);
+      receber  += Number(h.valor);
+    } else if (h.status === 'pendente') {
+      receber += Number(h.valor);
+    }
+  });
+  const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = 'R$ ' + _fmtValor(v); };
+  set('hon-val-receber', receber);
+  set('hon-val-mes',     mesPago);
+  set('hon-val-venc',    vencidos);
+}
+
+function _atualizarBadgeHon() {
+  const venc = _honorariosDB.filter(h => h.status === 'vencido').length;
+  const badge = document.getElementById('badge-honorarios-venc');
+  if (badge) { badge.textContent = venc; badge.style.display = venc ? '' : 'none'; }
+}
+
+function filtrarHonorarios() {
+  const q     = (document.getElementById('hon-search')?.value || '').toLowerCase();
+  const st    = document.getElementById('hon-filtro-status')?.value || '';
+  const tipo  = document.getElementById('hon-filtro-tipo')?.value   || '';
+  const cliId = window._honFiltroCliente || '';
+
+  const lista = _honorariosDB.filter(h => {
+    if (st   && h.status !== st)   return false;
+    if (tipo && h.tipo   !== tipo) return false;
+    if (cliId && h.cliente_id !== cliId) return false;
+    if (q) {
+      const proc = (window._processosDB||[]).find(p => p.id === h.processo_id);
+      const procNome = proc?.apelido || proc?.nome || '';
+      return (
+        h.descricao.toLowerCase().includes(q) ||
+        (h.cliente_nome || '').toLowerCase().includes(q) ||
+        procNome.toLowerCase().includes(q)
+      );
+    }
+    return true;
+  });
+  _renderHonorarios(lista);
+}
+
+async function marcarPago(id) {
+  const hoje = new Date().toISOString().split('T')[0];
+  const { error } = await _supabase.from('honorarios').update({
+    status: 'pago', data_pagamento: hoje
+  }).eq('id', id);
+  if (error) { showToast('Erro: ' + error.message, 'error'); return; }
+  showToast('Honorário marcado como pago!', 'success');
+  await carregarHonorarios();
+}
+
+function honSetCobranca(tipo) {
+  document.getElementById('hon-cobranca-tipo').value = tipo;
+  ['avista','parcelado','recorrente'].forEach(t => {
+    document.getElementById('hon-pill-' + t)?.classList.toggle('active', t === tipo);
+  });
+  document.getElementById('hon-avista-box').style.display    = tipo === 'avista'     ? ''     : 'none';
+  const pb = document.getElementById('hon-parcelado-box');
+  if (pb) pb.style.display  = tipo === 'parcelado'  ? 'flex' : 'none';
+  const rb = document.getElementById('hon-recorr-box');
+  if (rb) rb.style.display  = tipo === 'recorrente' ? 'flex' : 'none';
+  honCalcParcela();
+}
+
+function honCalcParcela() {
+  const valor = parseFloat(document.getElementById('hon-valor')?.value) || 0;
+  const qtd   = parseInt(document.getElementById('hon-parcelas-qtd')?.value) || 1;
+  const label = document.getElementById('hon-parcela-valor');
+  if (label) label.textContent = valor > 0 ? 'R$ ' + _fmtValor(valor / qtd) : 'R$ —';
+}
+
+function honSetCobrancaEdit(tipo) {
+  document.getElementById('hon-edit-cobranca-tipo').value = tipo;
+  ['avista','parcelado','recorrente'].forEach(t => {
+    document.getElementById('hon-epill-' + t)?.classList.toggle('active', t === tipo);
+  });
+  document.getElementById('hon-edit-avista-box').style.display    = tipo === 'avista'     ? ''     : 'none';
+  const pb = document.getElementById('hon-edit-parcelado-box');
+  if (pb) pb.style.display  = tipo === 'parcelado'  ? 'flex' : 'none';
+  const rb = document.getElementById('hon-edit-recorr-box');
+  if (rb) rb.style.display  = tipo === 'recorrente' ? 'flex' : 'none';
+  honEditCalcParcela();
+}
+
+function honEditCalcParcela() {
+  const valor = parseFloat(document.getElementById('hon-edit-valor')?.value) || 0;
+  const qtd   = parseInt(document.getElementById('hon-edit-parcelas-qtd')?.value) || 1;
+  const label = document.getElementById('hon-edit-parcela-valor');
+  if (label) label.textContent = valor > 0 ? 'R$ ' + _fmtValor(valor / qtd) : 'R$ —';
+}
+
+function _popularSelectsClientes() {
+  ['hon-cliente','hon-edit-cliente'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— Sem cliente vinculado —</option>';
+    _clientesDB.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id; opt.textContent = c.nome;
+      sel.appendChild(opt);
+    });
+    if (cur) sel.value = cur;
+  });
+}
+
+function _popularSelectsProcessos() {
+  ['hon-processo','hon-edit-processo'].forEach(id => {
+    const sel = document.getElementById(id);
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— Sem processo vinculado —</option>';
+    (window._processosDB || []).filter(p => !p.arquivado).forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = (p.apelido || p.nome || '').substring(0, 60);
+      sel.appendChild(opt);
+    });
+    if (cur) sel.value = cur;
+  });
+}
+
+async function salvarHonorario() {
+  const desc = document.getElementById('hon-desc').value.trim();
+  if (!desc) { showToast('Informe a descrição.', 'error'); return; }
+  const valor = parseFloat(document.getElementById('hon-valor').value);
+  if (!valor || valor <= 0) { showToast('Informe um valor válido.', 'error'); return; }
+  const btn = document.getElementById('hon-save-btn');
+  btn.disabled = true;
+
+  const uid      = window._escritorioId || window._user?.id;
+  const tipo     = document.getElementById('hon-tipo').value;
+  const cobranca = document.getElementById('hon-cobranca-tipo')?.value || 'avista';
+  const isParc   = cobranca === 'parcelado';
+  const isRecorr = cobranca === 'recorrente';
+  const parcelasQtd = isParc ? (parseInt(document.getElementById('hon-parcelas-qtd')?.value) || null) : null;
+  const numCobr     = isRecorr ? (parseInt(document.getElementById('hon-parcelas')?.value) || null) : null;
+
+  const dataVenc = isParc
+    ? (document.getElementById('hon-parcela-inicio')?.value || null)
+    : isRecorr
+      ? (document.getElementById('hon-recorr-inicio')?.value || null)
+      : (document.getElementById('hon-venc')?.value || null);
+
+  const payload = {
+    user_id:        uid,
+    descricao:      desc,
+    cliente_id:     document.getElementById('hon-cliente').value  || null,
+    processo_id:    document.getElementById('hon-processo').value || null,
+    tipo:           isRecorr ? 'recorrente' : tipo,
+    valor,
+    status:         'pendente',
+    data_vencimento: dataVenc || null,
+    recorrente:     isRecorr,
+    periodicidade:  isRecorr ? (document.getElementById('hon-period')?.value || null) : null,
+    parcelas_total: isParc ? parcelasQtd : numCobr,
+    parcela_atual:  isParc ? 1 : null,
+    notas:          document.getElementById('hon-notas').value.trim() || null,
+  };
+
+  const { error } = await _supabase.from('honorarios').insert(payload);
+  btn.disabled = false;
+  if (error) { showToast('Erro: ' + error.message, 'error'); return; }
+  showToast('Honorário salvo!', 'success');
+  closeModal('modal-novo-honorario');
+  ['hon-desc','hon-valor','hon-notas'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  honSetCobranca('avista');
+  await carregarHonorarios();
+}
+
+function honEditSetStatus(status) {
+  document.getElementById('hon-edit-status').value = status;
+  const cls = { pendente:'active', vencido:'active-vencido', pago:'active-pago', cancelado:'active-cancelado' };
+  ['pendente','vencido','pago','cancelado'].forEach(s => {
+    const pill = document.getElementById('hon-epill-' + s);
+    if (!pill) return;
+    pill.className = 'hon-pill' + (s === status ? ' ' + cls[s] : '');
+  });
+  const wrap = document.getElementById('hon-pgto-wrap');
+  const pgto = document.getElementById('hon-edit-pgto');
+  if (wrap) wrap.style.display = status === 'pago' ? '' : 'none';
+  if (status === 'pago' && pgto && !pgto.value) {
+    pgto.value = new Date().toISOString().slice(0, 10);
+  }
+}
+
+function abrirEditarHonorario(id) {
+  const h = _honorariosDB.find(x => x.id === id);
+  if (!h) return;
+
+  document.getElementById('hon-edit-id').value    = h.id;
+  document.getElementById('hon-edit-desc').value  = h.descricao || '';
+  document.getElementById('hon-edit-valor').value = h.valor || '';
+  document.getElementById('hon-edit-notas').value = h.notas || '';
+
+  const tipoEl = document.getElementById('hon-edit-tipo');
+  if (tipoEl) tipoEl.value = h.tipo || 'fixo';
+
+  // Detecta forma de cobrança a partir dos dados salvos
+  let cobranca = 'avista';
+  if (h.recorrente || h.tipo === 'recorrente') cobranca = 'recorrente';
+  else if (h.parcelas_total > 1) cobranca = 'parcelado';
+  honSetCobrancaEdit(cobranca);
+
+  // Preenche campos da cobrança
+  document.getElementById('hon-edit-venc').value           = h.data_vencimento || '';
+  document.getElementById('hon-edit-parcela-inicio').value = h.data_vencimento || '';
+  document.getElementById('hon-edit-recorr-inicio').value  = h.data_vencimento || '';
+  if (h.parcelas_total) {
+    const qtdEl = document.getElementById('hon-edit-parcelas-qtd');
+    if (qtdEl) qtdEl.value = h.parcelas_total;
+    const parcEl = document.getElementById('hon-edit-parcelas');
+    if (parcEl) parcEl.value = h.parcelas_total;
+  }
+  if (h.periodicidade) {
+    const pdEl = document.getElementById('hon-edit-period');
+    if (pdEl) pdEl.value = h.periodicidade;
+  }
+
+  // Status via pills
+  honEditSetStatus(h.status || 'pendente');
+  document.getElementById('hon-edit-pgto').value = h.data_pagamento || '';
+
+  _popularSelectsClientes();
+  _popularSelectsProcessos();
+  setTimeout(() => {
+    document.getElementById('hon-edit-cliente').value  = h.cliente_id  || '';
+    document.getElementById('hon-edit-processo').value = h.processo_id || '';
+  }, 50);
+
+  honEditCalcParcela();
+  openModal('modal-editar-honorario');
+}
+
+async function atualizarHonorario() {
+  const id   = document.getElementById('hon-edit-id').value;
+  const desc = document.getElementById('hon-edit-desc').value.trim();
+  if (!desc) { showToast('Informe a descrição.', 'error'); return; }
+  const valor = parseFloat(document.getElementById('hon-edit-valor').value);
+  if (!valor || valor <= 0) { showToast('Informe um valor válido.', 'error'); return; }
+
+  const cobranca    = document.getElementById('hon-edit-cobranca-tipo')?.value || 'avista';
+  const isParc      = cobranca === 'parcelado';
+  const isRecorr    = cobranca === 'recorrente';
+  const parcelasQtd = isParc ? (parseInt(document.getElementById('hon-edit-parcelas-qtd')?.value) || null) : null;
+  const numCobr     = isRecorr ? (parseInt(document.getElementById('hon-edit-parcelas')?.value) || null) : null;
+
+  const dataVenc = isParc
+    ? (document.getElementById('hon-edit-parcela-inicio')?.value || null)
+    : isRecorr
+      ? (document.getElementById('hon-edit-recorr-inicio')?.value || null)
+      : (document.getElementById('hon-edit-venc')?.value || null);
+
+  const { error } = await _supabase.from('honorarios').update({
+    descricao:       desc,
+    cliente_id:      document.getElementById('hon-edit-cliente').value  || null,
+    processo_id:     document.getElementById('hon-edit-processo').value || null,
+    tipo:            document.getElementById('hon-edit-tipo').value,
+    valor,
+    status:          document.getElementById('hon-edit-status').value,
+    data_vencimento: dataVenc || null,
+    data_pagamento:  document.getElementById('hon-edit-pgto').value || null,
+    recorrente:      isRecorr,
+    periodicidade:   isRecorr ? (document.getElementById('hon-edit-period')?.value || null) : null,
+    parcelas_total:  isParc ? parcelasQtd : numCobr,
+    notas:           document.getElementById('hon-edit-notas').value.trim() || null,
+  }).eq('id', id);
+  if (error) { showToast('Erro: ' + error.message, 'error'); return; }
+  showToast('Honorário atualizado!', 'success');
+  closeModal('modal-editar-honorario');
+  await carregarHonorarios();
+}
+
+async function excluirHonorario(id) {
+  if (!confirm('Excluir este honorário? Essa ação não pode ser desfeita.')) return;
+  await _supabase.from('honorarios').delete().eq('id', id);
+  showToast('Honorário removido.', 'success');
+  closeModal('modal-editar-honorario');
+  await carregarHonorarios();
 }

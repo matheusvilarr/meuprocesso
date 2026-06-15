@@ -90,9 +90,31 @@ Campos importantes:
 - `descricao`, `data_prazo`, `urgencia`, `tipo`, `notificar_dias`
 
 ### `colaboradores`
-- Membros do escritório vinculados ao `escritorio_id` (= user_id do advogado principal)
+- `escritorio_id` (FK → auth.users) — dono/titular
+- `user_id` (FK → auth.users) — conta real do colaborador
+- `cargo` — texto livre ("Advogado Associado", "Estagiário"...)
+- `nivel_acesso` — `total` | `restrito`
+- `status` — `ativo` | `removido`
 
-**RLS ativo em todas as tabelas** — cada usuário vê só seus próprios dados.
+### `convites`
+- `escritorio_id`, `email`, `cargo`, `nivel_acesso`
+- `token` (hex 32 bytes, único) — usado na URL `/aceitar-convite?token=...`
+- `status` — `pendente` | `aceito` | `expirado`
+- `expires_at` — 7 dias após criação
+
+**RLS ativo em todas as tabelas.**
+- `processos`, `tarefas`, `prazos`, `eventos`: colaboradores ativos de um escritório veem os dados do titular via EXISTS subquery na tabela `colaboradores`.
+- Migration para aplicar: `supabase/migration_colaboradores_v1.sql`
+
+### Workspace colaborativo — variáveis globais
+```javascript
+window._isColaborador   // boolean — true se o usuário logado é colaborador
+window._escritorioId    // uuid — sempre o ID do titular (owner)
+window._colaboradorInfo // { escritorio_id, cargo, nivel_acesso } | null
+```
+- `auth-guard.js` detecta colaborador no login e define essas variáveis
+- INSERTs usam `window._escritorioId` como `user_id` (não `window._user.id`)
+- RLS deixa o colaborador acessar os dados porque usa EXISTS no SELECT
 
 ---
 
@@ -115,6 +137,7 @@ O Supabase é sempre remoto — localhost não afeta o banco.
 
 ### ✅ Funcionando
 - Login / logout / recuperação de senha (Supabase Auth)
+- **Workspace colaborativo (Fase 1)**: convite por link, até 3 colaboradores, RLS compartilhado
 - Cadastro manual de processos
 - Busca por número CNJ (DataJud) — individual e em lote (cole vários números)
 - Busca por OAB, nome advogado, nome cliente, CPF (DataJud — requer vercel dev ou produção)
