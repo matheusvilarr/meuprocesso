@@ -367,12 +367,15 @@ body {
 .process-name { font-size: 13px; font-weight: 500; color: var(--gray-800); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .process-meta { font-size: 11px; color: var(--gray-400); margin-top: 1px; }
 
-.badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; }
-.badge-civil       { background: var(--blue-light); color: var(--blue); }
-.badge-trabalhista { background: var(--green-light); color: var(--green); }
-.badge-criminal    { background: var(--red-light);   color: var(--red); }
-.badge-tributario  { background: var(--amber-light); color: var(--amber); }
-.badge-familia     { background: #fce4f0; color: #9c2b6a; }
+/* Todas as áreas usam o mesmo tom discreto — a cor não deve sugerir
+   urgência/gravidade diferente entre áreas, só identifica a área. */
+.badge { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; white-space: nowrap; background: var(--blue-light); color: var(--blue); display: inline-block; min-width: 64px; text-align: center; }
+.badge-civil,
+.badge-trabalhista,
+.badge-criminal,
+.badge-tributario,
+.badge-familia,
+.badge-previdenciario { background: var(--blue-light); color: var(--blue); }
 
 /* Timeline */
 .timeline-item {

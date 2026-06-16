@@ -243,6 +243,16 @@
       </div>
     </div>
 
+    <!-- Banner de processos novos descobertos via OAB -->
+    <div id="descobertos-banner" style="display:none;align-items:center;justify-content:space-between;margin-bottom:12px;padding:10px 14px;background:var(--gold-pale,#fefbe7);border:1px solid var(--gold,#e8b400);border-radius:var(--radius);font-size:13px">
+      <span style="display:flex;align-items:center;gap:8px;color:#92400e">
+        <i class="ti ti-sparkles"></i> <span id="descobertos-banner-texto">Encontramos processos novos na sua OAB</span>
+      </span>
+      <button class="btn-primary" style="font-size:12px;padding:5px 14px" onclick="abrirModalDescobertos()">
+        <i class="ti ti-eye"></i> Ver
+      </button>
+    </div>
+
     <!-- Barra de status de sincronização -->
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding:8px 14px;background:var(--gray-50);border-radius:var(--radius);font-size:12px">
       <span id="sync-status-bar" style="display:flex;align-items:center;gap:6px;color:var(--gray-400)">
@@ -440,7 +450,7 @@
         <div class="page-sub">Prazos, audiências e lembretes</div>
       </div>
       <div style="display:flex;gap:10px">
-        <button class="btn-secondary"><i class="ti ti-bell-plus"></i> Lembrete Recorrente</button>
+        <button class="btn-secondary" onclick="openModal('modal-lembrete-recorrente')"><i class="ti ti-bell-plus"></i> Lembrete Recorrente</button>
         <button class="btn-primary" onclick="openModal('modal-lembrete')"><i class="ti ti-plus"></i> Novo Prazo</button>
       </div>
     </div>
@@ -1641,6 +1651,74 @@
   </div>
 </div>
 
+<div class="modal-backdrop" id="modal-lembrete-recorrente" onclick="closeModalOutside(event,'modal-lembrete-recorrente')">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title"><i class="ti ti-refresh"></i> Lembrete Recorrente</span>
+      <span class="modal-close" onclick="closeModal('modal-lembrete-recorrente')"><i class="ti ti-x"></i></span>
+    </div>
+    <div class="modal-body">
+      <div class="form-field">
+        <label class="form-label">Tipo</label>
+        <select id="evr-tipo" class="form-select">
+          <option value="prazo_processual">Prazo Processual</option>
+          <option value="audiencia">Audiência</option>
+          <option value="lembrete" selected>Lembrete Manual</option>
+          <option value="reuniao">Reunião</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label class="form-label">Descrição</label>
+        <input id="evr-titulo" type="text" class="form-input" placeholder="Ex: Pagamento de guia, Reunião mensal...">
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label class="form-label">Primeira data</label>
+          <input id="evr-data" type="date" class="form-input">
+        </div>
+        <div class="form-field">
+          <label class="form-label">Repetir</label>
+          <select id="evr-periodicidade" class="form-select">
+            <option value="semanal">Toda semana</option>
+            <option value="quinzenal">A cada 15 dias</option>
+            <option value="mensal" selected>Todo mês</option>
+            <option value="bimestral">A cada 2 meses</option>
+            <option value="trimestral">A cada 3 meses</option>
+            <option value="anual">Todo ano</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label class="form-label">Quantas vezes</label>
+          <input id="evr-repeticoes" type="number" class="form-input" min="2" max="36" value="6">
+        </div>
+        <div class="form-field">
+          <label class="form-label">Urgência</label>
+          <select id="evr-urgencia" class="form-select">
+            <option value="alta">Alta — Prazo Fatal</option>
+            <option value="media">Média</option>
+            <option value="baixa" selected>Baixa</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-field">
+        <label class="form-label">Avisar no sistema</label>
+        <select id="evr-notificar" class="form-select">
+          <option value="0">Apenas no dia</option>
+          <option value="1" selected>1 dia antes</option>
+          <option value="3">3 dias antes</option>
+          <option value="7">1 semana antes</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-lembrete-recorrente')">Cancelar</button>
+      <button class="btn-primary" id="btn-salvar-evento-recorrente" onclick="salvarLembreteRecorrente()"><i class="ti ti-check"></i> Criar Recorrência</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-backdrop" id="modal-tarefa" onclick="closeModalOutside(event,'modal-tarefa')">
   <div class="modal">
     <div class="modal-header">
@@ -1929,6 +2007,25 @@
     </div>
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeModal('modal-busca-tribunal')">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Processos novos descobertos via OAB -->
+<div class="modal-backdrop" id="modal-descobertos" onclick="closeModalOutside(event,'modal-descobertos')">
+  <div class="modal" style="max-width:560px">
+    <div class="modal-header">
+      <span class="modal-title"><i class="ti ti-sparkles"></i> Processos novos encontrados</span>
+      <button class="modal-close" onclick="closeModal('modal-descobertos')"><i class="ti ti-x"></i></button>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+      <div style="font-size:13px;color:var(--gray-600)">
+        Encontramos esses processos na sua OAB que ainda não estão cadastrados. Decida se quer importar ou ignorar cada um — itens ignorados não aparecem mais.
+      </div>
+      <div id="descobertos-lista" style="display:flex;flex-direction:column;gap:8px;max-height:50vh;overflow-y:auto"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-descobertos')">Fechar</button>
     </div>
   </div>
 </div>

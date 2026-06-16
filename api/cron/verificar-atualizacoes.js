@@ -12,6 +12,21 @@ const RESEND_KEY       = process.env.RESEND_API_KEY;
 const CRON_SECRET      = process.env.CRON_SECRET;
 const DJEN_API         = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
 
+const ESTADOS_SIGLAS = ['ac','al','ap','am','ba','ce','df','es','go','ma','mt','ms','mg','pa','pb','pr','pe','pi','rj','rn','rs','ro','rr','sc','se','sp','to'];
+
+// Todos os ~90 índices públicos do DataJud — usado na varredura diária por OAB
+// pra achar processos novos que o advogado ainda não cadastrou.
+const TODOS_TRIBUNAIS = [
+  'api_publica_stf',
+  'api_publica_stj',
+  ...[1, 2, 3, 4, 5, 6].map(n => `api_publica_trf${n}`),
+  ...Array.from({ length: 24 }, (_, i) => `api_publica_trt${i + 1}`),
+  ...ESTADOS_SIGLAS.filter(s => s !== 'df').map(s => `api_publica_tre-${s}`),
+  'api_publica_tjmsp', 'api_publica_tjmmg', 'api_publica_tjmrs',
+  'api_publica_tjdft',
+  ...ESTADOS_SIGLAS.filter(s => s !== 'df').map(s => `api_publica_tj${s}`),
+];
+
 export default async function handler(req, res) {
   const authHeader = req.headers['authorization'];
   if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}`) {
@@ -29,9 +44,23 @@ export default async function handler(req, res) {
   const horaUTC      = new Date().getUTCHours();
   const tipo = tipoOverride || (horaUTC < 14 ? 'morning' : horaUTC < 18 ? 'afternoon' : 'evening');
 
-  if (tipo === 'morning')   return rodarMorning(admin, res, hoje);
-  if (tipo === 'afternoon') return rodarAfternoon(admin, res, hoje);
-  return rodarEvening(admin, res, hoje);
+  try {
+    if (tipo === 'morning')   return await rodarMorning(admin, res, hoje);
+    if (tipo === 'afternoon') return await rodarAfternoon(admin, res, hoje);
+    return await rodarEvening(admin, res, hoje);
+  } catch (e) {
+    await logErro(admin, `cron:${tipo}`, e.message, { stack: e.stack });
+    return res.status(500).json({ erro: e.message });
+  }
+}
+
+// Grava o erro pra ficar visível no painel admin — antes esses erros eram
+// engolidos em catch(_){} e mascararam bugs (ex: notif_log vazio sem nenhum
+// indício de falha). Se a própria gravação falhar, não há onde mais logar.
+async function logErro(admin, origem, mensagem, detalhes, userId) {
+  try {
+    await admin.from('error_log').insert({ origem, mensagem, detalhes: detalhes || null, user_id: userId || null });
+  } catch (_) {}
 }
 
 // ── MORNING (8h BRT) — Digest completo: agenda da semana + processos atualizados ──
@@ -52,11 +81,13 @@ async function rodarMorning(admin, res, hoje) {
   const atualizacoesDatajud = await verificarDatajud(processos, admin, hoje);
   const atualizacoesDJEN    = await verificarDJEN(processos, oabsPorUsuario, admin, hoje);
   const agendaPorUsuario    = await buscarAgendaSemana(admin, userIds, hoje);
+  const descobertosPorUsuario = await verificarNovosProcessosPorOab(processos, oabsPorUsuario, admin, hoje);
 
   const todosUserIds = [...new Set([
     ...Object.keys(atualizacoesDatajud),
     ...Object.keys(atualizacoesDJEN),
     ...Object.keys(agendaPorUsuario),
+    ...Object.keys(descobertosPorUsuario),
   ])];
 
   let emailsEnviados = 0;
@@ -74,15 +105,18 @@ async function rodarMorning(admin, res, hoje) {
       ...(atualizacoesDatajud[userId] || []),
       ...(atualizacoesDJEN[userId] || []),
     ];
-    const agenda = agendaPorUsuario[userId] || [];
-    if (!atualizacoes.length && !agenda.length) continue;
+    const agenda      = agendaPorUsuario[userId] || [];
+    const descobertos = descobertosPorUsuario[userId] || [];
+    if (!atualizacoes.length && !agenda.length && !descobertos.length) continue;
 
     try {
-      await enviarDigestMorning(email, nome, agenda, atualizacoes);
+      await enviarDigestMorning(email, nome, agenda, atualizacoes, descobertos.length);
       emailsEnviados++;
       await logNotif(admin, userId, 'morning', hoje);
       processosNotificados.push(...atualizacoes.map(a => a.processoId).filter(Boolean));
-    } catch (_) {}
+    } catch (e) {
+      await logErro(admin, 'cron:email-morning', e.message, { email }, userId);
+    }
   }
 
   if (processosNotificados.length) {
@@ -148,7 +182,9 @@ async function rodarAfternoon(admin, res, hoje) {
       await enviarAlertaAfternoon(email, nome, djen, prazos);
       emailsEnviados++;
       await logNotif(admin, userId, 'afternoon', hoje);
-    } catch (_) {}
+    } catch (e) {
+      await logErro(admin, 'cron:email-afternoon', e.message, { email }, userId);
+    }
   }
 
   return res.status(200).json({ ok: true, tipo: 'afternoon', emailsEnviados, hoje });
@@ -186,7 +222,9 @@ async function rodarEvening(admin, res, hoje) {
       await enviarAlertaEvening(email, nome, lista, hoje);
       emailsEnviados++;
       await logNotif(admin, userId, 'evening', hoje);
-    } catch (_) {}
+    } catch (e) {
+      await logErro(admin, 'cron:email-evening', e.message, { email }, userId);
+    }
   }
 
   return res.status(200).json({ ok: true, tipo: 'evening', emailsEnviados, hoje });
@@ -210,42 +248,53 @@ async function buscarOabsUsuarios(admin, userIds) {
   return result;
 }
 
+async function verificarDatajudUm(proc, admin, hoje, porUsuario) {
+  if ((proc.created_at || '').slice(0, 10) === hoje) return; // importado hoje: não notifica
+  try {
+    const hits = await buscarNoDatajud(proc.datajud_index, proc.numero);
+    if (!hits?.length) return;
+
+    const todosMovs = (hits[0]._source.movimentos || [])
+      .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))
+      .slice(0, 100)
+      .map(m => ({ nome: m.nome, data: parsarData(m.dataHora) }));
+
+    const novoHash = todosMovs.slice(0, 6).map(m => m.data + m.nome).join('|');
+    if (novoHash === proc.movimentos_hash) return;
+
+    const importadoEm = (proc.created_at || '').slice(0, 10);
+    const todosNovos  = proc.movimentos_hash
+      ? todosMovs.filter(m => !proc.movimentos_hash.includes(m.data + m.nome))
+      : todosMovs.slice(0, 1);
+    const novosRecentes = todosNovos.filter(m => m.data && (!importadoEm || m.data >= importadoEm));
+
+    const update = { movimentos_recentes: todosMovs, movimentos_hash: novoHash, ultima_verificacao: new Date().toISOString() };
+    if (novosRecentes.length) {
+      update.notificacao_pendente = true;
+      update.novos_movimentos     = novosRecentes;
+    }
+    await admin.from('processos').update(update).eq('id', proc.id);
+
+    if (novosRecentes.length) {
+      if (!porUsuario[proc.user_id]) porUsuario[proc.user_id] = [];
+      porUsuario[proc.user_id].push({ processoId: proc.id, nome: proc.apelido || proc.nome, novos: novosRecentes.slice(0, 3), fonte: 'CNJ DataJud' });
+    }
+  } catch (e) {
+    await logErro(admin, 'cron:datajud', e.message, { numero: proc.numero, processoId: proc.id }, proc.user_id);
+  }
+}
+
 async function verificarDatajud(processos, admin, hoje) {
   const porUsuario = {};
   // Favoritos têm prioridade — são verificados primeiro
-  const ordenados = [...processos].sort((a, b) => (b.favorito ? 1 : 0) - (a.favorito ? 1 : 0));
-  for (const proc of ordenados.filter(p => p.datajud_index)) {
-    if ((proc.created_at || '').slice(0, 10) === hoje) continue; // importado hoje: não notifica
-    try {
-      const hits = await buscarNoDatajud(proc.datajud_index, proc.numero);
-      if (!hits?.length) continue;
+  const ordenados = [...processos].sort((a, b) => (b.favorito ? 1 : 0) - (a.favorito ? 1 : 0))
+    .filter(p => p.datajud_index);
 
-      const todosMovs = (hits[0]._source.movimentos || [])
-        .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))
-        .slice(0, 100)
-        .map(m => ({ nome: m.nome, data: parsarData(m.dataHora) }));
-
-      const novoHash = todosMovs.slice(0, 6).map(m => m.data + m.nome).join('|');
-      if (novoHash === proc.movimentos_hash) continue;
-
-      const importadoEm = (proc.created_at || '').slice(0, 10);
-      const todosNovos  = proc.movimentos_hash
-        ? todosMovs.filter(m => !proc.movimentos_hash.includes(m.data + m.nome))
-        : todosMovs.slice(0, 1);
-      const novosRecentes = todosNovos.filter(m => m.data && (!importadoEm || m.data >= importadoEm));
-
-      const update = { movimentos_recentes: todosMovs, movimentos_hash: novoHash, ultima_verificacao: new Date().toISOString() };
-      if (novosRecentes.length) {
-        update.notificacao_pendente = true;
-        update.novos_movimentos     = novosRecentes;
-      }
-      await admin.from('processos').update(update).eq('id', proc.id);
-
-      if (novosRecentes.length) {
-        if (!porUsuario[proc.user_id]) porUsuario[proc.user_id] = [];
-        porUsuario[proc.user_id].push({ processoId: proc.id, nome: proc.apelido || proc.nome, novos: novosRecentes.slice(0, 3), fonte: 'CNJ DataJud' });
-      }
-    } catch (_) {}
+  // Lotes em paralelo — sequencial 1-a-1 não cabe no maxDuration de 60s
+  // quando há muitos processos (cada chamada ao DataJud pode levar até 15s).
+  for (let i = 0; i < ordenados.length; i += 12) {
+    const lote = ordenados.slice(i, i + 12);
+    await Promise.all(lote.map(proc => verificarDatajudUm(proc, admin, hoje, porUsuario)));
   }
   return porUsuario;
 }
@@ -261,7 +310,7 @@ async function verificarDJEN(processos, oabsPorUsuario, admin, hoje) {
     if (!oabs?.length) continue;
     try {
       const reqs = oabs.map(oab =>
-        fetch(`${DJEN_API}?${new URLSearchParams({ numeroOab: oab.num, ufOab: oab.uf, dataDisponibilizacaoInicio: ontem, dataDisponibilizacaoFim: hoje, pagina: 1, tamanhoPagina: 100 })}`)
+        fetch(`${DJEN_API}?${new URLSearchParams({ numeroOab: oab.num, ufOab: oab.uf, dataDisponibilizacaoInicio: ontem, dataDisponibilizacaoFim: hoje, pagina: 1, tamanhoPagina: 100 })}`, { signal: AbortSignal.timeout(15000) })
           .then(r => r.ok ? r.json() : { items: [] })
       );
       const items = (await Promise.all(reqs)).flatMap(r => r.items || []);
@@ -295,8 +344,121 @@ async function verificarDJEN(processos, oabsPorUsuario, admin, hoje) {
           porUsuario[uid].push({ processoId: proc.id, nome: proc.apelido || proc.nome, novos: [movDJEN], fonte: 'DJEN' });
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      await logErro(admin, 'cron:djen', e.message, { oabs }, uid);
+    }
   }
+  return porUsuario;
+}
+
+// ── DESCOBERTA DE PROCESSOS NOVOS POR OAB ────────────────────────────────────
+// Varre todos os tribunais do DataJud por cada OAB do advogado, 1x/dia, e
+// guarda em processos_descobertos os números que ele ainda não cadastrou.
+// Uma vez decidido (importado ou ignorado), nunca mais aparece na varredura.
+
+async function buscarPorOabNoDatajud(index, oab) {
+  const oabNum    = oab.num;
+  const ufUpper   = (oab.uf || '').toUpperCase();
+  const variantes = ufUpper ? [ufUpper + oabNum, ufUpper + ' ' + oabNum, oabNum] : [oabNum];
+  const body = {
+    size: 50,
+    query: { bool: { should: variantes.map(v => ({ match: { 'partes.advogados.OAB': v } })), minimum_should_match: 1 } },
+  };
+  try {
+    const r = await fetch(`https://api-publica.datajud.cnj.jus.br/${index}/_search`, {
+      method: 'POST',
+      headers: { 'Authorization': `ApiKey ${DATAJUD_KEY}`, 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(15000),
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) return [];
+    const buffer = await r.arrayBuffer();
+    const json   = JSON.parse(decodificarBuffer(buffer));
+    return json.hits?.hits || [];
+  } catch { return []; }
+}
+
+function normalizarDescoberta(p, index) {
+  return {
+    numero:          p.numeroProcesso || '',
+    tribunal:        p.tribunal || index,
+    _datajudIndex:   index,
+    classe:          p.classe?.nome        || null,
+    orgaoJulgador:   p.orgaoJulgador?.nome || null,
+    dataAjuizamento: parsarData(p.dataAjuizamento),
+    partes: (p.partes || []).map(parte => ({
+      nome: parte.nome,
+      tipo: parte.tipoParte?.descricao || parte.tipoParte?.nome || parte.tipo || '',
+      oab:  parte.advogados?.[0]?.OAB || parte.advogados?.[0]?.oab || parte.oab || null,
+    })),
+    movimentos: (p.movimentos || [])
+      .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))
+      .slice(0, 100)
+      .map(m => ({ nome: m.nome, data: m.dataHora })),
+  };
+}
+
+async function verificarNovosProcessosPorOab(processos, oabsPorUsuario, admin, hoje) {
+  const porUsuario = {};
+
+  const numerosPorUsuario = {};
+  for (const p of processos) {
+    if (!numerosPorUsuario[p.user_id]) numerosPorUsuario[p.user_id] = new Set();
+    if (p.numero) numerosPorUsuario[p.user_id].add(p.numero.replace(/[.\-/ ]/g, ''));
+  }
+
+  for (const [userId, oabs] of Object.entries(oabsPorUsuario)) {
+    if (!oabs?.length) continue;
+    if (await jaNotificouHoje(admin, userId, 'oab_scan', hoje)) continue;
+    await logNotif(admin, userId, 'oab_scan', hoje); // marca já no início p/ não repetir mesmo se o cron disparar 2x
+
+    try {
+      const { data: jaVistos } = await admin
+        .from('processos_descobertos')
+        .select('numero')
+        .eq('user_id', userId);
+      const vistoSet  = new Set((jaVistos || []).map(d => d.numero));
+      const meusNumeros = numerosPorUsuario[userId] || new Set();
+      const novos = [];
+
+      // Lotes de 12 índices em paralelo — equilíbrio entre tempo total e não sobrecarregar o DataJud
+      for (let i = 0; i < TODOS_TRIBUNAIS.length; i += 12) {
+        const lote = TODOS_TRIBUNAIS.slice(i, i + 12);
+        const resultados = await Promise.allSettled(
+          lote.flatMap(index => oabs.map(oab => buscarPorOabNoDatajud(index, oab).then(hits => ({ index, hits }))))
+        );
+        for (const r of resultados) {
+          if (r.status !== 'fulfilled') continue;
+          for (const hit of r.value.hits) {
+            const fonte       = hit._source;
+            const numeroLimpo = String(fonte.numeroProcesso || '').replace(/\D/g, '');
+            if (!numeroLimpo) continue;
+            if (meusNumeros.has(numeroLimpo)) continue;
+            if (vistoSet.has(numeroLimpo)) continue;
+            vistoSet.add(numeroLimpo);
+            novos.push({ numero: numeroLimpo, tribunal: r.value.index, dados: normalizarDescoberta(fonte, r.value.index) });
+          }
+        }
+      }
+
+      if (novos.length) {
+        const { error } = await admin.from('processos_descobertos').insert(
+          novos.map(n => ({
+            user_id:          userId,
+            numero:            n.numero,
+            tribunal:          n.tribunal,
+            dados:             n.dados,
+            data_ajuizamento: n.dados.dataAjuizamento ? n.dados.dataAjuizamento.slice(0, 10) : null,
+          }))
+        );
+        if (!error) porUsuario[userId] = novos;
+        else await logErro(admin, 'cron:oab-scan-insert', error.message, null, userId);
+      }
+    } catch (e) {
+      await logErro(admin, 'cron:oab-scan', e.message, null, userId);
+    }
+  }
+
   return porUsuario;
 }
 
@@ -353,10 +515,13 @@ function btnDashboard(cor) {
   return `<div style="text-align:center;margin-top:20px;padding:0 28px 24px"><a href="https://meuprocesso.app.br/dashboard" style="display:inline-block;background:${cor};color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:600">Abrir dashboard →</a></div>`;
 }
 
-async function enviarDigestMorning(para, nome, agenda, atualizacoes) {
+async function enviarDigestMorning(para, nome, agenda, atualizacoes, descobertosCount = 0) {
   const diaSemana = new Date().toLocaleDateString('pt-BR', { weekday: 'long' });
-  const assunto   = atualizacoes.length
-    ? `Bom dia! ${atualizacoes.length} atualização(ões) + agenda da semana`
+  const partesAssunto = [];
+  if (descobertosCount) partesAssunto.push(`${descobertosCount} processo(s) novo(s) encontrado(s)`);
+  if (atualizacoes.length) partesAssunto.push(`${atualizacoes.length} atualização(ões)`);
+  const assunto = partesAssunto.length
+    ? `Bom dia! ${partesAssunto.join(' + ')}`
     : `Bom dia! Sua agenda da semana — ${diaSemana}`;
 
   const blocoAgenda = agenda.length ? `
@@ -385,11 +550,20 @@ async function enviarDigestMorning(para, nome, agenda, atualizacoes) {
   </div>`).join('')}
 </div>` : '';
 
+  const blocoDescobertos = descobertosCount ? `
+<div style="padding:20px 28px 8px;${(agenda.length || atualizacoes.length) ? 'border-top:1px solid #e5e7eb' : ''}">
+  <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">🆕 Processos novos encontrados</div>
+  <div style="background:#fefbe7;border-left:4px solid #e8b400;border-radius:6px;padding:12px 14px;font-size:13px;color:#92400e">
+    Encontramos <strong>${descobertosCount}</strong> processo(s) na sua OAB que ainda não estão no seu sistema. Acesse o dashboard pra ver os detalhes e decidir se quer importar.
+  </div>
+</div>` : '';
+
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
 <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
   ${cabecalho('Resumo do dia')}
   <div style="padding:20px 28px 8px;font-size:15px;color:#111827">Bom dia, <strong>${nome}</strong>! Aqui está o resumo de ${diaSemana}.</div>
+  ${blocoDescobertos}
   ${blocoAgenda}
   ${blocoAtualizacoes}
   ${btnDashboard('#1a2e6b')}
@@ -474,6 +648,7 @@ async function enviarEmail(para, assunto, html) {
   const r = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${RESEND_KEY}`, 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(15000),
     body: JSON.stringify({ from: 'notificacoes@meuprocesso.app.br', to: para, subject: assunto, html }),
   });
   if (!r.ok) {
@@ -490,6 +665,7 @@ async function buscarNoDatajud(index, numero) {
     const r = await fetch(`https://api-publica.datajud.cnj.jus.br/${index}/_search`, {
       method: 'POST',
       headers: { 'Authorization': `ApiKey ${DATAJUD_KEY}`, 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(15000),
       body: JSON.stringify({ size: 1, query: { match: { numeroProcesso: numeroLimpo } } }),
     });
     if (!r.ok) return null;

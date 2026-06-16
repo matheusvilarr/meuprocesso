@@ -15,8 +15,9 @@ export default async function handler(req, res) {
   const { data: { user }, error: userErr } = await userClient.auth.getUser(token);
   if (userErr || !user) return res.status(401).json({ erro: 'Token inválido.' });
 
-  const { titulo, tipo, data, processo_id, urgencia, notificar_antes, escritorio_id } = req.body || {};
-  if (!titulo || !data) return res.status(400).json({ erro: 'Título e data são obrigatórios.' });
+  const { titulo, tipo, data, processo_id, urgencia, notificar_antes, escritorio_id, eventos } = req.body || {};
+  const lote = Array.isArray(eventos) ? eventos : [{ titulo, tipo, data, processo_id, urgencia, notificar_antes }];
+  if (lote.some(e => !e.titulo || !e.data)) return res.status(400).json({ erro: 'Título e data são obrigatórios.' });
 
   // Se vier escritorio_id, valida que o usuário é colaborador ativo desse escritório
   let targetUserId = user.id;
@@ -38,19 +39,22 @@ export default async function handler(req, res) {
     ? createClient(SUPA_URL, SUPA_SVC_KEY)
     : createClient(SUPA_URL, SUPA_ANON_KEY, { global: { headers: { Authorization: `Bearer ${token}` } } });
 
-  const { data: evento, error: insErr } = await insertClient.from('eventos').insert({
+  const recorrenciaId = lote.length > 1 ? crypto.randomUUID() : null;
+  const payload = lote.map(e => ({
     user_id:         targetUserId,
-    titulo,
-    tipo:            tipo            || 'lembrete',
-    data,
-    processo_id:     processo_id     || null,
-    urgencia:        urgencia        || 'baixa',
-    notificar_antes: notificar_antes ?? 1,
-  }).select().single();
+    titulo:          e.titulo,
+    tipo:            e.tipo            || 'lembrete',
+    data:            e.data,
+    processo_id:     e.processo_id     || null,
+    urgencia:        e.urgencia        || 'baixa',
+    notificar_antes: e.notificar_antes ?? 1,
+    recorrencia_id:  recorrenciaId,
+  }));
 
+  const { data: inseridos, error: insErr } = await insertClient.from('eventos').insert(payload).select();
   if (insErr) return res.status(500).json({ erro: insErr.message });
 
   // Email de confirmação removido — o evento aparece no digest matinal do dia seguinte
 
-  return res.status(200).json({ ok: true, evento });
+  return res.status(200).json({ ok: true, evento: inseridos?.[0], eventos: inseridos });
 }

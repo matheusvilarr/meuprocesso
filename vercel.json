@@ -26,6 +26,9 @@
       ]
     }
   ],
+  "functions": {
+    "api/cron/verificar-atualizacoes.js": { "maxDuration": 60 }
+  },
   "crons": [
     { "path": "/api/cron/verificar-atualizacoes?tipo=morning",   "schedule": "0 11 * * 1-5" },
     { "path": "/api/cron/verificar-atualizacoes?tipo=morning",   "schedule": "0 13 * * 1-5" },

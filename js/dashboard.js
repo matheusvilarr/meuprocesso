@@ -100,6 +100,11 @@ function openModal(id) {
     // Reseta estado de lock (só abrirModalPrazoProcesso o ativa)
     _resetarLockProcessoModal();
   }
+  if (id === 'modal-lembrete-recorrente') {
+    const hoje = new Date().toISOString().slice(0, 10);
+    const evrData = document.getElementById('evr-data');
+    if (evrData && !evrData.value) evrData.value = hoje;
+  }
   if (id === 'modal-tarefa') {
     preencherProcessosModal('tar-processo');
   }
@@ -131,6 +136,20 @@ function _ultimaAtividadeDias(proc) {
   const d = proc.movimentos_recentes?.[0]?.data;
   if (!d) return 9999;
   return Math.floor((Date.now() - new Date(d)) / 86400000);
+}
+
+// Horário do último movimento pra exibir junto de "Nova movimentação".
+// Publicações de DJEN não têm hora real (vêm com T00:00:00) — nesse caso
+// mostra só a data, pra não sugerir uma precisão que não existe.
+function formatarHorarioMov(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const temHora = /T(?!00:00:00)/.test(iso);
+  const data = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  if (!temHora) return ` · ${data}`;
+  const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return ` · ${data} ${hora}`;
 }
 
 function _recenciaInfo(proc) {
@@ -1524,8 +1543,7 @@ function atualizarDashboard(processos, totalArquivados) {
 
   set('stat-arquivados', totalArquivados);
 
-  set('stat-prazos', '—');
-  set('stat-prazos-sub', 'Em breve');
+  atualizarPrazosDash();
 
   // Processos Recentes
   const wrap = document.getElementById('dash-processos-recentes');
@@ -1549,14 +1567,14 @@ function atualizarDashboard(processos, totalArquivados) {
     <div class="process-row" onclick="abrirProcesso('${p.id}')">
       <div class="process-num">${p.numero || '—'}</div>
       <div class="process-info">
-        <div class="process-name">${p.apelido || p.nome}</div>
+        <div class="process-name">${p.apelido || p.nome}${p.notificacao_pendente ? ` <span title="Nova movimentação" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--amber);vertical-align:middle"></span>` : ''}</div>
         <div class="process-meta">
           ${p.datajud_index
             ? `<i class="ti ti-cloud-check" style="font-size:10px;color:var(--green)"></i> CNJ DataJud`
             : `<i class="ti ti-pencil" style="font-size:10px"></i> Manual`
           }
           ${p.orgao_julgador ? ` · ${p.orgao_julgador}` : ''}
-          ${p.notificacao_pendente ? ` · <span style="color:var(--amber);font-weight:600">Nova movimentação</span>` : ''}
+          ${p.notificacao_pendente ? formatarHorarioMov(p.novos_movimentos?.[0]?.data) : ''}
         </div>
       </div>
       <span class="badge badge-${areaMap[p.area] || 'civil'}">${p.area || 'Cível'}</span>
@@ -1611,21 +1629,39 @@ function atualizarTimelineDash(processos) {
 }
 
 function atualizarPrazosDash() {
+  const hoje  = new Date(); hoje.setHours(0, 0, 0, 0);
+  const em7   = new Date(hoje); em7.setDate(em7.getDate() + 7);
+
+  const eventosSemana = (_eventosDB || [])
+    .filter(e => { const d = new Date(e.data + 'T12:00:00'); return d >= hoje && d <= em7; })
+    .map(e => ({ tipoItem: 'evento', data: e.data, ordem: e.data, raw: e }));
+
+  const honorariosSemana = (_honorariosDB || [])
+    .filter(h => h.data_vencimento && (h.status === 'pendente' || h.status === 'vencido'))
+    .filter(h => { const d = new Date(h.data_vencimento + 'T12:00:00'); return d >= hoje && d <= em7; })
+    .map(h => ({ tipoItem: 'honorario', data: h.data_vencimento, ordem: h.data_vencimento, raw: h }));
+
+  const todos = [...eventosSemana, ...honorariosSemana].sort((a, b) => a.ordem.localeCompare(b.ordem));
+
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+  set('stat-prazos', String(todos.length));
+  if (!todos.length) {
+    set('stat-prazos-sub', 'Nenhum nesta semana');
+  } else {
+    const partes = [];
+    if (eventosSemana.length) partes.push(`${eventosSemana.length} compromisso${eventosSemana.length > 1 ? 's' : ''}`);
+    if (honorariosSemana.length) partes.push(`${honorariosSemana.length} honorário${honorariosSemana.length > 1 ? 's' : ''}`);
+    set('stat-prazos-sub', partes.join(' · '));
+  }
+
   const wrap = document.getElementById('dash-prazos-recentes');
   if (!wrap) return;
 
-  const hoje    = new Date();
-  const em30    = new Date(hoje); em30.setDate(em30.getDate() + 30);
-  const proximos = (_eventosDB || [])
-    .filter(e => { const d = new Date(e.data + 'T12:00:00'); return d >= hoje && d <= em30; })
-    .sort((a, b) => a.data.localeCompare(b.data))
-    .slice(0, 5);
-
-  if (!proximos.length) {
+  if (!todos.length) {
     wrap.innerHTML = `
       <div style="text-align:center;padding:28px 20px;color:var(--gray-400)">
         <i class="ti ti-calendar-off" style="font-size:28px;display:block;margin-bottom:8px;opacity:0.35"></i>
-        <div style="font-size:13px;font-weight:500">Nenhum prazo nos próximos 30 dias</div>
+        <div style="font-size:13px;font-weight:500">Nenhum prazo nos próximos 7 dias</div>
         <div style="font-size:12px;margin-top:4px;opacity:.75">Clique em "Programar Lembrete" para adicionar.</div>
       </div>`;
     return;
@@ -1633,18 +1669,41 @@ function atualizarPrazosDash() {
 
   const urgCls    = { alta: 'urgency-alta', media: 'urgency-media', baixa: 'urgency-baixa' };
   const tipoLabel = { prazo_processual:'Prazo Processual', audiencia:'Audiência', lembrete:'Lembrete', reuniao:'Reunião' };
-  wrap.innerHTML = proximos.map(e => {
-    const dt   = new Date(e.data + 'T12:00:00');
+
+  wrap.innerHTML = todos.slice(0, 6).map(item => {
+    const dt   = new Date(item.data + 'T12:00:00');
     const dias = Math.ceil((dt - hoje) / 86400000);
     const dia  = dt.toLocaleDateString('pt-BR', { day:'2-digit' });
     const mes  = dt.toLocaleDateString('pt-BR', { month:'short' }).replace('.','');
-    const badgeCls = dias <= 3 ? 'dias-urgente' : dias <= 7 ? 'dias-aviso' : 'dias-ok';
+    const badgeCls = dias <= 1 ? 'dias-urgente' : dias <= 3 ? 'dias-aviso' : 'dias-ok';
+    const diasTxt  = dias <= 0 ? 'Hoje' : dias === 1 ? 'Amanhã' : dias + 'd';
+
+    if (item.tipoItem === 'honorario') {
+      const h = item.raw;
+      const valorFmt = (h.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+      const urgencia = h.status === 'vencido' ? 'urgency-alta' : 'urgency-media';
+      return `
+        <div class="prazo-item" onclick="showPage('honorarios')">
+          <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
+          <div class="prazo-urgency ${urgencia}"></div>
+          <div class="prazo-info">
+            <div class="prazo-name"><i class="ti ti-cash" style="font-size:11px;color:var(--gray-400);margin-right:3px"></i>${escHtml(h.cliente_nome || h.descricao)} — ${valorFmt}</div>
+            <div class="prazo-type">${h.status === 'vencido' ? 'Honorário vencido' : 'Honorário a vencer'}</div>
+          </div>
+          <span class="dias-badge ${badgeCls}">${diasTxt}</span>
+        </div>`;
+    }
+
+    const e = item.raw;
     return `
       <div class="prazo-item" onclick="irParaCalendarioMes(${dt.getFullYear()},${dt.getMonth()})">
         <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
         <div class="prazo-urgency ${urgCls[e.urgencia] || 'urgency-baixa'}"></div>
-        <div class="prazo-info"><div class="prazo-name">${e.titulo}</div><div class="prazo-type">${tipoLabel[e.tipo] || 'Lembrete'}</div></div>
-        <span class="dias-badge ${badgeCls}">${dias === 0 ? 'Hoje' : dias + 'd'}</span>
+        <div class="prazo-info">
+          <div class="prazo-name"><i class="ti ti-calendar-event" style="font-size:11px;color:var(--gray-400);margin-right:3px"></i>${escHtml(e.titulo)}</div>
+          <div class="prazo-type">${tipoLabel[e.tipo] || 'Lembrete'}</div>
+        </div>
+        <span class="dias-badge ${badgeCls}">${diasTxt}</span>
       </div>`;
   }).join('');
 }
@@ -2949,6 +3008,7 @@ window.addEventListener('DOMContentLoaded', () => {
         });
         carregarEventosDashboard();
         carregarTarefas();
+        carregarDescobertos();
         aplicarAvatarSidebar();
       }
     }
@@ -4101,6 +4161,74 @@ async function salvarEvento() {
   }
 }
 
+function _proximaDataPeriodicidade(d, periodicidade) {
+  const dt = new Date(d + 'T12:00:00');
+  switch (periodicidade) {
+    case 'semanal':    dt.setDate(dt.getDate() + 7); break;
+    case 'quinzenal':  dt.setDate(dt.getDate() + 15); break;
+    case 'mensal':     dt.setMonth(dt.getMonth() + 1); break;
+    case 'bimestral':  dt.setMonth(dt.getMonth() + 2); break;
+    case 'trimestral': dt.setMonth(dt.getMonth() + 3); break;
+    case 'anual':      dt.setFullYear(dt.getFullYear() + 1); break;
+  }
+  return dt.toISOString().slice(0, 10);
+}
+
+async function salvarLembreteRecorrente() {
+  const titulo        = document.getElementById('evr-titulo')?.value.trim() || '';
+  const tipo           = document.getElementById('evr-tipo')?.value          || 'lembrete';
+  const dataInicial    = document.getElementById('evr-data')?.value          || '';
+  const periodicidade  = document.getElementById('evr-periodicidade')?.value || 'mensal';
+  const repeticoes     = parseInt(document.getElementById('evr-repeticoes')?.value || '6', 10);
+  const urgencia       = document.getElementById('evr-urgencia')?.value      || 'baixa';
+  const notif          = parseInt(document.getElementById('evr-notificar')?.value || '1', 10);
+
+  if (!titulo)     { showToast('Preencha a descrição do lembrete.'); return; }
+  if (!dataInicial) { showToast('Selecione a primeira data.'); return; }
+  if (!repeticoes || repeticoes < 2) { showToast('Informe ao menos 2 repetições.'); return; }
+
+  const datas = [dataInicial];
+  for (let i = 1; i < repeticoes; i++) datas.push(_proximaDataPeriodicidade(datas[i - 1], periodicidade));
+
+  const btn = document.getElementById('btn-salvar-evento-recorrente');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Criando...'; }
+
+  try {
+    const { data: { session } } = await _supabase.auth.getSession();
+    if (!session) { showToast('Sessão expirada. Recarregue a página.'); return; }
+
+    const res = await fetch('/api/salvar-evento', {
+      method:  'POST',
+      headers: {
+        'Content-Type':  'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        eventos: datas.map(data => ({
+          titulo, tipo, data,
+          urgencia,
+          notificar_antes: notif,
+        })),
+        escritorio_id: window._isColaborador ? window._escritorioId : undefined,
+      }),
+    });
+
+    let json = {};
+    try { json = await res.json(); } catch (_) {}
+    if (!res.ok) { showToast('Erro: ' + (json.erro || `status ${res.status}`)); return; }
+
+    closeModal('modal-lembrete-recorrente');
+    document.getElementById('evr-titulo').value = '';
+    showToast(`${datas.length} lembretes criados!`);
+    carregarEventos();
+    carregarEventosDashboard();
+  } catch (err) {
+    showToast('Erro: ' + (err?.message || 'falha ao salvar'));
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-check"></i> Criar Recorrência'; }
+  }
+}
+
 async function carregarPrazosProcesso(processoId) {
   const wrap = document.getElementById('detalhe-prazos-lista');
   if (!wrap) return;
@@ -4641,6 +4769,106 @@ async function importarLoteSelecionados() {
   if (mesclados)  partes.push(`${mesclados} atualizado(s) e mesclado(s)`);
   if (erros)      partes.push(`${erros} com falha`);
   showToast(partes.length ? partes.join(' · ') + '.' : 'Nenhum processo importado.');
+  carregarProcessos();
+}
+
+// ── PROCESSOS DESCOBERTOS (OAB) ──────────────────────────────────────────────
+// Processos que o cron diário encontrou na OAB do advogado e que ainda não
+// foram cadastrados. Ele decide importar (via _importarComMerge) ou ignorar;
+// uma vez decidido, o backend nunca mais retorna aquele item.
+
+let _descobertosCache = [];
+
+function escHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+async function carregarDescobertos() {
+  try {
+    const { data: { session } } = await _supabase.auth.getSession();
+    if (!session) return;
+    const r = await fetch('/api/processos-descobertos', {
+      headers: { 'Authorization': `Bearer ${session.access_token}` },
+    });
+    if (!r.ok) return;
+    const { descobertos } = await r.json();
+    _descobertosCache = descobertos || [];
+
+    const banner = document.getElementById('descobertos-banner');
+    if (!banner) return;
+    if (_descobertosCache.length) {
+      document.getElementById('descobertos-banner-texto').textContent =
+        `Encontramos ${_descobertosCache.length} processo(s) novo(s) na sua OAB`;
+      banner.style.display = 'flex';
+    } else {
+      banner.style.display = 'none';
+    }
+  } catch (_) {}
+}
+
+function abrirModalDescobertos() {
+  renderizarDescobertos();
+  openModal('modal-descobertos');
+}
+
+function renderizarDescobertos() {
+  const lista = document.getElementById('descobertos-lista');
+  if (!lista) return;
+
+  if (!_descobertosCache.length) {
+    lista.innerHTML = '<div style="text-align:center;padding:24px;color:var(--gray-400);font-size:13px">Nenhum processo novo pendente.</div>';
+    return;
+  }
+
+  lista.innerHTML = _descobertosCache.map(item => {
+    const d = item.dados || {};
+    const dataFmt = item.data_ajuizamento
+      ? new Date(item.data_ajuizamento + 'T12:00:00').toLocaleDateString('pt-BR')
+      : '—';
+    return `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;background:var(--gray-50);border-radius:var(--radius)" id="descoberto-${item.id}">
+      <div style="min-width:0">
+        <div style="font-size:13px;font-weight:700;color:var(--navy)">${escHtml(d.numero || item.numero)}</div>
+        <div style="font-size:11px;color:var(--gray-400)">${escHtml(d.classe || item.tribunal)} · Ajuizado em ${dataFmt}</div>
+      </div>
+      <div style="display:flex;gap:6px;flex-shrink:0">
+        <button class="btn-secondary" style="font-size:11px;padding:5px 10px" onclick="ignorarDescoberto('${item.id}')">Ignorar</button>
+        <button class="btn-primary" style="font-size:11px;padding:5px 10px" onclick="importarDescoberto('${item.id}')">Importar</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function decidirDescoberto(id, acao) {
+  const { data: { session } } = await _supabase.auth.getSession();
+  await fetch('/api/processos-descobertos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+    body: JSON.stringify({ id, acao }),
+  });
+  _descobertosCache = _descobertosCache.filter(d => d.id !== id);
+  renderizarDescobertos();
+  const banner = document.getElementById('descobertos-banner');
+  if (banner && !_descobertosCache.length) banner.style.display = 'none';
+  else if (banner) document.getElementById('descobertos-banner-texto').textContent =
+    `Encontramos ${_descobertosCache.length} processo(s) novo(s) na sua OAB`;
+}
+
+async function ignorarDescoberto(id) {
+  await decidirDescoberto(id, 'ignorar');
+  showToast('Processo ignorado.');
+}
+
+async function importarDescoberto(id) {
+  const item = _descobertosCache.find(d => d.id === id);
+  if (!item) return;
+  const result = await _importarComMerge(item.dados);
+  if (result.status === 'erro') {
+    showToast('Erro ao importar processo.');
+    return;
+  }
+  await decidirDescoberto(id, 'marcar-importado');
+  showToast(result.status === 'mesclado' ? 'Processo mesclado com um já existente.' : 'Processo importado.');
   carregarProcessos();
 }
 
@@ -5481,6 +5709,7 @@ async function carregarHonorarios() {
   _atualizarBadgeHon();
   _popularSelectsClientes();
   _popularSelectsProcessos();
+  atualizarPrazosDash();
 }
 
 function _atualizarVencidos() {

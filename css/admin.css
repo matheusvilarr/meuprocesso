@@ -63,6 +63,22 @@ body {
 
 .adm-main { max-width: 1100px; margin: 0 auto; padding: 28px 24px 60px; }
 
+.adm-stats {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.adm-stat-card {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 16px 18px;
+}
+.adm-stat-value { font-size: 24px; font-weight: 700; color: var(--navy); }
+.adm-stat-label { font-size: 12px; color: var(--gray-600); margin-top: 4px; }
+.adm-stat-card.warn .adm-stat-value { color: var(--red); }
+
 .adm-tabs {
   display: flex;
   gap: 6px;
@@ -132,6 +148,7 @@ body {
 }
 .adm-status-ativo    { background: var(--green-light); color: var(--green); }
 .adm-status-bloqueado{ background: var(--red-light);   color: var(--red); }
+.adm-status-pendente  { background: var(--gold-pale);   color: #92400e; }
 
 .adm-btn-primary {
   background: var(--navy);

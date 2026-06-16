@@ -49,12 +49,15 @@ async function registrar(req, res) {
     const admin = createClient(SUPA_URL, SUPA_SERVICE_KEY);
     const { data } = await admin
       .from('codigos_acesso')
-      .select('id, usos_atual')
+      .select('id, usos_atual, usado_em')
       .eq('codigo', codigo.toUpperCase().trim())
       .maybeSingle();
 
     if (data) {
-      await admin.from('codigos_acesso').update({ usos_atual: data.usos_atual + 1 }).eq('id', data.id);
+      await admin.from('codigos_acesso').update({
+        usos_atual: data.usos_atual + 1,
+        usado_em:   data.usado_em || new Date().toISOString(),
+      }).eq('id', data.id);
     }
     return res.status(200).json({ ok: true });
   } catch (_) {

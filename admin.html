@@ -30,11 +30,38 @@
         <button class="adm-tab" data-tab="admins"><i class="ti ti-shield-lock"></i> Administradores</button>
       </nav>
 
+      <!-- STATS -->
+      <div class="adm-stats">
+        <div class="adm-stat-card">
+          <div class="adm-stat-value" id="stat-total">—</div>
+          <div class="adm-stat-label">Advogados cadastrados</div>
+        </div>
+        <div class="adm-stat-card">
+          <div class="adm-stat-value" id="stat-processos">—</div>
+          <div class="adm-stat-label">Processos ativos</div>
+        </div>
+        <div class="adm-stat-card">
+          <div class="adm-stat-value" id="stat-convites">—</div>
+          <div class="adm-stat-label">Convites pendentes</div>
+        </div>
+        <div class="adm-stat-card warn">
+          <div class="adm-stat-value" id="stat-bloqueados">—</div>
+          <div class="adm-stat-label">Bloqueados</div>
+        </div>
+        <div class="adm-stat-card warn">
+          <div class="adm-stat-value" id="stat-sem-confirmar">—</div>
+          <div class="adm-stat-label">E-mail não confirmado</div>
+        </div>
+      </div>
+
       <!-- ADVOGADOS -->
       <section id="tab-advogados" class="adm-panel">
         <div class="adm-panel-header">
           <h2>Advogados cadastrados</h2>
-          <span id="adv-total" class="adm-count"></span>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <span id="adv-total" class="adm-count"></span>
+            <button class="adm-btn-primary" onclick="abrirConvidarAdvogado()"><i class="ti ti-mail-forward"></i> Convidar advogado</button>
+          </div>
         </div>
         <div class="adm-table-wrap">
           <table class="adm-table">
@@ -46,6 +73,8 @@
                 <th>Cadastro</th>
                 <th>Último login</th>
                 <th>Processos</th>
+                <th>Tarefas</th>
+                <th>Colab.</th>
                 <th>Status</th>
                 <th></th>
               </tr>
@@ -59,7 +88,10 @@
       <section id="tab-codigos" class="adm-panel" style="display:none;">
         <div class="adm-panel-header">
           <h2>Códigos de convite</h2>
-          <button class="adm-btn-primary" onclick="abrirGerarCodigo()"><i class="ti ti-plus"></i> Gerar código</button>
+          <div style="display:flex;gap:10px;">
+            <button class="adm-btn-secondary" onclick="abrirConvidarAdvogado()"><i class="ti ti-mail-forward"></i> Convidar por e-mail</button>
+            <button class="adm-btn-primary" onclick="abrirGerarCodigo()"><i class="ti ti-plus"></i> Gerar código</button>
+          </div>
         </div>
         <div class="adm-table-wrap">
           <table class="adm-table">
@@ -67,6 +99,7 @@
               <tr>
                 <th>Código</th>
                 <th>Descrição</th>
+                <th>Convidado</th>
                 <th>Usos</th>
                 <th>Status</th>
                 <th>Criado em</th>
@@ -116,6 +149,22 @@
       <div class="adm-modal-actions">
         <button class="adm-btn-secondary" onclick="fecharGerarCodigo()">Cancelar</button>
         <button class="adm-btn-primary" onclick="gerarCodigo()">Gerar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal convidar advogado -->
+  <div id="modal-convidar-advogado" class="adm-modal-overlay" style="display:none;" onclick="if(event.target===this)fecharConvidarAdvogado()">
+    <div class="adm-modal">
+      <h3>Convidar advogado</h3>
+      <label>E-mail do advogado</label>
+      <input type="email" id="conv-email" placeholder="advogado@email.com">
+      <label>Descrição (opcional)</label>
+      <input type="text" id="conv-descricao" placeholder="Ex: Indicação do Dr. João">
+      <div id="conv-erro" style="display:none;color:#c0392b;font-size:12px;margin-top:10px;"></div>
+      <div class="adm-modal-actions">
+        <button class="adm-btn-secondary" onclick="fecharConvidarAdvogado()">Cancelar</button>
+        <button class="adm-btn-primary" id="conv-btn" onclick="convidarAdvogado()"><i class="ti ti-send"></i> Enviar convite</button>
       </div>
     </div>
   </div>

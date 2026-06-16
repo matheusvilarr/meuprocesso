@@ -1,6 +1,16 @@
 let _codigoValidado = false;
 let _codigoTimer   = null;
 
+// Preenche código/email quando o link vem de um convite do admin (?codigo=...&email=...)
+(function preencherDoConvite() {
+  const params = new URLSearchParams(window.location.search);
+  const codigo = params.get('codigo');
+  const email  = params.get('email');
+  if (codigo) document.getElementById('reg-codigo').value = codigo.toUpperCase();
+  if (email)  document.getElementById('reg-email').value  = email;
+  if (codigo) validarCodigo(codigo);
+})();
+
 // Toggle olho da senha
 document.getElementById('togglePwReg').addEventListener('click', function () {
   const input = document.getElementById('reg-senha');

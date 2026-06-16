@@ -155,6 +155,7 @@ async function chamarDatajud(index, body, key) {
           'Authorization': `ApiKey ${key}`,
           'Content-Type':  'application/json'
         },
+        signal: AbortSignal.timeout(15000),
         body: JSON.stringify(body)
       }
     );

@@ -30,10 +30,20 @@ async function init() {
   document.getElementById('admin-guard').style.display = 'none';
   document.getElementById('admin-app').style.display   = 'block';
 
+  renderStats();
   renderAdvogados();
   renderCodigos();
   renderAdmins();
   setupTabs();
+}
+
+function renderStats() {
+  const s = _adminData.stats || {};
+  document.getElementById('stat-total').textContent         = s.totalAdvogados ?? '—';
+  document.getElementById('stat-processos').textContent     = s.totalProcessos ?? '—';
+  document.getElementById('stat-convites').textContent      = s.convitesPendentes ?? '—';
+  document.getElementById('stat-bloqueados').textContent     = s.totalBloqueados ?? '—';
+  document.getElementById('stat-sem-confirmar').textContent  = s.totalSemConfirmar ?? '—';
 }
 
 function setupTabs() {
@@ -57,11 +67,13 @@ function renderAdvogados() {
   document.getElementById('adv-tbody').innerHTML = _adminData.advogados.map(a => `
     <tr>
       <td>${esc(a.nome)}${a.nivelAdmin ? ' <span class="adm-badge" style="font-size:9px;vertical-align:middle;">' + esc(a.nivelAdmin.toUpperCase()) + '</span>' : ''}</td>
-      <td>${esc(a.email)}</td>
+      <td>${esc(a.email)}${a.emailConfirmado ? '' : ' <span class="adm-status-pill adm-status-pendente" style="font-size:9px;">não confirmado</span>'}</td>
       <td>${esc(a.oab)}</td>
       <td>${fmtData(a.criadoEm)}</td>
       <td>${a.ultimoLogin ? fmtData(a.ultimoLogin) : 'Nunca'}</td>
       <td>${a.numProcessos}</td>
+      <td>${a.numTarefas}</td>
+      <td>${a.numColaboradores}</td>
       <td><span class="adm-status-pill ${a.bloqueado ? 'adm-status-bloqueado' : 'adm-status-ativo'}">${a.bloqueado ? 'Bloqueado' : 'Ativo'}</span></td>
       <td>
         <button class="adm-btn-small ${a.bloqueado ? 'ok' : 'danger'}" onclick="toggleStatus('${a.id}', ${!a.bloqueado})">
@@ -69,14 +81,22 @@ function renderAdvogados() {
         </button>
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="8" style="text-align:center;color:#9f9f98;">Nenhum advogado cadastrado.</td></tr>';
+  `).join('') || '<tr><td colspan="10" style="text-align:center;color:#9f9f98;">Nenhum advogado cadastrado.</td></tr>';
 }
 
 function renderCodigos() {
-  document.getElementById('cod-tbody').innerHTML = (_adminData.codigos || []).map(c => `
+  document.getElementById('cod-tbody').innerHTML = (_adminData.codigos || []).map(c => {
+    let statusConvite = '—';
+    if (c.email_convidado) {
+      if (c.usado_em)       statusConvite = '<span class="adm-status-pill adm-status-ativo">Usado</span>';
+      else if (c.enviado_em) statusConvite = `<span class="adm-status-pill adm-status-pendente">Enviado</span> <button class="adm-btn-small" onclick="reenviarConvite('${c.id}')">Reenviar</button>`;
+      else                   statusConvite = '<span class="adm-status-pill adm-status-bloqueado">Falhou ao enviar</span> <button class="adm-btn-small" onclick="reenviarConvite(\'' + c.id + '\')">Reenviar</button>';
+    }
+    return `
     <tr>
       <td><code class="adm-code">${esc(c.codigo)}</code></td>
       <td>${esc(c.descricao) || '—'}</td>
+      <td>${c.email_convidado ? esc(c.email_convidado) + '<br>' + statusConvite : '—'}</td>
       <td>${c.usos_atual}${c.usos_max != null ? ' / ' + c.usos_max : ''}</td>
       <td><span class="adm-status-pill ${c.ativo ? 'adm-status-ativo' : 'adm-status-bloqueado'}">${c.ativo ? 'Ativo' : 'Inativo'}</span></td>
       <td>${fmtData(c.created_at)}</td>
@@ -86,7 +106,8 @@ function renderCodigos() {
         </button>
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="6" style="text-align:center;color:#9f9f98;">Nenhum código gerado ainda.</td></tr>';
+  `;
+  }).join('') || '<tr><td colspan="7" style="text-align:center;color:#9f9f98;">Nenhum código gerado ainda.</td></tr>';
 }
 
 function renderAdmins() {
@@ -138,6 +159,51 @@ async function gerarCodigo() {
 
 async function toggleCodigo(id, ativo) {
   const r = await chamarAdmin('toggle-codigo', { id, ativo });
+  if (r.erro) return alert(r.erro);
+  await init();
+}
+
+function abrirConvidarAdvogado() {
+  document.getElementById('conv-email').value = '';
+  document.getElementById('conv-descricao').value = '';
+  document.getElementById('conv-erro').style.display = 'none';
+  document.getElementById('modal-convidar-advogado').style.display = 'flex';
+}
+function fecharConvidarAdvogado() {
+  document.getElementById('modal-convidar-advogado').style.display = 'none';
+}
+
+async function convidarAdvogado() {
+  const email     = document.getElementById('conv-email').value.trim();
+  const descricao = document.getElementById('conv-descricao').value.trim();
+  const erroEl    = document.getElementById('conv-erro');
+  const btn       = document.getElementById('conv-btn');
+  erroEl.style.display = 'none';
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    erroEl.textContent = 'Informe um e-mail válido.';
+    erroEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Enviando...';
+  const r = await chamarAdmin('convidar-advogado', { email, descricao });
+  btn.disabled = false;
+  btn.innerHTML = '<i class="ti ti-send"></i> Enviar convite';
+
+  if (r.erro) {
+    erroEl.textContent = r.erro;
+    erroEl.style.display = 'block';
+    return;
+  }
+  fecharConvidarAdvogado();
+  await init();
+  if (r.avisoEmail) alert(r.avisoEmail);
+}
+
+async function reenviarConvite(id) {
+  const r = await chamarAdmin('reenviar-convite', { id });
   if (r.erro) return alert(r.erro);
   await init();
 }
