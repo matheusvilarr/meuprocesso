@@ -161,7 +161,7 @@
 
   // Chama a API
   try {
-    const resp = await fetch('/api/aceitar-convite', {
+    const resp = await fetch('/api/colaboradores?acao=aceitar', {
       method:  'POST',
       headers: {
         'Content-Type':  'application/json',

@@ -22,7 +22,7 @@ document.getElementById('reg-codigo').addEventListener('input', function () {
 
 async function validarCodigo(codigo) {
   try {
-    const r = await fetch('/api/validar-codigo', {
+    const r = await fetch('/api/codigo-acesso?acao=validar', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ codigo }),
@@ -114,7 +114,7 @@ document.getElementById('registroForm').addEventListener('submit', async functio
   }
 
   // Registra o uso do código (não bloqueia o fluxo se falhar)
-  fetch('/api/registrar-uso-codigo', {
+  fetch('/api/codigo-acesso?acao=registrar', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ codigo }),

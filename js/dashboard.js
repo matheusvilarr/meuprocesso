@@ -3283,7 +3283,7 @@ async function gerarConvite() {
   if (!session) { showToast('Sessão expirada.'); return; }
 
   try {
-    const res  = await fetch('/api/convidar-colaborador', {
+    const res  = await fetch('/api/colaboradores?acao=convidar', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
       body:    JSON.stringify({ email, cargo, nivel_acesso: nivel, processo_id: processoId }),
