@@ -113,6 +113,13 @@ document.getElementById('registroForm').addEventListener('submit', async functio
     return;
   }
 
+  // Registra o uso do código (não bloqueia o fluxo se falhar)
+  fetch('/api/registrar-uso-codigo', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ codigo }),
+  }).catch(() => {});
+
   // Sucesso — mostra caixa de confirmação
   document.getElementById('registroForm').style.display = 'none';
   document.getElementById('registro-links').style.display = 'none';

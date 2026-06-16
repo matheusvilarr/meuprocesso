@@ -19,7 +19,15 @@
   window._colaboradorInfo = colab || null;
   window._user            = session.user;
 
-  document.addEventListener('DOMContentLoaded', () => {
+  // Verifica se o usuário logado é admin (RLS só deixa ele ver a própria linha)
+  const { data: adminRow } = await _supabase
+    .from('admins')
+    .select('nivel')
+    .eq('user_id', session.user.id)
+    .maybeSingle();
+  window._isAdmin = !!adminRow;
+
+  const aplicarUI = () => {
     const meta    = session.user.user_metadata || {};
     const nome    = meta.full_name || meta.nome || session.user.email.split('@')[0];
     const email   = session.user.email;
@@ -52,5 +60,19 @@
         colabBadge.style.display = 'block';
       }
     }
-  });
+
+    // Item "Painel Admin" na sidebar se aplicável
+    if (window._isAdmin) {
+      const navAdmin = document.getElementById('nav-item-admin');
+      if (navAdmin) navAdmin.style.display = 'flex';
+    }
+  };
+
+  // DOMContentLoaded pode já ter disparado antes das consultas assíncronas
+  // acima terminarem — nesse caso o listener nunca seria chamado.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', aplicarUI);
+  } else {
+    aplicarUI();
+  }
 })();

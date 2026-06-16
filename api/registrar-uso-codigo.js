@@ -7,26 +7,21 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
   const { codigo } = req.body || {};
-  if (!codigo) return res.status(400).json({ valido: false });
-
-  if (!SUPA_SERVICE_KEY) return res.status(500).json({ valido: false });
+  if (!codigo || !SUPA_SERVICE_KEY) return res.status(200).json({ ok: false });
 
   try {
     const admin = createClient(SUPA_URL, SUPA_SERVICE_KEY);
     const { data } = await admin
       .from('codigos_acesso')
-      .select('id, usos_max, usos_atual')
+      .select('id, usos_atual')
       .eq('codigo', codigo.toUpperCase().trim())
-      .eq('ativo', true)
       .maybeSingle();
 
-    if (!data) return res.json({ valido: false });
-    if (data.usos_max != null && data.usos_atual >= data.usos_max) {
-      return res.json({ valido: false });
+    if (data) {
+      await admin.from('codigos_acesso').update({ usos_atual: data.usos_atual + 1 }).eq('id', data.id);
     }
-
-    return res.json({ valido: true });
+    return res.status(200).json({ ok: true });
   } catch (_) {
-    return res.status(500).json({ valido: false });
+    return res.status(200).json({ ok: false });
   }
 }
