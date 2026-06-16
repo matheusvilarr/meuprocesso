@@ -1,6 +1,13 @@
 let _adminToken = null;
 let _adminData  = null;
 
+// Nome/email/OAB vêm de user_metadata, que o próprio usuário controla — nunca
+// injetar sem escapar, senão é XSS direto na sessão do admin.
+const ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ESCAPE_MAP[c]);
+}
+
 async function init() {
   const { data: { session } } = await _supabase.auth.getSession();
   if (!session) {
@@ -49,9 +56,9 @@ function renderAdvogados() {
   document.getElementById('adv-total').textContent = `${_adminData.advogados.length} cadastrado(s)`;
   document.getElementById('adv-tbody').innerHTML = _adminData.advogados.map(a => `
     <tr>
-      <td>${a.nome}${a.nivelAdmin ? ' <span class="adm-badge" style="font-size:9px;vertical-align:middle;">' + a.nivelAdmin.toUpperCase() + '</span>' : ''}</td>
-      <td>${a.email}</td>
-      <td>${a.oab}</td>
+      <td>${esc(a.nome)}${a.nivelAdmin ? ' <span class="adm-badge" style="font-size:9px;vertical-align:middle;">' + esc(a.nivelAdmin.toUpperCase()) + '</span>' : ''}</td>
+      <td>${esc(a.email)}</td>
+      <td>${esc(a.oab)}</td>
       <td>${fmtData(a.criadoEm)}</td>
       <td>${a.ultimoLogin ? fmtData(a.ultimoLogin) : 'Nunca'}</td>
       <td>${a.numProcessos}</td>
@@ -68,8 +75,8 @@ function renderAdvogados() {
 function renderCodigos() {
   document.getElementById('cod-tbody').innerHTML = (_adminData.codigos || []).map(c => `
     <tr>
-      <td><code class="adm-code">${c.codigo}</code></td>
-      <td>${c.descricao || '—'}</td>
+      <td><code class="adm-code">${esc(c.codigo)}</code></td>
+      <td>${esc(c.descricao) || '—'}</td>
       <td>${c.usos_atual}${c.usos_max != null ? ' / ' + c.usos_max : ''}</td>
       <td><span class="adm-status-pill ${c.ativo ? 'adm-status-ativo' : 'adm-status-bloqueado'}">${c.ativo ? 'Ativo' : 'Inativo'}</span></td>
       <td>${fmtData(c.created_at)}</td>
@@ -86,11 +93,11 @@ function renderAdmins() {
   const admins = _adminData.advogados.filter(a => a.nivelAdmin);
   document.getElementById('admins-tbody').innerHTML = admins.map(a => `
     <tr>
-      <td>${a.nome}</td>
-      <td>${a.email}</td>
-      <td>${a.nivelAdmin}</td>
+      <td>${esc(a.nome)}</td>
+      <td>${esc(a.email)}</td>
+      <td>${esc(a.nivelAdmin)}</td>
       <td>
-        ${a.nivelAdmin !== 'super_admin' ? `<button class="adm-btn-small danger" onclick="removerAdmin('${a.email}')">Remover acesso</button>` : '<span style="color:#9f9f98;font-size:12px;">—</span>'}
+        ${a.nivelAdmin !== 'super_admin' ? `<button class="adm-btn-small danger" onclick="removerAdmin('${esc(a.email)}')">Remover acesso</button>` : '<span style="color:#9f9f98;font-size:12px;">—</span>'}
       </td>
     </tr>
   `).join('') || '<tr><td colspan="4" style="text-align:center;color:#9f9f98;">Nenhum administrador.</td></tr>';
