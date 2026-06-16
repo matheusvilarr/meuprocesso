@@ -849,6 +849,21 @@ async function buscarAdvogadoDJEN() {
 
     window._djeResultados = _deduplicarDJe(window._djeResultados);
 
+    // Salva automaticamente as publicações de processos já cadastrados — o usuário
+    // roda essa busca manualmente como substituto do cron, então o resultado já
+    // precisa cair na timeline e acender a notificação sem precisar clicar em nada.
+    let qtdAutoSalvas = 0;
+    for (const doc of window._djeResultados) {
+      if (!doc.matches.length) continue;
+      const resultado = await _salvarMovimentoDJe(doc, doc.matches[0]);
+      doc._autoSave = resultado.status;
+      if (resultado.status === 'salvo') qtdAutoSalvas++;
+    }
+    if (qtdAutoSalvas > 0) {
+      await carregarProcessos();
+      showToast(`✓ ${qtdAutoSalvas} processo(s) atualizado(s) automaticamente com publicações do DJEN.`, 'success');
+    }
+
     const semCadastro = window._djeResultados.filter(d => !d.matches.length && d.processos[0]);
     let html = semCadastro.length > 1 ? `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 2px 10px">
@@ -881,8 +896,12 @@ async function buscarAdvogadoDJEN() {
             <div style="font-size:12px;font-weight:600;color:var(--navy);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${numPrincipal || 'sem número'}${doc.processos.length > 1 ? ` <span style="color:var(--gray-400);font-weight:400">+${doc.processos.length-1}</span>` : ''}</div>
             ${orgao ? `<div style="font-size:10px;color:var(--gray-500);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${orgao}</div>` : ''}
           </div>
-          <div style="display:flex;gap:6px;flex-shrink:0">
-            <button class="btn-primary" style="font-size:11px;padding:4px 10px;white-space:nowrap" onclick="salvarAtualizacaoDJe(${i},'${doc.matches[0].id}',this)"><i class="ti ti-check"></i> Salvar</button>
+          <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
+            ${doc._autoSave === 'salvo'
+              ? `<span style="font-size:11px;font-weight:600;color:var(--green);white-space:nowrap"><i class="ti ti-check"></i> Salvo automaticamente</span>`
+              : doc._autoSave === 'erro'
+                ? `<button class="btn-primary" style="font-size:11px;padding:4px 10px;white-space:nowrap" onclick="salvarAtualizacaoDJe(${i},'${doc.matches[0].id}',this)"><i class="ti ti-refresh"></i> Tentar de novo</button>`
+                : `<span style="font-size:11px;color:var(--gray-400);white-space:nowrap"><i class="ti ti-check"></i> Já atualizado</span>`}
             <button class="btn-secondary" style="font-size:11px;padding:4px 8px" onclick="abrirProcesso('${doc.matches[0].id}')"><i class="ti ti-arrow-right"></i></button>
             ${doc.link ? `<a href="${doc.link}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;font-size:11px;color:var(--gray-400);padding:4px 6px;text-decoration:none" title="DJEN"><i class="ti ti-external-link"></i></a>` : ''}
           </div>
@@ -4502,7 +4521,9 @@ async function _importarComMerge(d) {
 
   // Processo novo
   const clientePart = (d.partes || []).find(p => /autor|requerente|reclamante/i.test(p.tipo));
-  const { error } = await _supabase.from('processos').insert({
+  // upsert (não insert) — evita duplicar se duas chamadas concorrentes (ex: duplo clique
+  // no "Importar selecionados") passarem pela checagem acima ao mesmo tempo
+  const { error } = await _supabase.from('processos').upsert({
     user_id:             window._escritorioId,
     numero:              d.numero             || '',
     nome:                d.classe             || d.numero || '',
@@ -4517,7 +4538,7 @@ async function _importarComMerge(d) {
     movimentos_recentes: movs.length ? movs   : null,
     movimentos_hash:     movs.length ? movs.map(m => m.data + m.nome).join('|') : null,
     ultima_verificacao:  movs.length ? new Date().toISOString() : null,
-  });
+  }, { onConflict: 'user_id,numero' });
   if (error) return { status: 'erro', error };
   return { status: 'importado' };
 }
@@ -4839,6 +4860,19 @@ async function rodarMonitorDJe() {
 
     window._djeResultados = _deduplicarDJe(window._djeResultados);
 
+    // Salva automaticamente nos processos já cadastrados (ver _salvarMovimentoDJe)
+    let qtdAutoSalvas = 0;
+    for (const doc of window._djeResultados) {
+      if (!doc.matches.length) continue;
+      const resultado = await _salvarMovimentoDJe(doc, doc.matches[0]);
+      doc._autoSave = resultado.status;
+      if (resultado.status === 'salvo') qtdAutoSalvas++;
+    }
+    if (qtdAutoSalvas > 0) {
+      await carregarProcessos();
+      showToast(`✓ ${qtdAutoSalvas} processo(s) atualizado(s) automaticamente com publicações do DJEN.`, 'success');
+    }
+
     // Botão "Importar todos" no topo dos resultados
     const semCadastro = window._djeResultados.filter(d => !d.matches.length && d.processos[0]);
     lista.innerHTML = semCadastro.length > 1 ? `
@@ -4872,11 +4906,12 @@ async function rodarMonitorDJe() {
             <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:2px">${proc.apelido || proc.nome}</div>
             <div style="font-size:11px;color:var(--gray-500);margin-bottom:4px">${numPrincipal} · ${orgao}</div>
             <div style="font-size:11px;color:var(--gray-700);line-height:1.6;max-height:60px;overflow:hidden;margin-bottom:10px">${preview}</div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-              <button class="btn-primary" style="font-size:11px;padding:6px 12px;gap:5px"
-                onclick="salvarAtualizacaoDJe(${i},'${proc.id}',this)">
-                <i class="ti ti-check"></i> Salvar como atualização
-              </button>
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              ${doc._autoSave === 'salvo'
+                ? `<span style="font-size:11px;font-weight:600;color:var(--green)"><i class="ti ti-check"></i> Salvo automaticamente</span>`
+                : doc._autoSave === 'erro'
+                  ? `<button class="btn-primary" style="font-size:11px;padding:6px 12px;gap:5px" onclick="salvarAtualizacaoDJe(${i},'${proc.id}',this)"><i class="ti ti-refresh"></i> Tentar de novo</button>`
+                  : `<span style="font-size:11px;color:var(--gray-400)"><i class="ti ti-check"></i> Já atualizado</span>`}
               <button class="btn-secondary" style="font-size:11px;padding:6px 12px;gap:5px"
                 onclick="abrirProcesso('${proc.id}')">
                 <i class="ti ti-arrow-right"></i> Ver processo
@@ -4931,11 +4966,11 @@ async function rodarMonitorDJe() {
   }
 }
 
-async function salvarAtualizacaoDJe(docIndex, processoId, btn) {
-  const doc  = (window._djeResultados || [])[docIndex];
-  const proc = (window._processosDB  || []).find(p => p.id === processoId);
-  if (!doc || !proc) return;
-
+// Persiste uma publicação do DJEN num processo já cadastrado. Usada tanto pelo
+// clique manual em "Salvar" quanto pelo salvamento automático da busca por OAB
+// (o usuário roda a busca manualmente como substituto do cron e espera que o
+// resultado já caia direto no processo, sem precisar clicar em cada card).
+async function _salvarMovimentoDJe(doc, proc) {
   const dataDisp  = doc.data_disponibilizacao || '';
   const descricao = `DJEN — ${doc.tipoComunicacao || 'Publicação'}${doc.tipoDecisao ? ' · ' + doc.tipoDecisao : ''}`;
 
@@ -4946,13 +4981,9 @@ async function salvarAtualizacaoDJe(docIndex, processoId, btn) {
     _url:   doc.link || null,
   };
 
-  // Evita duplicata: verifica se já existe movimento com mesmo texto e data
   const existentes = proc.movimentos_recentes || [];
   const jaSalvo = existentes.some(m => m.nome === novoMov.nome && m.data === novoMov.data);
-  if (jaSalvo) { showToast('Esta publicação já foi salva neste processo.'); return; }
-
-  btn.disabled   = true;
-  btn.innerHTML  = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Salvando…';
+  if (jaSalvo) return { status: 'duplicado' };
 
   const novosMovs = [novoMov, ...existentes];
 
@@ -4961,18 +4992,39 @@ async function salvarAtualizacaoDJe(docIndex, processoId, btn) {
     notificacao_pendente: true,
     novos_movimentos:     [novoMov],
     ultima_verificacao:   new Date().toISOString(),
-  }).eq('id', processoId);
+  }).eq('id', proc.id);
 
-  if (error) {
-    showToast('Erro ao salvar: ' + error.message);
+  if (error) return { status: 'erro', error };
+
+  proc.movimentos_recentes  = novosMovs;
+  proc.notificacao_pendente = true;
+
+  return { status: 'salvo' };
+}
+
+async function salvarAtualizacaoDJe(docIndex, processoId, btn) {
+  const doc  = (window._djeResultados || [])[docIndex];
+  const proc = (window._processosDB  || []).find(p => p.id === processoId);
+  if (!doc || !proc) return;
+
+  btn.disabled   = true;
+  btn.innerHTML  = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Salvando…';
+
+  const resultado = await _salvarMovimentoDJe(doc, proc);
+
+  if (resultado.status === 'duplicado') {
+    showToast('Esta publicação já foi salva neste processo.');
     btn.disabled  = false;
     btn.innerHTML = '<i class="ti ti-check"></i> Salvar como atualização';
     return;
   }
 
-  // Atualiza memória local imediatamente
-  proc.movimentos_recentes  = novosMovs;
-  proc.notificacao_pendente = true;
+  if (resultado.status === 'erro') {
+    showToast('Erro ao salvar: ' + resultado.error.message);
+    btn.disabled  = false;
+    btn.innerHTML = '<i class="ti ti-check"></i> Salvar como atualização';
+    return;
+  }
 
   btn.innerHTML = '<i class="ti ti-check"></i> Salvo!';
   btn.style.background = 'var(--green)';
@@ -4985,9 +5037,6 @@ async function importarProcessoDJe(docIndex) {
   const doc = (window._djeResultados || [])[docIndex];
   if (!doc || !doc.processos[0]) return;
 
-  const jaExiste = (window._processosDB || []).some(p => p.numero === doc.processos[0]);
-  if (jaExiste) { showToast('Processo já está cadastrado.'); return; }
-
   const btn = document.querySelector(`button[onclick="importarProcessoDJe(${docIndex})"]`);
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Importando…'; }
 
@@ -4997,8 +5046,40 @@ async function importarProcessoDJe(docIndex) {
   const clienteFinal  = clienteManual || (doc.partes?.cliente?.length > 2 ? doc.partes.cliente : null);
   const userId = window._escritorioId || window._user?.id;
   const numero = doc.processos[0];
+  const novoMov = { data: (doc.data_disponibilizacao || '') + 'T00:00:00', nome: mov };
 
-  const { error } = await _supabase.from('processos').insert({
+  // Checa direto no banco (não no cache local) se o processo já existe, para não duplicar
+  // nem descartar a publicação encontrada caso já esteja cadastrado
+  const { data: existente } = await _supabase
+    .from('processos')
+    .select('id,movimentos_recentes')
+    .eq('user_id', userId)
+    .eq('numero', numero)
+    .maybeSingle();
+
+  if (existente) {
+    const movsAtuais = existente.movimentos_recentes || [];
+    const novasMovs   = [novoMov, ...movsAtuais].slice(0, 100);
+    const { error } = await _supabase.from('processos').update({
+      movimentos_recentes:  novasMovs,
+      movimentos_hash:      novasMovs.map(m => m.data + m.nome).join('|').slice(0, 500),
+      ultima_verificacao:   new Date().toISOString(),
+      notificacao_pendente: true,
+      novos_movimentos:     [novoMov],
+    }).eq('id', existente.id);
+
+    if (error) {
+      showToast('Erro ao atualizar: ' + error.message);
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-plus"></i> Importar processo'; }
+      return;
+    }
+    if (btn) btn.innerHTML = '<i class="ti ti-check"></i> Atualizado';
+    showToast(`✓ Processo ${numero} já cadastrado — publicação mesclada na timeline.`, 'success');
+    await carregarProcessos();
+    return;
+  }
+
+  const { error } = await _supabase.from('processos').upsert({
     user_id:         userId,
     numero,
     nome:            [doc.nomeClasse, doc.tipoDecisao].filter(Boolean).join(' · ') || doc.tipoComunicacao || 'Publicação DJEN',
@@ -5008,10 +5089,10 @@ async function importarProcessoDJe(docIndex) {
     area:            _detectarArea(doc.siglaTribunal, doc.nomeClasse),
     classe:          doc.nomeClasse  || null,
     orgao_julgador:  doc.nomeOrgao   || null,
-    movimentos_recentes: [{ data: (doc.data_disponibilizacao || '') + 'T00:00:00', nome: mov }],
+    movimentos_recentes: [novoMov],
     movimentos_hash:     (doc.data_disponibilizacao || '') + mov,
     ultima_verificacao:  new Date().toISOString(),
-  });
+  }, { onConflict: 'user_id,numero' });
 
   if (error) {
     showToast('Erro ao importar: ' + error.message);
