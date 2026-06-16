@@ -16,7 +16,7 @@ async function init() {
   }
   _adminToken = session.access_token;
 
-  const r = await fetch('/api/admin/dados', {
+  const r = await fetch('/api/admin?acao=dados', {
     headers: { 'Authorization': `Bearer ${_adminToken}` },
   });
 
@@ -103,17 +103,17 @@ function renderAdmins() {
   `).join('') || '<tr><td colspan="4" style="text-align:center;color:#9f9f98;">Nenhum administrador.</td></tr>';
 }
 
-async function chamarAdmin(url, body) {
-  const r = await fetch(url, {
+async function chamarAdmin(acao, body) {
+  const r = await fetch('/api/admin', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${_adminToken}` },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ acao, ...body }),
   });
   return r.json();
 }
 
 async function toggleStatus(userId, bloquear) {
-  const r = await chamarAdmin('/api/admin/toggle-status', { userId, bloquear });
+  const r = await chamarAdmin('toggle-status', { userId, bloquear });
   if (r.erro) return alert(r.erro);
   await init();
 }
@@ -130,14 +130,14 @@ function fecharGerarCodigo() {
 async function gerarCodigo() {
   const descricao = document.getElementById('cod-descricao').value.trim();
   const usosMax   = parseInt(document.getElementById('cod-usos-max').value) || null;
-  const r = await chamarAdmin('/api/admin/gerar-codigo', { descricao, usosMax });
+  const r = await chamarAdmin('gerar-codigo', { descricao, usosMax });
   if (r.erro) return alert(r.erro);
   fecharGerarCodigo();
   await init();
 }
 
 async function toggleCodigo(id, ativo) {
-  const r = await chamarAdmin('/api/admin/toggle-codigo', { id, ativo });
+  const r = await chamarAdmin('toggle-codigo', { id, ativo });
   if (r.erro) return alert(r.erro);
   await init();
 }
@@ -145,7 +145,7 @@ async function toggleCodigo(id, ativo) {
 async function promoverAdmin() {
   const email = document.getElementById('admin-email-input').value.trim();
   if (!email) return;
-  const r = await chamarAdmin('/api/admin/gerenciar-admin', { email, acao: 'promover' });
+  const r = await chamarAdmin('gerenciar-admin', { email, tipo: 'promover' });
   if (r.erro) return alert(r.erro);
   document.getElementById('admin-email-input').value = '';
   await init();
@@ -153,7 +153,7 @@ async function promoverAdmin() {
 
 async function removerAdmin(email) {
   if (!confirm(`Remover acesso admin de ${email}?`)) return;
-  const r = await chamarAdmin('/api/admin/gerenciar-admin', { email, acao: 'remover' });
+  const r = await chamarAdmin('gerenciar-admin', { email, tipo: 'remover' });
   if (r.erro) return alert(r.erro);
   await init();
 }

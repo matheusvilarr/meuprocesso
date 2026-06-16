@@ -1,7 +1,52 @@
-// Endpoint de teste — verifica se Resend está configurado e envia um email de teste
-// Uso: GET /api/testar-email?para=seu@email.com
-
+// Endpoints de diagnóstico (uso interno, não chamados pelo frontend).
+//   /api/debug?tipo=datajud&tribunal=api_publica_tjsp&mode=mapping|partes|sample
+//   /api/debug?tipo=email&para=seu@email.com
 export default async function handler(req, res) {
+  const { tipo } = req.query;
+  if (tipo === 'email') return debugEmail(req, res);
+  return debugDatajud(req, res);
+}
+
+async function debugDatajud(req, res) {
+  const { tribunal = 'api_publica_tjsp', mode = 'sample' } = req.query;
+
+  const KEY = process.env.DATAJUD_API_KEY
+    || 'cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==';
+
+  const headers = { 'Authorization': `ApiKey ${KEY}`, 'Content-Type': 'application/json' };
+  const base    = `https://api-publica.datajud.cnj.jus.br`;
+
+  if (mode === 'mapping') {
+    const r = await fetch(`${base}/${tribunal}/_mapping`, { headers });
+    const d = await r.json();
+    const props = d[tribunal]?.mappings?.properties
+               || Object.values(d)[0]?.mappings?.properties
+               || d;
+    return res.json(props);
+  }
+
+  if (mode === 'partes') {
+    const r = await fetch(`${base}/${tribunal}/_search`, {
+      method: 'POST', headers,
+      body: JSON.stringify({
+        size: 1,
+        query: { exists: { field: 'partes' } },
+        _source: ['partes', 'numeroProcesso', 'tribunal']
+      })
+    });
+    const d = await r.json();
+    return res.json(d.hits?.hits?.[0]?._source || { aviso: 'Nenhum doc com partes encontrado', raw: d });
+  }
+
+  const r = await fetch(`${base}/${tribunal}/_search`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ size: 1, query: { match_all: {} } })
+  });
+  const d = await r.json();
+  return res.json(d.hits?.hits?.[0]?._source || d);
+}
+
+async function debugEmail(req, res) {
   const RESEND_KEY = process.env.RESEND_API_KEY;
 
   if (!RESEND_KEY) {
