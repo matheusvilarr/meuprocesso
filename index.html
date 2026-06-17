@@ -3,6 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+  // Redireciona link de redefinição de senha que veio parar na homepage
+  var _code = new URLSearchParams(window.location.search).get('code');
+  if (_code) window.location.replace('/redefinir-senha?code=' + _code);
+</script>
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-S036MFTGEC"></script>
 <script>
