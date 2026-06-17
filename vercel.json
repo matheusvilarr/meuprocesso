@@ -1,5 +1,13 @@
 {
   "cleanUrls": true,
+  "redirects": [
+    {
+      "source": "/",
+      "has": [{ "type": "query", "key": "code", "value": "(?<code>.*)" }],
+      "destination": "/redefinir-senha?code=:code",
+      "permanent": false
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)\\.html",
