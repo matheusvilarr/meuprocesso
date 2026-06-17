@@ -80,7 +80,7 @@ document.getElementById('resetForm').addEventListener('submit', async function (
   btn.textContent = 'Enviando...';
 
   const { error } = await _supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.origin + '/',
+    redirectTo: 'https://www.meuprocesso.app.br/',
   });
 
   if (error) {

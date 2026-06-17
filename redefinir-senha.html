@@ -86,24 +86,23 @@ document.getElementById('togglePw').addEventListener('click', function () {
   input.type = input.type === 'password' ? 'text' : 'password';
 });
 
-// O Supabase detecta o ?code= automaticamente (detectSessionInUrl: true)
-// e emite PASSWORD_RECOVERY via onAuthStateChange — não chamar exchangeCodeForSession
-// manualmente para não consumir o código duas vezes.
 _supabase.auth.onAuthStateChange((event, session) => {
+  if (event === 'INITIAL_SESSION') return; // dispara em toda página, ignorar
   document.getElementById('loading-step').style.display = 'none';
   if (event === 'PASSWORD_RECOVERY' && session) {
     document.getElementById('form-step').style.display = 'block';
+  } else {
+    document.getElementById('invalid-step').style.display = 'block';
   }
 });
 
-// Fallback: sem evento em 6s → link inválido ou expirado
+// Fallback: se PASSWORD_RECOVERY não chegar em 8s → link inválido/expirado
 setTimeout(() => {
-  const loading = document.getElementById('loading-step');
-  if (loading.style.display !== 'none') {
-    loading.style.display = 'none';
+  if (document.getElementById('loading-step').style.display !== 'none') {
+    document.getElementById('loading-step').style.display = 'none';
     document.getElementById('invalid-step').style.display = 'block';
   }
-}, 6000);
+}, 8000);
 
 document.getElementById('newPwForm').addEventListener('submit', async function (e) {
   e.preventDefault();
