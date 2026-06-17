@@ -81,11 +81,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="js/supabase-client.js"></script>
 <script>
-// Força não-www para manter o localStorage do code_verifier PKCE consistente
-if (location.hostname === 'www.meuprocesso.app.br') {
-  location.replace(location.href.replace('//www.', '//'));
-}
-
 document.getElementById('togglePw').addEventListener('click', function () {
   const input = document.getElementById('password');
   input.type = input.type === 'password' ? 'text' : 'password';
