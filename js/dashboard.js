@@ -1748,7 +1748,7 @@ function renderizarListaProcessos(lista) {
     const rec        = _recenciaInfo(p);
 
     const card = document.createElement('div');
-    card.className = `process-card${temNotif ? ' pc-notif' : ''}${isShared ? ' pc-compartilhado' : ''}`;
+    card.className = `process-card${temNotif ? ' pc-notif' : ''}${isShared ? ' pc-compartilhado' : ''}${p.favorito && !isShared ? ' pc-favorito' : ''}`;
     card.setAttribute('data-db', p.id);
     card.onclick = () => abrirProcesso(p.id);
 
@@ -2478,6 +2478,19 @@ function comentTecla(event) {
 
 function _esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Converte MAIÚSCULAS para Title Case respeitando preposições em português
+function _titleCase(str) {
+  if (!str) return '';
+  const prep = new Set(['de','da','do','das','dos','e','ou','a','o','as','os','em','por','para','com','sem','ao','aos','à','às']);
+  return str.toLowerCase().replace(/\S+/g, (w, i) => (i === 0 || !prep.has(w)) ? w[0].toUpperCase() + w.slice(1) : w);
+}
+
+// Label padrão para seletores de processo: "Nome do Cliente · número"
+function _labelProcesso(p) {
+  const nome = _titleCase(p.cliente || p.apelido || p.nome || '');
+  return nome + (p.numero ? ' · ' + p.numero : '');
 }
 
 function _fmtDataComent(iso) {
@@ -3300,7 +3313,7 @@ function abrirModalConvite(processoId) {
   (window._processosDB || []).forEach(p => {
     const opt = document.createElement('option');
     opt.value       = p.id;
-    opt.textContent = (p.apelido || p.nome || p.numero || '').slice(0, 60);
+    opt.textContent = _labelProcesso(p).slice(0, 80);
     if (p.id === processoId) opt.selected = true;
     sel.appendChild(opt);
   });
@@ -3606,7 +3619,7 @@ function abrirModalCompartilharSemProcesso() {
     const lista = (window._processosDB || []).filter(p => !p.arquivado)
       .sort((a, b) => (a.apelido || a.nome).localeCompare(b.apelido || b.nome));
     sel.innerHTML = '<option value="">— Selecione um processo —</option>' +
-      lista.map(p => `<option value="${p.id}">${_esc(p.apelido || p.nome)}</option>`).join('');
+      lista.map(p => `<option value="${p.id}">${_esc(_labelProcesso(p))}</option>`).join('');
     sel.onchange = () => { _shareProcessoId = sel.value || null; };
   }
 
@@ -4336,11 +4349,15 @@ function preencherProcessosModal(selectId) {
   const meus = procs.filter(p => !shared[p.id]);
   const comp  = procs.filter(p =>  shared[p.id]);
 
-  const toOption = p => `<option value="${p.id}">${p.numero ? p.numero + ' — ' : ''}${p.apelido || p.nome}</option>`;
+  const toOption = p => `<option value="${p.id}">${_esc(_labelProcesso(p))}</option>`;
+
+  const meusFav   = meus.filter(p =>  p.favorito);
+  const meusNorm  = meus.filter(p => !p.favorito);
 
   let html = `<option value="">— Nenhum processo —</option>`;
-  if (meus.length) html += `<optgroup label="Meus processos">${meus.map(toOption).join('')}</optgroup>`;
-  if (comp.length) html += `<optgroup label="🤝 Compartilhados comigo">${comp.map(toOption).join('')}</optgroup>`;
+  if (meusFav.length)  html += `<optgroup label="⭐ Favoritos">${meusFav.map(toOption).join('')}</optgroup>`;
+  if (meusNorm.length) html += `<optgroup label="Meus processos">${meusNorm.map(toOption).join('')}</optgroup>`;
+  if (comp.length)     html += `<optgroup label="🤝 Compartilhados comigo">${comp.map(toOption).join('')}</optgroup>`;
 
   sel.innerHTML = html;
 }
@@ -5807,6 +5824,7 @@ function _buildHonCard(h, grupo) {
     </div>
     <div class="hon-card-right">
       <div class="hon-valor">R$ ${_fmtValor(h.valor)}</div>
+      ${h.valor_entrada > 0 ? `<div style="font-size:11px;color:#059669;margin-top:2px">Entrada: R$ ${_fmtValor(h.valor_entrada)}</div><div style="font-size:11px;color:var(--gray-500)">Saldo: R$ ${_fmtValor((h.valor||0) - (h.valor_entrada||0))}</div>` : ''}
       ${statusBadge}
       ${pagar}
     </div>`;
@@ -5949,13 +5967,14 @@ function _popularSelectsProcessos() {
     const sel = document.getElementById(id);
     if (!sel) return;
     const cur = sel.value;
+    const todos = (window._processosDB || []).filter(p => !p.arquivado);
+    const favs  = todos.filter(p =>  p.favorito);
+    const resto = todos.filter(p => !p.favorito);
+    const mkOpt = p => { const o = document.createElement('option'); o.value = p.id; o.textContent = _labelProcesso(p).substring(0, 80); return o; };
+    const mkGroup = (label, lista) => { const g = document.createElement('optgroup'); g.label = label; lista.forEach(p => g.appendChild(mkOpt(p))); return g; };
     sel.innerHTML = '<option value="">— Sem processo vinculado —</option>';
-    (window._processosDB || []).filter(p => !p.arquivado).forEach(p => {
-      const opt = document.createElement('option');
-      opt.value = p.id;
-      opt.textContent = (p.apelido || p.nome || '').substring(0, 60);
-      sel.appendChild(opt);
-    });
+    if (favs.length)  sel.appendChild(mkGroup('⭐ Favoritos', favs));
+    if (resto.length) sel.appendChild(mkGroup('Processos', resto));
     if (cur) sel.value = cur;
   });
 }
@@ -5996,6 +6015,7 @@ async function salvarHonorario() {
     parcelas_total: isParc ? parcelasQtd : numCobr,
     parcela_atual:  isParc ? 1 : null,
     notas:          document.getElementById('hon-notas').value.trim() || null,
+    valor_entrada:  parseFloat(document.getElementById('hon-entrada')?.value) || null,
   };
 
   const { error } = await _supabase.from('honorarios').insert(payload);
@@ -6003,7 +6023,7 @@ async function salvarHonorario() {
   if (error) { showToast('Erro: ' + error.message, 'error'); return; }
   showToast('Honorário salvo!', 'success');
   closeModal('modal-novo-honorario');
-  ['hon-desc','hon-valor','hon-notas'].forEach(id => {
+  ['hon-desc','hon-valor','hon-entrada','hon-notas'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   honSetCobranca('avista');
@@ -6031,9 +6051,10 @@ function abrirEditarHonorario(id) {
   if (!h) return;
 
   document.getElementById('hon-edit-id').value    = h.id;
-  document.getElementById('hon-edit-desc').value  = h.descricao || '';
-  document.getElementById('hon-edit-valor').value = h.valor || '';
-  document.getElementById('hon-edit-notas').value = h.notas || '';
+  document.getElementById('hon-edit-desc').value    = h.descricao || '';
+  document.getElementById('hon-edit-valor').value   = h.valor || '';
+  document.getElementById('hon-edit-notas').value   = h.notas || '';
+  document.getElementById('hon-edit-entrada').value = h.valor_entrada || '';
 
   const tipoEl = document.getElementById('hon-edit-tipo');
   if (tipoEl) tipoEl.value = h.tipo || 'fixo';
@@ -6106,6 +6127,7 @@ async function atualizarHonorario() {
     periodicidade:   isRecorr ? (document.getElementById('hon-edit-period')?.value || null) : null,
     parcelas_total:  isParc ? parcelasQtd : numCobr,
     notas:           document.getElementById('hon-edit-notas').value.trim() || null,
+    valor_entrada:   parseFloat(document.getElementById('hon-edit-entrada')?.value) || null,
   }).eq('id', id);
   if (error) { showToast('Erro: ' + error.message, 'error'); return; }
   showToast('Honorário atualizado!', 'success');

@@ -1238,6 +1238,8 @@ body {
 .process-card:hover .pc-fav-btn { opacity: 1; }
 .pc-fav-btn.ativo               { color: #f59e0b; opacity: 1; }
 .pc-fav-btn:hover               { color: #f59e0b; }
+.process-card.pc-favorito       { border-left-color: #f59e0b; background: #fffbf0; }
+.process-card.pc-favorito:hover { border-left-color: #d97706; box-shadow: 0 4px 16px rgba(245,158,11,0.15); }
 
 /* ── SEPARADOR DE SEÇÃO (grid full-width) ───────────────────────────────────── */
 .section-sep {
