@@ -159,6 +159,7 @@ document.getElementById('newPwForm').addEventListener('submit', async function (
 
   document.getElementById('form-step').style.display    = 'none';
   document.getElementById('success-step').style.display = 'block';
+  setTimeout(() => { location.href = '/login'; }, 2500);
 });
 </script>
 </body>

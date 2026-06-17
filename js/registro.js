@@ -135,6 +135,7 @@ document.getElementById('registroForm').addEventListener('submit', async functio
   document.getElementById('registro-links').style.display = 'none';
   document.getElementById('sucesso-email').textContent = email;
   document.getElementById('sucesso-box').style.display = 'block';
+  setTimeout(() => { location.href = '/login'; }, 3500);
 });
 
 function mostrarErro(id, msg) {
