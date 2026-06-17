@@ -86,24 +86,29 @@ document.getElementById('togglePw').addEventListener('click', function () {
   input.type = input.type === 'password' ? 'text' : 'password';
 });
 
-// O Supabase processa o hash de recovery de forma assíncrona após o carregamento
-// da página — getSession() chamado direto sempre retorna null antes disso.
-// onAuthStateChange com PASSWORD_RECOVERY é o único jeito confiável.
-_supabase.auth.onAuthStateChange((event, session) => {
-  document.getElementById('loading-step').style.display = 'none';
-  if (event === 'PASSWORD_RECOVERY') {
-    document.getElementById('form-step').style.display = 'block';
-  }
-});
+(async function init() {
+  // Fluxo PKCE: o link de recovery chega com ?code= na URL.
+  // O scanner do Hotmail/Outlook não consegue completar a troca porque
+  // o code_verifier fica salvo apenas no navegador do usuário.
+  const params = new URLSearchParams(window.location.search);
+  const code   = params.get('code');
 
-// Fallback: se nenhum evento de recovery chegar em 4s, o link é inválido/expirado
-setTimeout(() => {
-  const loading = document.getElementById('loading-step');
-  if (loading.style.display !== 'none') {
-    loading.style.display = 'none';
+  if (!code) {
+    document.getElementById('loading-step').style.display = 'none';
     document.getElementById('invalid-step').style.display = 'block';
+    return;
   }
-}, 4000);
+
+  const { error } = await _supabase.auth.exchangeCodeForSession(code);
+  document.getElementById('loading-step').style.display = 'none';
+
+  if (error) {
+    document.getElementById('invalid-step').style.display = 'block';
+    return;
+  }
+
+  document.getElementById('form-step').style.display = 'block';
+})();
 
 document.getElementById('newPwForm').addEventListener('submit', async function (e) {
   e.preventDefault();
