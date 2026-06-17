@@ -86,18 +86,24 @@ document.getElementById('togglePw').addEventListener('click', function () {
   input.type = input.type === 'password' ? 'text' : 'password';
 });
 
-(async function init() {
-  const { data: { session }, error } = await _supabase.auth.getSession();
-
+// O Supabase processa o hash de recovery de forma assíncrona após o carregamento
+// da página — getSession() chamado direto sempre retorna null antes disso.
+// onAuthStateChange com PASSWORD_RECOVERY é o único jeito confiável.
+_supabase.auth.onAuthStateChange((event, session) => {
   document.getElementById('loading-step').style.display = 'none';
-
-  if (error || !session) {
-    document.getElementById('invalid-step').style.display = 'block';
-    return;
+  if (event === 'PASSWORD_RECOVERY') {
+    document.getElementById('form-step').style.display = 'block';
   }
+});
 
-  document.getElementById('form-step').style.display = 'block';
-})();
+// Fallback: se nenhum evento de recovery chegar em 4s, o link é inválido/expirado
+setTimeout(() => {
+  const loading = document.getElementById('loading-step');
+  if (loading.style.display !== 'none') {
+    loading.style.display = 'none';
+    document.getElementById('invalid-step').style.display = 'block';
+  }
+}, 4000);
 
 document.getElementById('newPwForm').addEventListener('submit', async function (e) {
   e.preventDefault();
