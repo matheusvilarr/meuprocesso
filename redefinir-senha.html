@@ -81,28 +81,43 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="js/supabase-client.js"></script>
 <script>
+// Força não-www para manter o localStorage do code_verifier PKCE consistente
+if (location.hostname === 'www.meuprocesso.app.br') {
+  location.replace(location.href.replace('//www.', '//'));
+}
+
 document.getElementById('togglePw').addEventListener('click', function () {
   const input = document.getElementById('password');
   input.type = input.type === 'password' ? 'text' : 'password';
 });
 
-_supabase.auth.onAuthStateChange((event, session) => {
-  if (event === 'INITIAL_SESSION') return; // dispara em toda página, ignorar
+function mostrarInvalido() {
   document.getElementById('loading-step').style.display = 'none';
-  if (event === 'PASSWORD_RECOVERY' && session) {
-    document.getElementById('form-step').style.display = 'block';
-  } else {
-    document.getElementById('invalid-step').style.display = 'block';
-  }
-});
+  document.getElementById('invalid-step').style.display = 'block';
+}
 
-// Fallback: se PASSWORD_RECOVERY não chegar em 8s → link inválido/expirado
-setTimeout(() => {
-  if (document.getElementById('loading-step').style.display !== 'none') {
-    document.getElementById('loading-step').style.display = 'none';
-    document.getElementById('invalid-step').style.display = 'block';
-  }
-}, 8000);
+const code = new URLSearchParams(location.search).get('code');
+
+if (!code) {
+  mostrarInvalido();
+} else {
+  // Troca manual: detectSessionInUrl está desabilitado nesta página
+  _supabase.auth.exchangeCodeForSession(code)
+    .then(({ data, error }) => {
+      document.getElementById('loading-step').style.display = 'none';
+      if (error || !data?.session) {
+        mostrarInvalido();
+      } else {
+        document.getElementById('form-step').style.display = 'block';
+      }
+    })
+    .catch(mostrarInvalido);
+
+  // Segurança: se a promise travar por >10s
+  setTimeout(() => {
+    if (document.getElementById('loading-step').style.display !== 'none') mostrarInvalido();
+  }, 10000);
+}
 
 document.getElementById('newPwForm').addEventListener('submit', async function (e) {
   e.preventDefault();

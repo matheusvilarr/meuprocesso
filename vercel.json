@@ -2,12 +2,6 @@
   "cleanUrls": true,
   "redirects": [
     {
-      "source": "/:path*",
-      "has": [{ "type": "host", "value": "^meuprocesso\\.app\\.br$" }],
-      "destination": "https://www.meuprocesso.app.br/:path*",
-      "permanent": true
-    },
-    {
       "source": "/",
       "has": [{ "type": "query", "key": "code", "value": "(?<code>.*)" }],
       "destination": "/redefinir-senha?code=:code",

@@ -1,5 +1,9 @@
 const SUPA_URL = 'https://ctsjhsdblallguftycqs.supabase.co';
 const SUPA_KEY = 'sb_publishable_i2UzINt5Xv1QthMl1M0Tgw_iNkiO0K1';
 const _supabase = supabase.createClient(SUPA_URL, SUPA_KEY, {
-  auth: { flowType: 'pkce', detectSessionInUrl: true },
+  auth: {
+    flowType: 'pkce',
+    // desabilitado na página de recuperação para evitar troca dupla do code
+    detectSessionInUrl: !location.pathname.includes('redefinir-senha'),
+  },
 });

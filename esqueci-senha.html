@@ -59,6 +59,11 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="js/supabase-client.js"></script>
 <script>
+// Força não-www para manter a mesma origem do localStorage onde o code_verifier fica
+if (location.hostname === 'www.meuprocesso.app.br') {
+  location.replace(location.href.replace('//www.', '//'));
+}
+
 document.getElementById('resetForm').addEventListener('submit', async function (e) {
   e.preventDefault();
 
@@ -80,7 +85,7 @@ document.getElementById('resetForm').addEventListener('submit', async function (
   btn.textContent = 'Enviando...';
 
   const { error } = await _supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: 'https://www.meuprocesso.app.br/',
+    redirectTo: 'https://meuprocesso.app.br/',
   });
 
   if (error) {
