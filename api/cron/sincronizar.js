@@ -20,23 +20,26 @@ export default async function handler(req, res) {
     return res.status(500).json({ erro: 'SUPABASE_SERVICE_KEY não configurada.' });
   }
 
-  const admin = createClient(SUPA_URL, SUPA_SERVICE_KEY);
-  const hoje  = new Date().toISOString().slice(0, 10);
+  const admin    = createClient(SUPA_URL, SUPA_SERVICE_KEY);
+  const hoje     = new Date().toISOString().slice(0, 10);
+  const startAt  = Date.now();
 
+  // Ordena pelos menos sincronizados recentemente — garante rotação entre todos os processos
   const { data: processos, error } = await admin
     .from('processos')
-    .select('id, user_id, numero, nome, apelido, datajud_index, movimentos_hash, movimentos_recentes, created_at, favorito')
+    .select('id, user_id, numero, nome, apelido, datajud_index, movimentos_hash, movimentos_recentes, created_at, favorito, ultima_verificacao')
     .not('numero', 'is', null)
     .neq('status', 'Arquivado')
-    .order('favorito', { ascending: false });
+    .order('ultima_verificacao', { ascending: true, nullsFirst: true });
 
   if (error) return res.status(500).json({ erro: error.message });
 
   const userIds        = [...new Set((processos || []).map(p => p.user_id))];
   const oabsPorUsuario = await buscarOabsUsuarios(admin, userIds);
 
+  // DJEN é rápido — roda sempre. DataJud tem time guard de 45s.
   const [atualizadosDatajud, atualizadosDJEN] = await Promise.all([
-    sincronizarDatajud(processos, admin, hoje),
+    sincronizarDatajud(processos, admin, hoje, startAt),
     sincronizarDJEN(processos, oabsPorUsuario, admin, hoje),
   ]);
 
@@ -45,22 +48,33 @@ export default async function handler(req, res) {
     hoje,
     datajud: atualizadosDatajud,
     djen: atualizadosDJEN,
+    elapsed: Math.round((Date.now() - startAt) / 1000) + 's',
   });
 }
 
 // ── DataJud ───────────────────────────────────────────────────────────────────
 
-async function sincronizarDatajud(processos, admin, hoje) {
+async function sincronizarDatajud(processos, admin, hoje, startAt = Date.now()) {
   let atualizados = 0;
+  let parou = false;
   const com_datajud = processos.filter(p => p.datajud_index);
 
   for (let i = 0; i < com_datajud.length; i += 12) {
+    // Para em 45s para não estourar o timeout de 60s
+    if (Date.now() - startAt > 45000) { parou = true; break; }
+
     const lote = com_datajud.slice(i, i + 12);
     const resultados = await Promise.allSettled(
       lote.map(proc => sincronizarDatajudUm(proc, admin, hoje))
     );
     atualizados += resultados.filter(r => r.status === 'fulfilled' && r.value).length;
   }
+
+  if (parou) {
+    // Registra que foi interrompido — não é erro, é comportamento esperado com muitos processos
+    console.log(`sincronizarDatajud: parou por tempo (45s). Processados ${com_datajud.findIndex((_, i) => i * 12 >= com_datajud.length)} de ${com_datajud.length}`);
+  }
+
   return atualizados;
 }
 

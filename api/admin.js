@@ -449,25 +449,28 @@ async function _buscarDatajud(index, numero) {
 
 async function acaoSincronizarProcessos(req, res, admin, adminUser) {
   const { userId } = req.body || {};
+  const startAt = Date.now();
 
+  // Ordena pelos menos sincronizados primeiro — garante rotação entre todos
   let q = admin.from('processos')
     .select('id, user_id, numero, datajud_index, movimentos_hash, created_at')
     .not('datajud_index', 'is', null)
-    .neq('status', 'Arquivado');
+    .neq('status', 'Arquivado')
+    .order('ultima_verificacao', { ascending: true, nullsFirst: true });
   if (userId) q = q.eq('user_id', userId);
 
   const { data: processos, error } = await q;
   if (error) return res.status(500).json({ erro: error.message });
 
   const hoje = new Date().toISOString().slice(0, 10);
-  let atualizados = 0;
-  let semMudanca  = 0;
-  let erros       = 0;
+  let atualizados = 0, semMudanca = 0, erros = 0, parou = false;
 
   for (let i = 0; i < processos.length; i += 10) {
+    if (Date.now() - startAt > 75000) { parou = true; break; }
+
     const lote = processos.slice(i, i + 10);
     await Promise.all(lote.map(async proc => {
-      if ((proc.created_at || '').slice(0, 10) === hoje) return; // importado hoje: pula
+      if ((proc.created_at || '').slice(0, 10) === hoje) return;
       const hits = await _buscarDatajud(proc.datajud_index, proc.numero);
       if (!hits?.length) { erros++; return; }
 
@@ -493,7 +496,15 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
     }));
   }
 
-  return res.json({ ok: true, total: processos.length, atualizados, semMudanca, erros });
+  return res.json({
+    ok: true,
+    total: processos.length,
+    atualizados,
+    semMudanca,
+    erros,
+    parou,
+    elapsed: Math.round((Date.now() - startAt) / 1000) + 's',
+  });
 }
 
 export default async function handler(req, res) {
