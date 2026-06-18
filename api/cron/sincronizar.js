@@ -79,10 +79,12 @@ async function sincronizarDatajudUm(proc, admin, hoje) {
     if (novoHash === proc.movimentos_hash) return false;
 
     const importadoEm = (proc.created_at || '').slice(0, 10);
+    const seteDias    = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
     const todosNovos  = proc.movimentos_hash
       ? todosMovs.filter(m => !proc.movimentos_hash.includes(m.data + m.nome))
       : todosMovs.slice(0, 1);
-    const novosRecentes = todosNovos.filter(m => m.data && (!importadoEm || m.data >= importadoEm));
+    // Só notifica movimentos realmente recentes (últimos 7 dias)
+    const novosRecentes = todosNovos.filter(m => m.data && m.data >= seteDias && (!importadoEm || m.data >= importadoEm));
 
     const update = {
       movimentos_recentes: todosMovs,
