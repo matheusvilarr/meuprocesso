@@ -47,7 +47,7 @@ async function logErro(admin, origem, mensagem, detalhes, userId) {
 async function rodarMorning(admin, res, hoje) {
   const { data: pendentes } = await admin
     .from('processos')
-    .select('id, user_id, nome, apelido, novos_movimentos')
+    .select('id, user_id, numero, nome, apelido, cliente, novos_movimentos')
     .eq('notificacao_pendente', true)
     .neq('status', 'Arquivado');
 
@@ -61,9 +61,10 @@ async function rodarMorning(admin, res, hoje) {
     if (!porUsuario[p.user_id]) porUsuario[p.user_id] = [];
     porUsuario[p.user_id].push({
       processoId: p.id,
+      numero:     p.numero,
       nome:       p.apelido || p.nome,
+      cliente:    p.cliente || null,
       novos:      (p.novos_movimentos || []).slice(0, 3),
-      fonte:      (p.novos_movimentos?.[0]?.nome || '').startsWith('DJEN') ? 'DJEN' : 'CNJ DataJud',
     });
   }
 
@@ -110,7 +111,7 @@ async function rodarAfternoon(admin, res, hoje) {
   const cutoffMorning = `${hoje}T11:30:00Z`;
   const [{ data: pendentes }, { data: eventosAmanha }] = await Promise.all([
     admin.from('processos')
-      .select('id, user_id, nome, apelido, novos_movimentos')
+      .select('id, user_id, numero, nome, apelido, cliente, novos_movimentos')
       .eq('notificacao_pendente', true)
       .neq('status', 'Arquivado')
       .or(`ultima_notif_email.is.null,ultima_notif_email.lt.${cutoffMorning}`),
@@ -125,7 +126,9 @@ async function rodarAfternoon(admin, res, hoje) {
     if (!porUsuario[p.user_id]) porUsuario[p.user_id] = { atualizacoes: [], prazos: [] };
     porUsuario[p.user_id].atualizacoes.push({
       processoId: p.id,
+      numero:     p.numero,
       nome:       p.apelido || p.nome,
+      cliente:    p.cliente || null,
       novos:      (p.novos_movimentos || []).slice(0, 3),
     });
   }
@@ -278,8 +281,16 @@ async function enviarDigestMorning(para, nome, agenda, atualizacoes) {
   <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">⚖️ Atualizações nos processos</div>
   ${atualizacoes.slice(0, 5).map(item => `
   <div style="background:#f8f9fa;border-left:4px solid #1a2e6b;border-radius:6px;padding:12px 14px;margin-bottom:10px">
-    <div style="font-weight:700;color:#1a2e6b;font-size:13px;margin-bottom:6px">${item.nome}</div>
-    ${(item.novos || []).map(m => `<div style="font-size:12px;color:#374151;padding:3px 0;border-bottom:1px solid #e5e7eb"><span style="color:#9ca3af">${formatarData(m.data)}</span> — ${m.nome}</div>`).join('')}
+    <div style="font-weight:700;color:#1a2e6b;font-size:13px">${item.nome}</div>
+    ${item.cliente ? `<div style="font-size:11px;color:#6b7280;margin-top:2px">👤 ${item.cliente}</div>` : ''}
+    ${item.numero ? `<div style="font-size:11px;color:#9ca3af;margin-top:1px;font-family:monospace">${item.numero}</div>` : ''}
+    <div style="margin-top:8px">
+      ${(item.novos || []).map(m => `
+      <div style="font-size:12px;color:#374151;padding:5px 0;border-bottom:1px solid #e5e7eb;display:flex;gap:8px">
+        <span style="color:#9ca3af;white-space:nowrap;min-width:90px">${formatarData(m.data)}</span>
+        <span>${m.nome}</span>
+      </div>`).join('')}
+    </div>
   </div>`).join('')}
 </div>` : '';
 
@@ -325,8 +336,15 @@ async function enviarAlertaAfternoon(para, nome, atualizacoes, prazos) {
   <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">⚖️ Novidades desde esta manhã</div>
   ${atualizacoes.map(item => `
   <div style="background:#f8f9fa;border-left:4px solid #1a2e6b;border-radius:6px;padding:12px 14px;margin-bottom:8px">
-    <div style="font-weight:700;color:#1a2e6b;font-size:13px;margin-bottom:4px">${item.nome}</div>
-    ${(item.novos || []).map(m => `<div style="font-size:12px;color:#374151">${m.nome}</div>`).join('')}
+    <div style="font-weight:700;color:#1a2e6b;font-size:13px">${item.nome}</div>
+    ${item.cliente ? `<div style="font-size:11px;color:#6b7280;margin-top:2px">👤 ${item.cliente}</div>` : ''}
+    ${item.numero ? `<div style="font-size:11px;color:#9ca3af;margin-top:1px;font-family:monospace">${item.numero}</div>` : ''}
+    <div style="margin-top:8px">
+      ${(item.novos || []).map(m => `
+      <div style="font-size:12px;color:#374151;padding:4px 0;border-bottom:1px solid #e5e7eb">
+        <span style="color:#9ca3af">${formatarData(m.data)}</span> — ${m.nome}
+      </div>`).join('')}
+    </div>
   </div>`).join('')}
 </div>` : '';
 
