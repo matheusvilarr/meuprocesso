@@ -284,24 +284,23 @@ async function enviarDigestMorning(para, nome, agenda, atualizacoes) {
 <div style="padding:20px 28px 8px">
   <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">⚖️ Atualizações nos processos</div>
   ${atualizacoes.slice(0, 5).map(item => `
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:10px">
     <tr>
-      <td width="80" valign="top" style="padding-right:12px;text-align:center">
-        ${item.ultimaVerificacao ? `
+      <td width="72" valign="top" style="padding-right:10px;text-align:center">
         <div style="background:#eef2ff;border-radius:6px;padding:6px 4px">
-          <div style="font-size:15px;font-weight:700;color:#1a2e6b;line-height:1">${formatarHora(item.ultimaVerificacao)}</div>
-          <div style="font-size:10px;color:#6366f1;margin-top:2px">${formatarDataCurta(item.ultimaVerificacao)}</div>
-        </div>` : ''}
+          <div style="font-size:14px;font-weight:700;color:#1a2e6b;line-height:1">${item.ultimaVerificacao ? formatarHora(item.ultimaVerificacao) : '—'}</div>
+          <div style="font-size:10px;color:#6366f1;margin-top:2px">${item.ultimaVerificacao ? formatarDataCurta(item.ultimaVerificacao) : ''}</div>
+        </div>
       </td>
       <td valign="top">
-        <div style="background:#f8f9fa;border-left:4px solid #1a2e6b;border-radius:6px;padding:10px 12px">
+        <div style="background:#f8f9fa;border-left:3px solid #1a2e6b;border-radius:0 6px 6px 0;padding:8px 12px">
           <div style="font-weight:700;color:#1a2e6b;font-size:13px">${item.nome}</div>
-          ${item.cliente ? `<div style="font-size:11px;color:#374151;margin-top:3px">👤 ${item.cliente}</div>` : ''}
-          ${item.numero ? `<div style="font-size:10px;color:#9ca3af;margin-top:1px;font-family:monospace">${item.numero}</div>` : ''}
-          ${item.tribunal ? `<div style="font-size:10px;color:#6b7280;margin-top:1px">🏛 ${item.tribunal}</div>` : ''}
-          <div style="margin-top:8px;border-top:1px solid #e5e7eb;padding-top:6px">
-            ${(item.novos || []).map(m => `
-            <div style="font-size:11px;color:#374151;padding:3px 0;border-bottom:1px solid #f3f4f6">
+          <div style="font-size:11px;color:#6b7280;margin-top:2px">
+            ${[item.cliente ? `👤 ${item.cliente}` : '', item.tribunal || '', item.numero || ''].filter(Boolean).join(' · ')}
+          </div>
+          <div style="margin-top:6px">
+            ${(item.novos || []).slice(0, 3).map(m => `
+            <div style="font-size:11px;color:#374151;padding:2px 0;border-bottom:1px solid #e5e7eb">
               <span style="color:#9ca3af">${formatarData(m.data)}</span> — ${m.nome}
             </div>`).join('')}
           </div>
@@ -352,24 +351,23 @@ async function enviarAlertaAfternoon(para, nome, atualizacoes, prazos) {
 <div style="padding:20px 28px 8px">
   <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">⚖️ Novidades desde esta manhã</div>
   ${atualizacoes.map(item => `
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:10px">
     <tr>
-      <td width="80" valign="top" style="padding-right:12px;text-align:center">
-        ${item.ultimaVerificacao ? `
+      <td width="72" valign="top" style="padding-right:10px;text-align:center">
         <div style="background:#eef2ff;border-radius:6px;padding:6px 4px">
-          <div style="font-size:15px;font-weight:700;color:#1a2e6b;line-height:1">${formatarHora(item.ultimaVerificacao)}</div>
-          <div style="font-size:10px;color:#6366f1;margin-top:2px">${formatarDataCurta(item.ultimaVerificacao)}</div>
-        </div>` : ''}
+          <div style="font-size:14px;font-weight:700;color:#1a2e6b;line-height:1">${item.ultimaVerificacao ? formatarHora(item.ultimaVerificacao) : '—'}</div>
+          <div style="font-size:10px;color:#6366f1;margin-top:2px">${item.ultimaVerificacao ? formatarDataCurta(item.ultimaVerificacao) : ''}</div>
+        </div>
       </td>
       <td valign="top">
-        <div style="background:#f8f9fa;border-left:4px solid #1a2e6b;border-radius:6px;padding:10px 12px">
+        <div style="background:#f8f9fa;border-left:3px solid #1a2e6b;border-radius:0 6px 6px 0;padding:8px 12px">
           <div style="font-weight:700;color:#1a2e6b;font-size:13px">${item.nome}</div>
-          ${item.cliente ? `<div style="font-size:11px;color:#374151;margin-top:3px">👤 ${item.cliente}</div>` : ''}
-          ${item.numero ? `<div style="font-size:10px;color:#9ca3af;margin-top:1px;font-family:monospace">${item.numero}</div>` : ''}
-          ${item.tribunal ? `<div style="font-size:10px;color:#6b7280;margin-top:1px">🏛 ${item.tribunal}</div>` : ''}
-          <div style="margin-top:8px;border-top:1px solid #e5e7eb;padding-top:6px">
-            ${(item.novos || []).map(m => `
-            <div style="font-size:11px;color:#374151;padding:3px 0;border-bottom:1px solid #f3f4f6">
+          <div style="font-size:11px;color:#6b7280;margin-top:2px">
+            ${[item.cliente ? `👤 ${item.cliente}` : '', item.tribunal || '', item.numero || ''].filter(Boolean).join(' · ')}
+          </div>
+          <div style="margin-top:6px">
+            ${(item.novos || []).slice(0, 3).map(m => `
+            <div style="font-size:11px;color:#374151;padding:2px 0;border-bottom:1px solid #e5e7eb">
               <span style="color:#9ca3af">${formatarData(m.data)}</span> — ${m.nome}
             </div>`).join('')}
           </div>
