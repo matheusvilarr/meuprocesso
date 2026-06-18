@@ -47,7 +47,7 @@ async function logErro(admin, origem, mensagem, detalhes, userId) {
 async function rodarMorning(admin, res, hoje) {
   const { data: pendentes } = await admin
     .from('processos')
-    .select('id, user_id, numero, nome, apelido, cliente, novos_movimentos')
+    .select('id, user_id, numero, nome, apelido, cliente, tribunal, datajud_index, ultima_verificacao, novos_movimentos')
     .eq('notificacao_pendente', true)
     .neq('status', 'Arquivado');
 
@@ -60,11 +60,13 @@ async function rodarMorning(admin, res, hoje) {
   for (const p of pendentes) {
     if (!porUsuario[p.user_id]) porUsuario[p.user_id] = [];
     porUsuario[p.user_id].push({
-      processoId: p.id,
-      numero:     p.numero,
-      nome:       p.apelido || p.nome,
-      cliente:    p.cliente || null,
-      novos:      (p.novos_movimentos || []).slice(0, 3),
+      processoId:        p.id,
+      numero:            p.numero,
+      nome:              p.apelido || p.nome,
+      cliente:           p.cliente || null,
+      tribunal:          p.tribunal || extrairTribunal(p.datajud_index),
+      ultimaVerificacao: p.ultima_verificacao,
+      novos:             (p.novos_movimentos || []).slice(0, 3),
     });
   }
 
@@ -111,7 +113,7 @@ async function rodarAfternoon(admin, res, hoje) {
   const cutoffMorning = `${hoje}T11:30:00Z`;
   const [{ data: pendentes }, { data: eventosAmanha }] = await Promise.all([
     admin.from('processos')
-      .select('id, user_id, numero, nome, apelido, cliente, novos_movimentos')
+      .select('id, user_id, numero, nome, apelido, cliente, tribunal, datajud_index, ultima_verificacao, novos_movimentos')
       .eq('notificacao_pendente', true)
       .neq('status', 'Arquivado')
       .or(`ultima_notif_email.is.null,ultima_notif_email.lt.${cutoffMorning}`),
@@ -125,11 +127,13 @@ async function rodarAfternoon(admin, res, hoje) {
   for (const p of pendentes || []) {
     if (!porUsuario[p.user_id]) porUsuario[p.user_id] = { atualizacoes: [], prazos: [] };
     porUsuario[p.user_id].atualizacoes.push({
-      processoId: p.id,
-      numero:     p.numero,
-      nome:       p.apelido || p.nome,
-      cliente:    p.cliente || null,
-      novos:      (p.novos_movimentos || []).slice(0, 3),
+      processoId:        p.id,
+      numero:            p.numero,
+      nome:              p.apelido || p.nome,
+      cliente:           p.cliente || null,
+      tribunal:          p.tribunal || extrairTribunal(p.datajud_index),
+      ultimaVerificacao: p.ultima_verificacao,
+      novos:             (p.novos_movimentos || []).slice(0, 3),
     });
   }
   for (const e of eventosAmanha || []) {
@@ -280,18 +284,31 @@ async function enviarDigestMorning(para, nome, agenda, atualizacoes) {
 <div style="padding:20px 28px 8px">
   <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">⚖️ Atualizações nos processos</div>
   ${atualizacoes.slice(0, 5).map(item => `
-  <div style="background:#f8f9fa;border-left:4px solid #1a2e6b;border-radius:6px;padding:12px 14px;margin-bottom:10px">
-    <div style="font-weight:700;color:#1a2e6b;font-size:13px">${item.nome}</div>
-    ${item.cliente ? `<div style="font-size:11px;color:#6b7280;margin-top:2px">👤 ${item.cliente}</div>` : ''}
-    ${item.numero ? `<div style="font-size:11px;color:#9ca3af;margin-top:1px;font-family:monospace">${item.numero}</div>` : ''}
-    <div style="margin-top:8px">
-      ${(item.novos || []).map(m => `
-      <div style="font-size:12px;color:#374151;padding:5px 0;border-bottom:1px solid #e5e7eb;display:flex;gap:8px">
-        <span style="color:#9ca3af;white-space:nowrap;min-width:90px">${formatarData(m.data)}</span>
-        <span>${m.nome}</span>
-      </div>`).join('')}
-    </div>
-  </div>`).join('')}
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px">
+    <tr>
+      <td width="80" valign="top" style="padding-right:12px;text-align:center">
+        ${item.ultimaVerificacao ? `
+        <div style="background:#eef2ff;border-radius:6px;padding:6px 4px">
+          <div style="font-size:15px;font-weight:700;color:#1a2e6b;line-height:1">${formatarHora(item.ultimaVerificacao)}</div>
+          <div style="font-size:10px;color:#6366f1;margin-top:2px">${formatarDataCurta(item.ultimaVerificacao)}</div>
+        </div>` : ''}
+      </td>
+      <td valign="top">
+        <div style="background:#f8f9fa;border-left:4px solid #1a2e6b;border-radius:6px;padding:10px 12px">
+          <div style="font-weight:700;color:#1a2e6b;font-size:13px">${item.nome}</div>
+          ${item.cliente ? `<div style="font-size:11px;color:#374151;margin-top:3px">👤 ${item.cliente}</div>` : ''}
+          ${item.numero ? `<div style="font-size:10px;color:#9ca3af;margin-top:1px;font-family:monospace">${item.numero}</div>` : ''}
+          ${item.tribunal ? `<div style="font-size:10px;color:#6b7280;margin-top:1px">🏛 ${item.tribunal}</div>` : ''}
+          <div style="margin-top:8px;border-top:1px solid #e5e7eb;padding-top:6px">
+            ${(item.novos || []).map(m => `
+            <div style="font-size:11px;color:#374151;padding:3px 0;border-bottom:1px solid #f3f4f6">
+              <span style="color:#9ca3af">${formatarData(m.data)}</span> — ${m.nome}
+            </div>`).join('')}
+          </div>
+        </div>
+      </td>
+    </tr>
+  </table>`).join('')}
 </div>` : '';
 
   const blocoAgenda = agenda.length ? `
@@ -335,17 +352,31 @@ async function enviarAlertaAfternoon(para, nome, atualizacoes, prazos) {
 <div style="padding:20px 28px 8px">
   <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">⚖️ Novidades desde esta manhã</div>
   ${atualizacoes.map(item => `
-  <div style="background:#f8f9fa;border-left:4px solid #1a2e6b;border-radius:6px;padding:12px 14px;margin-bottom:8px">
-    <div style="font-weight:700;color:#1a2e6b;font-size:13px">${item.nome}</div>
-    ${item.cliente ? `<div style="font-size:11px;color:#6b7280;margin-top:2px">👤 ${item.cliente}</div>` : ''}
-    ${item.numero ? `<div style="font-size:11px;color:#9ca3af;margin-top:1px;font-family:monospace">${item.numero}</div>` : ''}
-    <div style="margin-top:8px">
-      ${(item.novos || []).map(m => `
-      <div style="font-size:12px;color:#374151;padding:4px 0;border-bottom:1px solid #e5e7eb">
-        <span style="color:#9ca3af">${formatarData(m.data)}</span> — ${m.nome}
-      </div>`).join('')}
-    </div>
-  </div>`).join('')}
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px">
+    <tr>
+      <td width="80" valign="top" style="padding-right:12px;text-align:center">
+        ${item.ultimaVerificacao ? `
+        <div style="background:#eef2ff;border-radius:6px;padding:6px 4px">
+          <div style="font-size:15px;font-weight:700;color:#1a2e6b;line-height:1">${formatarHora(item.ultimaVerificacao)}</div>
+          <div style="font-size:10px;color:#6366f1;margin-top:2px">${formatarDataCurta(item.ultimaVerificacao)}</div>
+        </div>` : ''}
+      </td>
+      <td valign="top">
+        <div style="background:#f8f9fa;border-left:4px solid #1a2e6b;border-radius:6px;padding:10px 12px">
+          <div style="font-weight:700;color:#1a2e6b;font-size:13px">${item.nome}</div>
+          ${item.cliente ? `<div style="font-size:11px;color:#374151;margin-top:3px">👤 ${item.cliente}</div>` : ''}
+          ${item.numero ? `<div style="font-size:10px;color:#9ca3af;margin-top:1px;font-family:monospace">${item.numero}</div>` : ''}
+          ${item.tribunal ? `<div style="font-size:10px;color:#6b7280;margin-top:1px">🏛 ${item.tribunal}</div>` : ''}
+          <div style="margin-top:8px;border-top:1px solid #e5e7eb;padding-top:6px">
+            ${(item.novos || []).map(m => `
+            <div style="font-size:11px;color:#374151;padding:3px 0;border-bottom:1px solid #f3f4f6">
+              <span style="color:#9ca3af">${formatarData(m.data)}</span> — ${m.nome}
+            </div>`).join('')}
+          </div>
+        </div>
+      </td>
+    </tr>
+  </table>`).join('')}
 </div>` : '';
 
   const blocoPrazos = prazos.length ? `
@@ -419,4 +450,23 @@ function formatarData(iso) {
   if (!iso) return '—';
   try { return new Date(iso + (iso.length === 10 ? 'T12:00:00' : '')).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }); }
   catch { return iso; }
+}
+
+function formatarHora(iso) {
+  if (!iso) return '—';
+  try { return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }); }
+  catch { return '—'; }
+}
+
+function formatarDataCurta(iso) {
+  if (!iso) return '';
+  try { return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', timeZone: 'America/Sao_Paulo' }); }
+  catch { return ''; }
+}
+
+function extrairTribunal(datajudIndex) {
+  if (!datajudIndex) return null;
+  // api_publica_tjdft → TJDFT | api_publica_trf1 → TRF1 | api_publica_stj → STJ
+  const m = datajudIndex.match(/api_publica_(.+)$/);
+  return m ? m[1].toUpperCase().replace(/-/g, '') : null;
 }
