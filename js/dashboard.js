@@ -38,7 +38,7 @@ function showPage(id) {
     filtrarProcessos();
   }
   window._filtroSemanaNavegando = false;
-  if (id === 'tarefas')       carregarTarefas();
+  if (id === 'tarefas')       { carregarQuadros(); carregarTarefas(); const b = document.getElementById('badge-tarefas'); if(b){b.style.display='none';} }
   if (id === 'arquivados')    carregarArquivados();
   if (id === 'configuracoes') carregarConfiguracoes();
   if (id === 'colaboradores') carregarParceiros();
@@ -1473,6 +1473,7 @@ async function carregarProcessos() {
   renderizarListaProcessos(data);
   atualizarDashboard(meus, countArq);
   atualizarBell();
+  atualizarBadgeTarefas();
 
   // Carrega clientes e honorários em background para ficarem disponíveis no detalhe do processo
   carregarClientes();
@@ -2801,6 +2802,31 @@ function atualizarBell() {
   // Ponto azul no sino do topbar
   const topbarBadge = document.getElementById('topbar-notif-badge');
   if (topbarBadge) topbarBadge.style.display = total > 0 ? 'block' : 'none';
+}
+
+async function atualizarBadgeTarefas() {
+  const badge = document.getElementById('badge-tarefas');
+  if (!badge || !window._user) return;
+
+  const meuNome  = window._user?.user_metadata?.full_name || window._user?.email?.split('@')[0] || '';
+  const lastSeen = localStorage.getItem('kanban_last_seen') || '0';
+
+  // Atividade de parceiros nas tarefas desde a última visita
+  const atividadeNova = (_tarefasDB || []).filter(t =>
+    t.updated_by_nome && t.updated_by_nome !== meuNome &&
+    t.updated_at && t.updated_at > lastSeen
+  ).length;
+
+  // Convites pendentes de quadros
+  const { data: convites } = await _supabase
+    .from('quadro_compartilhamentos')
+    .select('id')
+    .eq('membro_id', window._user.id)
+    .eq('status', 'pendente');
+
+  const total = atividadeNova + (convites?.length || 0);
+  badge.textContent = total;
+  badge.style.display = total > 0 ? 'inline-flex' : 'none';
 }
 
 let _notifPanelAberto = false;
@@ -4430,33 +4456,37 @@ async function vincularTarefaProcesso(processoId) {
 
 // ── KANBAN: TAREFAS DO BANCO ──────────────────────────────────────────────
 
-let _tarefasDB  = [];
+let _tarefasDB   = [];
+let _quadroAtivo = null;   // null = Principal
+let _quadrosDB   = [];
+let _detalheId   = null;   // tarefa aberta no painel
+let _procMapG    = {};     // procMap global para o painel
+let _isDragging  = false;  // bloqueia click durante drag
 let _dragTaskId = null;
 
 async function carregarTarefas() {
   if (!window._user) return;
 
-  const { data, error } = await _supabase
-    .from('tarefas')
-    .select('*')
-    .order('created_at', { ascending: true });
+  let q = _supabase.from('tarefas').select('*').order('created_at', { ascending: true });
+  q = _quadroAtivo ? q.eq('quadro_id', _quadroAtivo) : q.is('quadro_id', null);
 
+  const { data, error } = await q;
   if (!error && data) _tarefasDB = data;
   atualizarBell();
 
   const total = _tarefasDB.length;
   const sub   = document.getElementById('tarefas-sub');
-  if (sub) sub.textContent = total ? `${total} tarefa(s) no quadro` : 'Nenhuma tarefa ainda';
+  if (sub) sub.textContent = total ? `${total} tarefa(s)` : 'Nenhuma tarefa ainda';
 
   const procMap = {};
-  for (const p of (window._processosDB || [])) procMap[p.id] = p.apelido || p.nome;
+  for (const p of (window._processosDB || [])) procMap[p.id] = _titleCase(p.cliente || p.apelido || p.nome || '');
+  _procMapG = procMap;
 
   const lastSeen = localStorage.getItem('kanban_last_seen') || '0';
   const meuNome  = window._user?.user_metadata?.full_name || window._user?.email?.split('@')[0] || '';
 
   renderizarKanban(_tarefasDB, procMap, lastSeen, meuNome);
-
-  // Marca kanban como visto agora (dots somem na próxima vez que carregar)
+  atualizarBadgeTarefas();
   localStorage.setItem('kanban_last_seen', new Date().toISOString());
 }
 
@@ -4494,59 +4524,48 @@ function renderizarKanban(tarefas, procMap, lastSeen, meuNome) {
 }
 
 function criarCardTarefa(t, procMap, lastSeen, meuNome) {
-  const priCls  = { urgente: '#dc2626', media: '#d97706', baixa: '#6b7280' };
-  const priLbl  = { urgente: 'Urgente', media: 'Média', baixa: 'Baixa' };
-  const cor     = priCls[t.prioridade]  || priCls.baixa;
-  const lbl     = priLbl[t.prioridade] || 'Baixa';
-  const shared  = t.processo_id ? window._sharedSet?.[t.processo_id] : null;
-  const proc    = t.processo_id && procMap[t.processo_id] ? `<div style="font-size:11px;color:var(--gray-400);margin-top:4px"><i class="ti ti-briefcase" style="font-size:10px"></i> ${procMap[t.processo_id]}</div>` : '';
-  const sharedTag = shared ? `<div style="font-size:10px;color:#7c3aed;margin-top:4px;display:flex;align-items:center;gap:3px"><i class="ti ti-handshake" style="font-size:10px"></i> ${_esc(shared.owner_nome)}</div>` : '';
-  const prazo   = t.prazo ? `<div style="font-size:11px;color:var(--gray-400);margin-top:4px"><i class="ti ti-calendar" style="font-size:10px"></i> ${new Date(t.prazo + 'T12:00:00').toLocaleDateString('pt-BR')}</div>` : '';
+  const priLbl = { urgente: 'Urgente', media: 'Média', baixa: 'Baixa' };
+  const lbl    = priLbl[t.prioridade] || 'Baixa';
 
-  // Indicador de atividade de parceiro: quem moveu e quando
+  const procNome = t.processo_id && procMap[t.processo_id] ? procMap[t.processo_id] : '';
+
+  const checklist  = Array.isArray(t.checklist) ? t.checklist : [];
+  const checkDone  = checklist.filter(x => x.done).length;
+  const checkTotal = checklist.length;
+  const checkProg  = checkTotal > 0
+    ? `<span class="tc-counter ${checkDone === checkTotal ? 'tc-counter-done' : ''}">
+        <i class="ti ti-checkbox"></i> ${checkDone}/${checkTotal}
+       </span>`
+    : '';
+
+  const hasDesc   = t.descricao && t.descricao.trim();
+  const descIcon  = hasDesc ? `<span class="tc-counter" title="Tem descrição"><i class="ti ti-align-left"></i></span>` : '';
+  const counters  = [descIcon, checkProg].filter(Boolean).join('');
+
   const atividadeNova = t.updated_by_nome && t.updated_by_nome !== (meuNome || '') &&
                         t.updated_at && t.updated_at > (lastSeen || '0');
-  const atividadeTag = atividadeNova
-    ? `<div style="font-size:10px;color:#f97316;margin-top:5px;display:flex;align-items:center;gap:3px">
-        <i class="ti ti-activity" style="font-size:10px"></i>
-        ${_esc(t.updated_by_nome)} · ${_tempoRelativo(t.updated_at) || ''}
-       </div>`
-    : (t.updated_by_nome && !atividadeNova && (shared || procMap[t.processo_id])
-        ? `<div style="font-size:10px;color:var(--gray-400);margin-top:5px;display:flex;align-items:center;gap:3px">
-            <i class="ti ti-activity" style="font-size:10px"></i>
-            ${_esc(t.updated_by_nome)} · ${_tempoRelativo(t.updated_at) || ''}
-           </div>`
-        : '');
-
-  // Ícone de vincular processo (mini modal com busca)
-  const linkIcon = !t.processo_id
-    ? `<button onclick="abrirVincularTarefa('${t.id}')" title="Vincular a processo"
-        style="background:none;border:none;color:var(--gray-300);cursor:pointer;font-size:13px;padding:0;line-height:1;flex-shrink:0;transition:color .15s"
-        onmouseover="this.style.color='#7c3aed'" onmouseout="this.style.color='var(--gray-300)'">
-        <i class="ti ti-link"></i>
-       </button>`
-    : '';
-  const shareBtn = '';
 
   return `
-    <div class="task-card" draggable="true"
-      ondragstart="kanbanDragStart(event,'${t.id}')"
-      ondragend="kanbanDragEnd(event)">
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:6px">
-        <div style="font-size:13px;font-weight:500;line-height:1.4;flex:1">${t.titulo}</div>
-        <div style="display:flex;align-items:center;gap:4px;flex-shrink:0">
-          ${linkIcon}
-          <button onclick="excluirTarefa('${t.id}')" title="Excluir"
-            style="background:none;border:none;color:var(--gray-400);cursor:pointer;font-size:13px;padding:0;line-height:1">
-            <i class="ti ti-x"></i>
-          </button>
-        </div>
+    <div class="task-card tc-pri-${t.prioridade || 'baixa'}" draggable="true"
+      ondragstart="_isDragging=true;kanbanDragStart(event,'${t.id}')"
+      ondragend="_isDragging=false;kanbanDragEnd(event)"
+      onclick="if(!_isDragging)abrirDetalhe('${t.id}')">
+
+      ${atividadeNova ? '<div class="tc-dot-novo"></div>' : ''}
+
+      <div class="tc-hover-actions">
+        ${!t.processo_id ? `<button class="tc-action-btn" onclick="event.stopPropagation();abrirVincularTarefa('${t.id}')" title="Vincular processo"><i class="ti ti-link"></i></button>` : ''}
+        <button class="tc-action-btn tc-action-del" onclick="event.stopPropagation();excluirTarefa('${t.id}')" title="Excluir"><i class="ti ti-trash"></i></button>
       </div>
-      ${proc}${sharedTag}${prazo}${atividadeTag}
-      <div style="margin-top:8px">
-        <span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:8px;background:${cor}18;color:${cor}">${lbl}</span>
+
+      <div class="tc-title">${_esc(t.titulo)}</div>
+
+      ${procNome ? `<div class="tc-proc-tag"><i class="ti ti-briefcase"></i> ${_esc(procNome)}</div>` : ''}
+
+      <div class="tc-footer">
+        <span class="tc-pri-badge tc-pri-${t.prioridade || 'baixa'}">${lbl}</span>
+        ${counters ? `<div class="tc-counters">${counters}</div>` : ''}
       </div>
-      ${shareBtn}
     </div>`;
 }
 
@@ -4591,7 +4610,6 @@ async function salvarTarefa() {
   const processo   = document.getElementById('tar-processo')?.value        || '';
   const coluna     = document.getElementById('tar-coluna')?.value          || 'a_fazer';
   const prioridade = document.getElementById('tar-prioridade')?.value      || 'baixa';
-  const prazo      = document.getElementById('tar-prazo')?.value           || null;
 
   if (!titulo) { showToast('Preencha a descrição da tarefa.'); return; }
 
@@ -4605,9 +4623,9 @@ async function salvarTarefa() {
     processo_id:      processo || null,
     coluna,
     prioridade,
-    prazo:            prazo || null,
     updated_by_nome:  meuNome,
     updated_at:       new Date().toISOString(),
+    quadro_id:        _quadroAtivo || null,
   });
 
   if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-check"></i> Criar Tarefa'; }
@@ -4630,6 +4648,532 @@ async function excluirTarefa(id) {
   if (error) { showToast('Erro ao excluir tarefa.'); return; }
   showToast('Tarefa excluída.');
   carregarTarefas();
+}
+
+// ── QUADROS (PASTAS DE TAREFAS) ─────────────────────────────────────────
+
+async function carregarQuadros() {
+  if (!window._user) return;
+
+  const [{ data: proprios }, { data: compartilhados }] = await Promise.all([
+    _supabase.from('quadros').select('*')
+      .eq('escritorio_id', window._escritorioId)
+      .order('created_at', { ascending: true }),
+    _supabase.from('quadro_compartilhamentos').select('*, quadros(*)')
+      .eq('membro_id', window._user.id).eq('status', 'aceito'),
+  ]);
+
+  _quadrosDB = [
+    ...(proprios || []),
+    ...(compartilhados || []).map(c => ({
+      ...c.quadros,
+      _compartilhado: true,
+      _dono_nome: c.dono_nome,
+    })),
+  ];
+
+  _renderTabsQuadros();
+  _verificarConvitesQuadro();
+  atualizarBadgeTarefas();
+}
+
+function _renderTabsQuadros() {
+  const bar = document.getElementById('quadros-bar');
+  if (!bar) return;
+
+  const tabs = [{ id: null, nome: 'Principal' }, ..._quadrosDB].map(q => {
+    const ativo = q.id === _quadroAtivo;
+    const compartilhadoIcon = q._compartilhado
+      ? `<i class="ti ti-users" style="font-size:10px;opacity:.7" title="Compartilhado por ${_esc(q._dono_nome || '')}"></i>`
+      : '';
+    const del = q.id && !q._compartilhado
+      ? `<span class="qb-del" onclick="event.stopPropagation();excluirQuadro('${q.id}')" title="Excluir pasta">×</span>`
+      : q.id && q._compartilhado
+        ? `<span class="qb-del" onclick="event.stopPropagation();sairQuadroCompartilhado('${q.id}')" title="Sair da pasta">×</span>`
+        : '';
+    return `<button class="qb-tab${ativo ? ' qb-tab-ativo' : ''}" onclick="trocarQuadro(${q.id ? `'${q.id}'` : 'null'})">${compartilhadoIcon}${_esc(q.nome)}${del}</button>`;
+  });
+
+  const shareDisabled = !_quadroAtivo;
+  bar.innerHTML = `
+    <div class="qb-tabs">${tabs.join('')}</div>
+    <div class="qb-actions">
+      <button class="qb-btn-nova-tarefa" onclick="abrirNovaTarefaColuna('a_fazer')">
+        <i class="ti ti-plus"></i> Nova Tarefa
+      </button>
+      <button class="qb-btn-add" onclick="openModal('modal-novo-quadro')">
+        <i class="ti ti-folder-plus"></i> Nova pasta
+      </button>
+      <button class="qb-btn-share" onclick="abrirCompartilharQuadro()" ${shareDisabled ? 'disabled title="Selecione uma pasta para compartilhar"' : ''}>
+        <i class="ti ti-user-plus"></i> Compartilhar
+      </button>
+    </div>`;
+}
+
+async function excluirQuadro(id) {
+  if (!await _confirmar('Todas as tarefas desta pasta serão movidas para Principal.', 'Excluir pasta?', { textoOk: 'Excluir', perigo: true })) return;
+  await _supabase.from('tarefas').update({ quadro_id: null }).eq('quadro_id', id);
+  await _supabase.from('quadros').delete().eq('id', id);
+  _quadrosDB = _quadrosDB.filter(q => q.id !== id);
+  if (_quadroAtivo === id) _quadroAtivo = null;
+  _renderTabsQuadros();
+  carregarTarefas();
+  showToast('Pasta excluída.');
+}
+
+async function abrirCompartilharQuadro() {
+  if (!_quadroAtivo) {
+    showToast('Selecione uma pasta antes de compartilhar.');
+    return;
+  }
+
+  const q = _quadrosDB.find(x => x.id === _quadroAtivo);
+  if (!q || q._compartilhado) {
+    showToast('Só o dono da pasta pode compartilhá-la.');
+    return;
+  }
+
+  document.getElementById('share-quadro-nome').textContent = q.nome;
+  document.getElementById('share-user-result').innerHTML = '';
+  document.getElementById('share-email-input').value = '';
+  document.getElementById('share-quadro-membros').innerHTML = '<div style="color:var(--gray-400);font-size:12px">Carregando…</div>';
+
+  openModal('modal-compartilhar-quadro');
+
+  // Carrega quem já tem acesso
+  const { data: ja } = await _supabase
+    .from('quadro_compartilhamentos')
+    .select('*')
+    .eq('quadro_id', _quadroAtivo);
+
+  const lista = ja?.length
+    ? ja.map(c => `
+        <div class="share-member">
+          <i class="ti ti-user-circle" style="font-size:18px;color:var(--blue)"></i>
+          <span style="flex:1">${_esc(c.dono_nome || '—')}</span>
+          <span class="share-badge share-badge-${c.status}">${c.status === 'aceito' ? 'Ativo' : c.status === 'pendente' ? 'Aguardando' : 'Recusado'}</span>
+          <button onclick="revogarAcessoQuadro('${c.id}')" title="Remover" style="background:none;border:none;cursor:pointer;color:var(--gray-300);font-size:14px;padding:0 2px;transition:color .15s" onmouseover="this.style.color='#dc2626'" onmouseout="this.style.color='var(--gray-300)'"><i class="ti ti-x"></i></button>
+        </div>`)
+        .join('')
+    : `<div style="color:var(--gray-400);font-size:13px;text-align:center;padding:8px 0">Ninguém ainda</div>`;
+
+  document.getElementById('share-quadro-membros').innerHTML = lista;
+}
+
+async function buscarUsuarioParaCompartilhar() {
+  const email = document.getElementById('share-email-input')?.value.trim();
+  const result = document.getElementById('share-user-result');
+  if (!email || !result) return;
+
+  result.innerHTML = `<div style="color:var(--gray-400);font-size:13px"><i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Buscando…</div>`;
+
+  const { data, error } = await _supabase.rpc('buscar_usuario_por_email', { p_email: email });
+
+  if (error) {
+    result.innerHTML = `<div style="color:#dc2626;font-size:13px"><i class="ti ti-alert-circle"></i> Erro na busca: ${_esc(error.message)}.</div>`;
+    return;
+  }
+  if (!data?.length) {
+    result.innerHTML = `<div style="color:#dc2626;font-size:13px"><i class="ti ti-alert-circle"></i> Nenhum usuário encontrado com esse e-mail. O advogado precisa criar uma conta primeiro.</div>`;
+    return;
+  }
+
+  const u = data[0];
+  if (u.id === window._user?.id) {
+    result.innerHTML = `<div style="color:#d97706;font-size:13px"><i class="ti ti-alert-triangle"></i> Você não pode convidar a si mesmo.</div>`;
+    return;
+  }
+  result.innerHTML = `
+    <div class="share-member" style="background:#f0fdf4;border:1px solid #bbf7d0">
+      <i class="ti ti-user-check" style="font-size:18px;color:#16a34a"></i>
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600;color:var(--navy)">${_esc(u.nome)}</div>
+        <div style="font-size:11px;color:var(--gray-400)">${_esc(u.email)}</div>
+      </div>
+      <button class="btn-primary" style="padding:5px 14px;font-size:12px"
+        onclick="enviarConviteQuadro('${u.id}','${_esc(u.nome)}')">
+        <i class="ti ti-send"></i> Convidar
+      </button>
+    </div>`;
+}
+
+async function enviarConviteQuadro(membroId, membroNome) {
+  if (!_quadroAtivo) return;
+  const meuNome = window._user?.user_metadata?.full_name || window._user?.email?.split('@')[0] || 'Advogado';
+
+  const { error } = await _supabase.from('quadro_compartilhamentos').insert({
+    quadro_id:  _quadroAtivo,
+    dono_id:    window._user.id,
+    dono_nome:  meuNome,
+    membro_id:  membroId,
+    status:     'pendente',
+  });
+
+  if (error) {
+    if (error.code === '23505') showToast('Este advogado já foi convidado.');
+    else showToast('Erro ao enviar convite: ' + error.message);
+    return;
+  }
+
+  showToast('Convite enviado! O advogado verá ao abrir Tarefas.');
+  document.getElementById('share-user-result').innerHTML =
+    `<div style="color:#16a34a;font-size:13px"><i class="ti ti-check"></i> Convite enviado para ${_esc(membroNome)}.</div>`;
+  abrirCompartilharQuadro(); // recarrega a lista
+}
+
+async function revogarAcessoQuadro(compartilhamentoId) {
+  await _supabase.from('quadro_compartilhamentos').delete().eq('id', compartilhamentoId);
+  showToast('Acesso removido.');
+  abrirCompartilharQuadro();
+  carregarQuadros();
+}
+
+async function sairQuadroCompartilhado(quadroId) {
+  if (!await _confirmar('Você sairá desta pasta e não poderá mais ver as tarefas.', 'Sair da pasta?', { textoOk: 'Sair', perigo: true })) return;
+  await _supabase.from('quadro_compartilhamentos')
+    .delete()
+    .eq('quadro_id', quadroId)
+    .eq('membro_id', window._user.id);
+  if (_quadroAtivo === quadroId) _quadroAtivo = null;
+  showToast('Você saiu da pasta.');
+  carregarQuadros();
+  carregarTarefas();
+}
+
+async function _verificarConvitesQuadro() {
+  const { data } = await _supabase
+    .from('quadro_compartilhamentos')
+    .select('*, quadros(nome)')
+    .eq('membro_id', window._user.id)
+    .eq('status', 'pendente');
+
+  const banner = document.getElementById('quadro-convites-banner');
+  if (!banner) return;
+  if (!data?.length) { banner.style.display = 'none'; return; }
+
+  banner.style.display = 'block';
+  banner.innerHTML = data.map(c => `
+    <div class="qc-invite">
+      <div class="qc-invite-info">
+        <i class="ti ti-folder-share" style="font-size:16px;color:var(--blue)"></i>
+        <div>
+          <strong>${_esc(c.dono_nome)}</strong> convidou você para a pasta
+          <strong>"${_esc(c.quadros?.nome || 'sem nome')}"</strong>
+        </div>
+      </div>
+      <div class="qc-invite-actions">
+        <button class="qc-btn-aceitar" onclick="responderConviteQuadro('${c.id}','aceito')">Aceitar</button>
+        <button class="qc-btn-recusar" onclick="responderConviteQuadro('${c.id}','recusado')">Recusar</button>
+      </div>
+    </div>`).join('');
+}
+
+async function responderConviteQuadro(id, status) {
+  await _supabase.from('quadro_compartilhamentos').update({ status }).eq('id', id);
+  showToast(status === 'aceito' ? 'Pasta aceita! Já aparece nas suas abas.' : 'Convite recusado.');
+  carregarQuadros();
+  if (status === 'aceito') carregarTarefas();
+}
+
+function abrirNovaTarefaColuna(coluna) {
+  openModal('modal-tarefa');
+  const sel = document.getElementById('tar-coluna');
+  if (sel) sel.value = coluna || 'a_fazer';
+}
+
+function trocarQuadro(id) {
+  _quadroAtivo = id || null;
+  _renderTabsQuadros();
+  carregarTarefas();
+}
+
+async function criarQuadro() {
+  const nome = document.getElementById('quadro-nome-input')?.value.trim();
+  if (!nome) { showToast('Digite um nome para a pasta.'); return; }
+
+  const { data, error } = await _supabase.from('quadros').insert({
+    escritorio_id: window._escritorioId,
+    nome,
+  }).select().single();
+
+  if (error) { showToast('Erro ao criar pasta: ' + error.message); return; }
+
+  closeModal('modal-novo-quadro');
+  document.getElementById('quadro-nome-input').value = '';
+  _quadrosDB.push(data);
+  _quadroAtivo = data.id;
+  _renderTabsQuadros();
+  carregarTarefas();
+  showToast('Pasta criada!');
+}
+
+// ── PAINEL DETALHE TAREFA ────────────────────────────────────────────────
+
+let _checklistAtual = [];
+
+function _uid() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+}
+
+function execFormatCmd(cmd) {
+  document.execCommand(cmd, false, null);
+}
+
+async function salvarDescricaoRich() {
+  const el = document.getElementById('tp-descricao');
+  if (!el || !_detalheId) return;
+  const html  = el.innerHTML.trim();
+  const vazio = !el.textContent.trim();
+  const valor = vazio ? '' : html;
+  const t = _tarefasDB.find(x => x.id === _detalheId);
+  if (t && t.descricao === valor) return;
+  const ok = await salvarCampoTarefa('descricao', valor);
+  if (ok && !vazio) showToast('Descrição salva ✓');
+}
+
+// Barra flutuante de formatação — aparece ao selecionar texto no editor
+document.addEventListener('selectionchange', function () {
+  const toolbar = document.getElementById('tp-float-toolbar');
+  if (!toolbar) return;
+
+  const sel    = window.getSelection();
+  const editor = document.getElementById('tp-descricao');
+
+  if (!sel || sel.isCollapsed || !sel.toString().trim() || !editor) {
+    toolbar.style.display = 'none';
+    return;
+  }
+
+  const range = sel.getRangeAt(0);
+  if (!editor.contains(range.commonAncestorContainer)) {
+    toolbar.style.display = 'none';
+    return;
+  }
+
+  const rect = range.getBoundingClientRect();
+  toolbar.style.display = 'flex';
+  // Posiciona acima da seleção, centralizado
+  const tw = toolbar.offsetWidth || 220;
+  let left = rect.left + rect.width / 2 - tw / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - tw - 8));
+  toolbar.style.left = left + 'px';
+  toolbar.style.top  = (rect.top + window.scrollY - 48) + 'px';
+});
+
+function focarAddItem() {
+  document.getElementById('tp-add-item-row').style.display = 'block';
+  document.getElementById('tp-new-item').focus();
+}
+
+function cancelarAddItem() {
+  const row = document.getElementById('tp-add-item-row');
+  if (row) row.style.display = 'none';
+  const input = document.getElementById('tp-new-item');
+  if (input) input.value = '';
+}
+
+function abrirDetalhe(id) {
+  const t = _tarefasDB.find(x => x.id === id);
+  if (!t) return;
+  _detalheId = id;
+  _checklistAtual = Array.isArray(t.checklist) ? JSON.parse(JSON.stringify(t.checklist)) : [];
+
+  // Título editável
+  const tituloEl = document.getElementById('tp-titulo');
+  if (tituloEl) { tituloEl.value = t.titulo; tituloEl.style.height = 'auto'; }
+
+  // Meta chips
+  const priLbl  = { urgente: '🔴 Urgente', media: '🟡 Média', baixa: '⚪ Baixa' };
+  const colLbl  = { a_fazer: 'A fazer', em_andamento: 'Em andamento', revisao: 'Revisão', concluida: 'Concluída' };
+  const partes  = [];
+  if (t.prioridade) partes.push(priLbl[t.prioridade] || t.prioridade);
+  if (t.coluna)     partes.push(colLbl[t.coluna] || t.coluna);
+  if (t.prazo)      partes.push('📅 ' + new Date(t.prazo + 'T12:00:00').toLocaleDateString('pt-BR'));
+  document.getElementById('tp-meta').innerHTML = partes.map(p => `<span class="tp-meta-chip">${p}</span>`).join('');
+
+  // Processo
+  const procDiv = document.getElementById('tp-proc');
+  if (t.processo_id && _procMapG[t.processo_id]) {
+    document.getElementById('tp-proc-label').textContent = _procMapG[t.processo_id];
+    procDiv.style.display = 'block';
+  } else {
+    procDiv.style.display = 'none';
+  }
+
+  // Descrição (contenteditable)
+  const descEl = document.getElementById('tp-descricao');
+  if (descEl) descEl.innerHTML = t.descricao || '';
+
+  // Checklist
+  _renderChecklist();
+  cancelarAddItem();
+
+  // Comentários
+  carregarComentarios(id);
+
+  // Scroll topo
+  const body = document.getElementById('mtd-body');
+  if (body) body.scrollTop = 0;
+
+  openModal('modal-tarefa-detalhe');
+
+  // Auto-resize título após modal ficar visível (display:none bloqueia scrollHeight)
+  requestAnimationFrame(() => {
+    const tEl = document.getElementById('tp-titulo');
+    if (tEl) { tEl.style.height = 'auto'; tEl.style.height = tEl.scrollHeight + 'px'; }
+  });
+}
+
+async function salvarCampoTarefa(campo, valor) {
+  const id = _detalheId;
+  if (!id) return false;
+  const { error } = await _supabase.from('tarefas').update({ [campo]: valor }).eq('id', id);
+  if (error) { console.error('salvarCampoTarefa:', campo, error); showToast('Erro ao salvar.'); return false; }
+  const t = _tarefasDB.find(x => x.id === id);
+  if (t) {
+    t[campo] = valor;
+    if (campo === 'titulo') renderizarKanban(_tarefasDB, _procMapG, localStorage.getItem('kanban_last_seen') || '0', '');
+  }
+  return true;
+}
+
+function _renderChecklist() {
+  const container = document.getElementById('tp-checklist-items');
+  const prog      = document.getElementById('tp-checklist-prog');
+  const bar       = document.getElementById('tp-check-bar');
+  const barWrap   = document.getElementById('tp-check-progress-wrap');
+  if (!container) return;
+
+  const done  = _checklistAtual.filter(x => x.done).length;
+  const total = _checklistAtual.length;
+  const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  if (prog) prog.textContent = total > 0 ? `${done}/${total}` : '';
+  if (bar)  bar.style.width  = pct + '%';
+  if (barWrap) barWrap.style.display = total > 0 ? 'block' : 'none';
+
+  if (!total) { container.innerHTML = ''; return; }
+
+  container.innerHTML = _checklistAtual.map(item => `
+    <div class="tp-check-item ${item.done ? 'done' : ''}">
+      <input type="checkbox" class="tp-check-box" ${item.done ? 'checked' : ''}
+        onchange="toggleItemChecklist('${item.id}')">
+      <span class="tp-check-text">${_esc(item.texto)}</span>
+      <button class="tp-check-del" onclick="removerItemChecklist('${item.id}')">
+        <i class="ti ti-trash" style="font-size:12px"></i>
+      </button>
+    </div>`).join('');
+}
+
+async function _salvarChecklist() {
+  if (!_detalheId) return;
+  const { error } = await _supabase.from('tarefas')
+    .update({ checklist: _checklistAtual }).eq('id', _detalheId);
+  if (!error) {
+    const t = _tarefasDB.find(x => x.id === _detalheId);
+    if (t) t.checklist = JSON.parse(JSON.stringify(_checklistAtual));
+    renderizarKanban(_tarefasDB, _procMapG, localStorage.getItem('kanban_last_seen') || '0', '');
+  }
+}
+
+async function adicionarItemChecklist() {
+  const input = document.getElementById('tp-new-item');
+  const texto = input?.value.trim();
+  if (!texto || !_detalheId) return;
+  _checklistAtual.push({ id: _uid(), texto, done: false });
+  if (input) input.value = '';
+  _renderChecklist();
+  await _salvarChecklist();
+  // Mantém o campo aberto para adicionar mais itens
+  document.getElementById('tp-new-item')?.focus();
+}
+
+async function toggleItemChecklist(itemId) {
+  const item = _checklistAtual.find(x => x.id === itemId);
+  if (!item) return;
+  item.done = !item.done;
+  _renderChecklist();
+  await _salvarChecklist();
+}
+
+async function removerItemChecklist(itemId) {
+  _checklistAtual = _checklistAtual.filter(x => x.id !== itemId);
+  _renderChecklist();
+  await _salvarChecklist();
+}
+
+function fecharDetalhe() {
+  const id = _detalheId;
+  if (id) {
+    const descEl = document.getElementById('tp-descricao');
+    if (descEl) {
+      const html  = descEl.innerHTML.trim();
+      const vazio = !descEl.textContent.trim();
+      const valor = vazio ? '' : html;
+      const t = _tarefasDB.find(x => x.id === id);
+      if (!(t && t.descricao === valor)) {
+        _supabase.from('tarefas').update({ descricao: valor }).eq('id', id)
+          .then(({ error }) => { if (!error && t) t.descricao = valor; });
+      }
+    }
+  }
+  _detalheId = null;
+  closeModal('modal-tarefa-detalhe');
+}
+
+function tdVerProcesso() {
+  const t = _tarefasDB.find(x => x.id === _detalheId);
+  if (!t?.processo_id) return;
+  fecharDetalhe();
+  const proc = (window._processosDB || []).find(p => p.id === t.processo_id);
+  if (proc) popularDetalhe(proc);
+}
+
+async function carregarComentarios(tarefaId) {
+  const { data } = await _supabase
+    .from('tarefa_comentarios')
+    .select('*')
+    .eq('tarefa_id', tarefaId)
+    .order('created_at', { ascending: true });
+
+  const lista = document.getElementById('tp-comments');
+  if (!lista) return;
+
+  if (!data || !data.length) {
+    lista.innerHTML = `<div class="tp-comments-empty">Nenhum comentário ainda. Seja o primeiro!</div>`;
+    return;
+  }
+
+  const meuId = window._user?.id;
+  lista.innerHTML = data.map(c => {
+    const meu = c.user_id === meuId;
+    const dt  = new Date(c.created_at).toLocaleString('pt-BR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+    return `<div class="tp-comment${meu ? ' tp-comment-mine' : ''}">
+      <div class="tp-comment-author">${_esc(c.autor_nome || 'Usuário')} <span class="tp-comment-time">${dt}</span></div>
+      <div class="tp-comment-text">${_esc(c.texto).replace(/\n/g, '<br>')}</div>
+    </div>`;
+  }).join('');
+
+  lista.scrollTop = lista.scrollHeight;
+}
+
+async function enviarComentario() {
+  if (!_detalheId) return;
+  const input = document.getElementById('tp-comment-input');
+  const texto = input?.value.trim();
+  if (!texto) return;
+
+  const meuNome = window._user?.user_metadata?.full_name || window._user?.email?.split('@')[0] || 'Usuário';
+  const { error } = await _supabase.from('tarefa_comentarios').insert({
+    tarefa_id:  _detalheId,
+    user_id:    window._user.id,
+    autor_nome: meuNome,
+    texto,
+  });
+
+  if (error) { showToast('Erro ao enviar comentário.'); return; }
+  if (input) input.value = '';
+  carregarComentarios(_detalheId);
 }
 
 // ── IMPORTAÇÃO COM MERGE INTELIGENTE ─────────────────────────────────────

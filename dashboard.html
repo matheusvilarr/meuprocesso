@@ -44,6 +44,7 @@
     <div class="nav-item" onclick="showPage('tarefas')">
       <i class="ti ti-checklist"></i>
       Tarefas
+      <span class="nav-badge" id="badge-tarefas" style="display:none">0</span>
     </div>
 
     <div class="nav-section">Financeiro</div>
@@ -531,8 +532,13 @@
         <div class="page-title">Tarefas</div>
         <div class="page-sub" id="tarefas-sub">Carregando...</div>
       </div>
-      <button class="btn-primary" onclick="openModal('modal-tarefa')"><i class="ti ti-plus"></i> Nova Tarefa</button>
     </div>
+
+    <!-- Abas de pastas -->
+    <div class="quadros-bar" id="quadros-bar"></div>
+
+    <!-- Banner de convites pendentes -->
+    <div id="quadro-convites-banner" style="display:none;margin-bottom:14px"></div>
 
     <div class="filter-bar" style="margin-bottom:16px">
       <div class="filter-search">
@@ -554,6 +560,9 @@
           ondragover="kanbanDragOver(event)"
           ondrop="kanbanDrop(event,'a_fazer')"
           ondragleave="kanbanDragLeave(event)"></div>
+        <button class="task-col-add-btn" onclick="abrirNovaTarefaColuna('a_fazer')">
+          <i class="ti ti-plus"></i> Adicionar tarefa
+        </button>
       </div>
 
       <div class="task-col">
@@ -568,6 +577,9 @@
           ondragover="kanbanDragOver(event)"
           ondrop="kanbanDrop(event,'em_andamento')"
           ondragleave="kanbanDragLeave(event)"></div>
+        <button class="task-col-add-btn" onclick="abrirNovaTarefaColuna('em_andamento')">
+          <i class="ti ti-plus"></i> Adicionar tarefa
+        </button>
       </div>
 
       <div class="task-col">
@@ -582,6 +594,9 @@
           ondragover="kanbanDragOver(event)"
           ondrop="kanbanDrop(event,'revisao')"
           ondragleave="kanbanDragLeave(event)"></div>
+        <button class="task-col-add-btn" onclick="abrirNovaTarefaColuna('revisao')">
+          <i class="ti ti-plus"></i> Adicionar tarefa
+        </button>
       </div>
 
       <div class="task-col">
@@ -596,6 +611,147 @@
           ondragover="kanbanDragOver(event)"
           ondrop="kanbanDrop(event,'concluida')"
           ondragleave="kanbanDragLeave(event)"></div>
+        <button class="task-col-add-btn" onclick="abrirNovaTarefaColuna('concluida')">
+          <i class="ti ti-plus"></i> Adicionar tarefa
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── MODAL DETALHE TAREFA ── -->
+  <div class="modal-backdrop" id="modal-tarefa-detalhe" onclick="if(event.target===this)fecharDetalhe()">
+    <div class="modal modal-td" onclick="event.stopPropagation()">
+
+      <!-- Header: título + fechar -->
+      <div class="mtd-header">
+        <textarea id="tp-titulo" class="tp-titulo-edit" rows="1"
+          placeholder="Título da tarefa"
+          onblur="salvarCampoTarefa('titulo', this.value)"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur();}"></textarea>
+        <button class="tp-close" onclick="fecharDetalhe()"><i class="ti ti-x"></i></button>
+      </div>
+
+      <!-- Meta chips + processo -->
+      <div class="mtd-meta">
+        <div id="tp-meta"></div>
+        <div id="tp-proc" style="display:none">
+          <button class="tp-proc-btn" onclick="tdVerProcesso()">
+            <i class="ti ti-briefcase"></i>
+            <span id="tp-proc-label">Ver processo</span>
+            <i class="ti ti-external-link" style="font-size:10px;opacity:.5"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Corpo rolável -->
+      <div class="mtd-body" id="mtd-body">
+
+        <!-- Descrição com editor rico -->
+        <div class="tp-block">
+          <div class="tp-block-label"><i class="ti ti-align-left"></i> Descrição</div>
+          <div id="tp-descricao" class="tp-descricao" contenteditable="true"
+            data-placeholder="Clique para adicionar uma descrição…"
+            onblur="salvarDescricaoRich()"></div>
+        </div>
+
+        <!-- Checklist estilo Trello -->
+        <div class="tp-block">
+          <div class="tp-check-header">
+            <div class="tp-block-label" style="margin-bottom:0"><i class="ti ti-checkbox"></i> Checklist</div>
+            <span id="tp-checklist-prog" class="tp-check-prog"></span>
+          </div>
+          <div class="tp-check-progress-wrap" id="tp-check-progress-wrap" style="display:none">
+            <div class="tp-check-progress-bar" id="tp-check-bar"></div>
+          </div>
+          <div id="tp-checklist-items"></div>
+          <button class="tp-add-item-btn-trello" onclick="focarAddItem()">
+            <i class="ti ti-plus"></i> Adicionar item
+          </button>
+          <div class="tp-add-item-row" id="tp-add-item-row" style="display:none">
+            <input id="tp-new-item" class="tp-new-item-input" type="text"
+              placeholder="Nome do item…"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();adicionarItemChecklist();}
+                         if(event.key==='Escape'){cancelarAddItem();}">
+            <div style="display:flex;gap:6px;margin-top:6px">
+              <button class="btn-primary" style="padding:5px 14px;font-size:12px" onclick="adicionarItemChecklist()">Adicionar</button>
+              <button class="btn-secondary" style="padding:5px 12px;font-size:12px" onclick="cancelarAddItem()">Cancelar</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chat / Comentários -->
+        <div class="mtd-chat-section">
+          <div class="mtd-chat-label"><i class="ti ti-messages"></i> Comentários</div>
+          <div id="tp-comments" class="mtd-comments-list"></div>
+          <div class="mtd-comment-form">
+            <textarea id="tp-comment-input" rows="2"
+              placeholder="Escreva um comentário… (Ctrl+Enter para enviar)"
+              onkeydown="if(event.ctrlKey&&event.key==='Enter'){event.preventDefault();enviarComentario();}"></textarea>
+            <button class="tp-send-btn" onclick="enviarComentario()">
+              <i class="ti ti-send"></i> Enviar
+            </button>
+          </div>
+        </div>
+
+      </div><!-- /mtd-body -->
+    </div><!-- /modal-td -->
+  </div>
+
+  <!-- Modal nova pasta -->
+  <div class="modal-backdrop" id="modal-novo-quadro" onclick="closeModalOutside(event,'modal-novo-quadro')">
+    <div class="modal" style="max-width:380px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-folder-plus"></i> Nova Pasta de Tarefas</span>
+        <span class="modal-close" onclick="closeModal('modal-novo-quadro')"><i class="ti ti-x"></i></span>
+      </div>
+      <div style="padding:20px;display:flex;flex-direction:column;gap:12px">
+        <div>
+          <label class="form-label">Nome da pasta</label>
+          <input id="quadro-nome-input" class="form-input" type="text" placeholder="Ex: Contencioso, Família, Cível…" maxlength="50"
+            onkeydown="if(event.key==='Enter')criarQuadro()">
+        </div>
+        <p style="font-size:12px;color:var(--gray-400);margin:0">Todos os colaboradores do escritório terão acesso automaticamente.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('modal-novo-quadro')">Cancelar</button>
+        <button class="btn-primary" onclick="criarQuadro()"><i class="ti ti-check"></i> Criar pasta</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal compartilhar pasta -->
+  <div class="modal-backdrop" id="modal-compartilhar-quadro" onclick="closeModalOutside(event,'modal-compartilhar-quadro')">
+    <div class="modal" style="max-width:440px">
+      <div class="modal-header">
+        <span class="modal-title"><i class="ti ti-user-plus"></i> Compartilhar "<span id="share-quadro-nome"></span>"</span>
+        <span class="modal-close" onclick="closeModal('modal-compartilhar-quadro')"><i class="ti ti-x"></i></span>
+      </div>
+      <div style="padding:20px;display:flex;flex-direction:column;gap:18px">
+
+        <!-- Buscar advogado por e-mail -->
+        <div>
+          <label class="form-label">Convidar advogado pelo e-mail</label>
+          <div style="display:flex;gap:8px">
+            <input id="share-email-input" class="form-input" type="email" placeholder="email@exemplo.com"
+              onkeydown="if(event.key==='Enter')buscarUsuarioParaCompartilhar()"
+              style="flex:1">
+            <button class="btn-primary" style="white-space:nowrap" onclick="buscarUsuarioParaCompartilhar()">
+              <i class="ti ti-search"></i> Buscar
+            </button>
+          </div>
+          <p style="font-size:11px;color:var(--gray-400);margin:6px 0 0">O advogado precisa ter conta no Meu Processo.</p>
+          <div id="share-user-result" style="margin-top:10px"></div>
+        </div>
+
+        <!-- Quem já tem acesso -->
+        <div>
+          <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--gray-400);margin-bottom:8px">Quem tem acesso</div>
+          <div id="share-quadro-membros" style="display:flex;flex-direction:column;gap:8px"></div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('modal-compartilhar-quadro')">Fechar</button>
       </div>
     </div>
   </div>
@@ -1748,20 +1904,14 @@
           <i class="ti ti-handshake" style="font-size:11px"></i> Esta tarefa ficará visível para os parceiros deste processo
         </div>
       </div>
-      <div class="form-row">
-        <div class="form-field">
-          <label class="form-label">Coluna</label>
-          <select id="tar-coluna" class="form-select">
-            <option value="a_fazer">A fazer</option>
-            <option value="em_andamento">Em andamento</option>
-            <option value="revisao">Revisão</option>
-            <option value="concluida">Concluída</option>
-          </select>
-        </div>
-        <div class="form-field">
-          <label class="form-label">Prazo</label>
-          <input id="tar-prazo" type="date" class="form-input">
-        </div>
+      <div class="form-field">
+        <label class="form-label">Coluna</label>
+        <select id="tar-coluna" class="form-select">
+          <option value="a_fazer">A fazer</option>
+          <option value="em_andamento">Em andamento</option>
+          <option value="revisao">Revisão</option>
+          <option value="concluida">Concluída</option>
+        </select>
       </div>
       <div class="form-field">
         <label class="form-label">Prioridade</label>
@@ -2175,6 +2325,16 @@
       <button class="btn-primary" id="confirmar-btn-ok" style="min-width:100px" onclick="_confirmarResolver()">Confirmar</button>
     </div>
   </div>
+</div>
+
+<!-- Barra de formatação flutuante (global) -->
+<div id="tp-float-toolbar" class="tp-float-toolbar" style="display:none" role="toolbar">
+  <button onmousedown="event.preventDefault();execFormatCmd('bold')" title="Negrito"><b>N</b></button>
+  <button onmousedown="event.preventDefault();execFormatCmd('italic')" title="Itálico"><i>I</i></button>
+  <button onmousedown="event.preventDefault();execFormatCmd('underline')" title="Sublinhado"><u>S</u></button>
+  <div class="tp-float-sep"></div>
+  <button onmousedown="event.preventDefault();execFormatCmd('insertUnorderedList')" title="Lista"><i class="ti ti-list"></i></button>
+  <button onmousedown="event.preventDefault();execFormatCmd('insertOrderedList')" title="Numerada"><i class="ti ti-list-numbers"></i></button>
 </div>
 
 <script src="js/supabase-client.js"></script>

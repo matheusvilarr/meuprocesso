@@ -40,7 +40,7 @@ async function acaoDados(req, res, admin, adminUser) {
     { data: adminsRows },
     { data: codigos },
   ] = await Promise.all([
-    admin.from('processos').select('user_id').neq('status', 'Arquivado'),
+    admin.from('processos').select('user_id, datajud_index, ultima_verificacao, notificacao_pendente').neq('status', 'Arquivado'),
     admin.from('tarefas').select('user_id').neq('coluna', 'concluida'),
     admin.from('colaboradores').select('escritorio_id, user_id').eq('status', 'ativo'),
     admin.from('admins').select('user_id, nivel'),
@@ -50,8 +50,14 @@ async function acaoDados(req, res, admin, adminUser) {
   ]);
 
   const contagemProcessos = {};
+  const syncStats = {};
   for (const p of processosRows || []) {
     contagemProcessos[p.user_id] = (contagemProcessos[p.user_id] || 0) + 1;
+    if (!syncStats[p.user_id]) syncStats[p.user_id] = { sincronizados: 0, comNotificacao: 0, ultimaSync: null };
+    const s = syncStats[p.user_id];
+    if (p.datajud_index) s.sincronizados++;
+    if (p.notificacao_pendente) s.comNotificacao++;
+    if (p.ultima_verificacao && (!s.ultimaSync || p.ultima_verificacao > s.ultimaSync)) s.ultimaSync = p.ultima_verificacao;
   }
 
   const contagemTarefas = {};
@@ -77,19 +83,26 @@ async function acaoDados(req, res, admin, adminUser) {
       ultimoLogin:    u.last_sign_in_at || null,
       emailConfirmado: !!u.email_confirmed_at,
       bloqueado:      !!(u.banned_until && new Date(u.banned_until) > new Date()),
-      numProcessos:   contagemProcessos[u.id] || 0,
-      numTarefas:     contagemTarefas[u.id] || 0,
+      numProcessos:     contagemProcessos[u.id] || 0,
+      numSincronizados: syncStats[u.id]?.sincronizados || 0,
+      numNotificacoes:  syncStats[u.id]?.comNotificacao || 0,
+      ultimaSync:       syncStats[u.id]?.ultimaSync || null,
+      numTarefas:       contagemTarefas[u.id] || 0,
       numColaboradores: colaboradoresPorTitular[u.id] || 0,
-      nivelAdmin:     adminMap[u.id] || null,
+      nivelAdmin:       adminMap[u.id] || null,
     }))
     .sort((a, b) => new Date(b.criadoEm) - new Date(a.criadoEm));
 
+  const totalSincronizados = (processosRows || []).filter(p => p.datajud_index).length;
+  const totalNotificacoes  = (processosRows || []).filter(p => p.notificacao_pendente).length;
   const stats = {
-    totalAdvogados:    advogados.length,
-    totalBloqueados:   advogados.filter(a => a.bloqueado).length,
-    totalSemConfirmar: advogados.filter(a => !a.emailConfirmado).length,
-    totalProcessos:    processosRows?.length || 0,
-    convitesPendentes: (codigos || []).filter(c => c.email_convidado && !c.usado_em).length,
+    totalAdvogados:     advogados.length,
+    totalBloqueados:    advogados.filter(a => a.bloqueado).length,
+    totalSemConfirmar:  advogados.filter(a => !a.emailConfirmado).length,
+    totalProcessos:     processosRows?.length || 0,
+    totalSincronizados,
+    totalNotificacoes,
+    convitesPendentes:  (codigos || []).filter(c => c.email_convidado && !c.usado_em).length,
   };
 
   return res.json({ ok: true, advogados, codigos: codigos || [], stats, meuNivel: adminUser.nivel });
@@ -384,6 +397,105 @@ async function acaoToggleStatus(req, res, admin, adminUser) {
   return res.json({ ok: true });
 }
 
+async function acaoEmails(req, res, admin) {
+  const desde14 = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+  const desde14ts = new Date(Date.now() - 14 * 86400000).toISOString();
+
+  const [{ data: logs }, { data: erros }] = await Promise.all([
+    admin.from('notif_log')
+      .select('user_id, tipo, data')
+      .gte('data', desde14)
+      .order('data', { ascending: false }),
+    admin.from('error_log')
+      .select('id, origem, mensagem, user_id, created_at')
+      .ilike('origem', 'cron:email%')
+      .gte('created_at', desde14ts)
+      .order('created_at', { ascending: false })
+      .limit(100),
+  ]);
+
+  return res.json({ ok: true, logs: logs || [], erros: erros || [] });
+}
+
+// ── Helpers DataJud (cópia local para a ação de sync admin) ──────────────────
+
+function _decodeBuf(buf) {
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }
+  catch { return new TextDecoder('windows-1252').decode(buf); }
+}
+
+function _parsarData(s) {
+  if (!s) return null;
+  const str = String(s);
+  if (/^\d{14}$/.test(str)) return `${str.slice(0,4)}-${str.slice(4,6)}-${str.slice(6,8)}T${str.slice(8,10)}:${str.slice(10,12)}:${str.slice(12,14)}`;
+  if (/^\d{8}$/.test(str))  return `${str.slice(0,4)}-${str.slice(4,6)}-${str.slice(6,8)}`;
+  return s;
+}
+
+async function _buscarDatajud(index, numero) {
+  const key = process.env.DATAJUD_API_KEY || 'cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==';
+  const numeroLimpo = numero.replace(/[.\-\/ ]/g, '');
+  try {
+    const r = await fetch(`https://api-publica.datajud.cnj.jus.br/${index}/_search`, {
+      method: 'POST',
+      headers: { 'Authorization': `ApiKey ${key}`, 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(15000),
+      body: JSON.stringify({ size: 1, query: { match: { numeroProcesso: numeroLimpo } } }),
+    });
+    if (!r.ok) return null;
+    return JSON.parse(_decodeBuf(await r.arrayBuffer())).hits?.hits || null;
+  } catch { return null; }
+}
+
+async function acaoSincronizarProcessos(req, res, admin, adminUser) {
+  const { userId } = req.body || {};
+
+  let q = admin.from('processos')
+    .select('id, user_id, numero, datajud_index, movimentos_hash, created_at')
+    .not('datajud_index', 'is', null)
+    .neq('status', 'Arquivado');
+  if (userId) q = q.eq('user_id', userId);
+
+  const { data: processos, error } = await q;
+  if (error) return res.status(500).json({ erro: error.message });
+
+  const hoje = new Date().toISOString().slice(0, 10);
+  let atualizados = 0;
+  let semMudanca  = 0;
+  let erros       = 0;
+
+  for (let i = 0; i < processos.length; i += 10) {
+    const lote = processos.slice(i, i + 10);
+    await Promise.all(lote.map(async proc => {
+      if ((proc.created_at || '').slice(0, 10) === hoje) return; // importado hoje: pula
+      const hits = await _buscarDatajud(proc.datajud_index, proc.numero);
+      if (!hits?.length) { erros++; return; }
+
+      const movimentos = (hits[0]._source.movimentos || [])
+        .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))
+        .slice(0, 100)
+        .map(m => ({ nome: m.nome, data: _parsarData(m.dataHora) }));
+
+      const novoHash = movimentos.slice(0, 6).map(m => m.data + m.nome).join('|');
+      if (novoHash === proc.movimentos_hash) { semMudanca++; return; }
+
+      const novos = proc.movimentos_hash
+        ? movimentos.filter(m => !proc.movimentos_hash.includes(m.data + m.nome))
+        : movimentos.slice(0, 1);
+      const novosValidos = novos.filter(m => m.data && m.data >= (proc.created_at || '').slice(0, 10));
+
+      const update = { movimentos_recentes: movimentos, movimentos_hash: novoHash, ultima_verificacao: new Date().toISOString() };
+      if (novosValidos.length) { update.notificacao_pendente = true; update.novos_movimentos = novosValidos; }
+
+      const { error: upErr } = await admin.from('processos').update(update).eq('id', proc.id);
+      if (upErr) erros++;
+      else atualizados++;
+    }));
+  }
+
+  return res.json({ ok: true, total: processos.length, atualizados, semMudanca, erros });
+}
+
 export default async function handler(req, res) {
   const admin = getAdminClient();
   const adminUser = await requireAdmin(req, admin);
@@ -391,7 +503,8 @@ export default async function handler(req, res) {
 
   const acao = req.method === 'GET' ? req.query?.acao : (req.body || {}).acao;
 
-  if (acao === 'dados') return acaoDados(req, res, admin, adminUser);
+  if (acao === 'dados')   return acaoDados(req, res, admin, adminUser);
+  if (acao === 'emails')  return acaoEmails(req, res, admin);
 
   if (req.method !== 'POST') return res.status(405).end();
 
@@ -399,8 +512,10 @@ export default async function handler(req, res) {
   if (acao === 'gerenciar-admin')    return acaoGerenciarAdmin(req, res, admin, adminUser);
   if (acao === 'toggle-codigo')      return acaoToggleCodigo(req, res, admin);
   if (acao === 'toggle-status')      return acaoToggleStatus(req, res, admin, adminUser);
-  if (acao === 'convidar-advogado')  return acaoConvidarAdvogado(req, res, admin, adminUser);
-  if (acao === 'reenviar-convite')   return acaoReenviarConvite(req, res, admin);
+  if (acao === 'convidar-advogado')     return acaoConvidarAdvogado(req, res, admin, adminUser);
+  if (acao === 'reenviar-convite')      return acaoReenviarConvite(req, res, admin);
+  if (acao === 'sincronizar-processos') return acaoSincronizarProcessos(req, res, admin, adminUser);
+  if (acao === 'emails' || req.query?.acao === 'emails') return acaoEmails(req, res, admin);
 
   return res.status(400).json({ erro: 'acao inválida.' });
 }

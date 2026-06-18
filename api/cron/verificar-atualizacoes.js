@@ -1,31 +1,13 @@
-// Cron de notificações inteligentes — 3 turnos/dia (dias úteis e fins de semana)
+// Cron de e-mails — lê o que sincronizar.js já gravou no banco e envia.
 // BRT = UTC-3 → 11h UTC = 8h BRT (morning) | 16h UTC = 13h BRT (afternoon) | 20h UTC = 17h BRT (evening)
-// Regras: morning sempre envia se há algo; afternoon só DJEN novo + prazo amanhã; evening só prazos urgentes hoje/amanhã
+// Roda 30 min DEPOIS de sincronizar.js — não faz chamadas ao DataJud/DJEN.
 
 import { createClient } from '@supabase/supabase-js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
 const SUPA_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const DATAJUD_KEY      = process.env.DATAJUD_API_KEY
-  || 'cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==';
 const RESEND_KEY       = process.env.RESEND_API_KEY;
 const CRON_SECRET      = process.env.CRON_SECRET;
-const DJEN_API         = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
-
-const ESTADOS_SIGLAS = ['ac','al','ap','am','ba','ce','df','es','go','ma','mt','ms','mg','pa','pb','pr','pe','pi','rj','rn','rs','ro','rr','sc','se','sp','to'];
-
-// Todos os ~90 índices públicos do DataJud — usado na varredura diária por OAB
-// pra achar processos novos que o advogado ainda não cadastrou.
-const TODOS_TRIBUNAIS = [
-  'api_publica_stf',
-  'api_publica_stj',
-  ...[1, 2, 3, 4, 5, 6].map(n => `api_publica_trf${n}`),
-  ...Array.from({ length: 24 }, (_, i) => `api_publica_trt${i + 1}`),
-  ...ESTADOS_SIGLAS.filter(s => s !== 'df').map(s => `api_publica_tre-${s}`),
-  'api_publica_tjmsp', 'api_publica_tjmmg', 'api_publica_tjmrs',
-  'api_publica_tjdft',
-  ...ESTADOS_SIGLAS.filter(s => s !== 'df').map(s => `api_publica_tj${s}`),
-];
 
 export default async function handler(req, res) {
   const authHeader = req.headers['authorization'];
@@ -39,7 +21,6 @@ export default async function handler(req, res) {
   const admin = createClient(SUPA_URL, SUPA_SERVICE_KEY);
   const hoje  = new Date().toISOString().slice(0, 10);
 
-  // Detecta turno pelo horário UTC ou override manual (?tipo=morning|afternoon|evening)
   const tipoOverride = req.query?.tipo;
   const horaUTC      = new Date().getUTCHours();
   const tipo = tipoOverride || (horaUTC < 14 ? 'morning' : horaUTC < 18 ? 'afternoon' : 'evening');
@@ -49,51 +30,50 @@ export default async function handler(req, res) {
     if (tipo === 'afternoon') return await rodarAfternoon(admin, res, hoje);
     return await rodarEvening(admin, res, hoje);
   } catch (e) {
-    await logErro(admin, `cron:${tipo}`, e.message, { stack: e.stack });
+    await logErro(admin, `cron:email-${tipo}`, e.message, { stack: e.stack });
     return res.status(500).json({ erro: e.message });
   }
 }
 
-// Grava o erro pra ficar visível no painel admin — antes esses erros eram
-// engolidos em catch(_){} e mascararam bugs (ex: notif_log vazio sem nenhum
-// indício de falha). Se a própria gravação falhar, não há onde mais logar.
 async function logErro(admin, origem, mensagem, detalhes, userId) {
   try {
     await admin.from('error_log').insert({ origem, mensagem, detalhes: detalhes || null, user_id: userId || null });
   } catch (_) {}
 }
 
-// ── MORNING (8h BRT) — Digest completo: agenda da semana + processos atualizados ──
+// ── MORNING ───────────────────────────────────────────────────────────────────
+// Só envia se sincronizar.js marcou notificacao_pendente = true no banco.
 
 async function rodarMorning(admin, res, hoje) {
-  const { data: processos, error } = await admin
+  const { data: pendentes } = await admin
     .from('processos')
-    .select('id, user_id, numero, nome, apelido, datajud_index, movimentos_hash, created_at, favorito')
-    .not('numero', 'is', null)
-    .neq('status', 'Arquivado')
-    .order('favorito', { ascending: false });
-  if (error) return res.status(500).json({ erro: error.message });
+    .select('id, user_id, nome, apelido, novos_movimentos')
+    .eq('notificacao_pendente', true)
+    .neq('status', 'Arquivado');
 
-  const userIds = [...new Set((processos || []).map(p => p.user_id))];
-  const oabsPorUsuario = await buscarOabsUsuarios(admin, userIds);
+  if (!pendentes?.length) {
+    return res.status(200).json({ ok: true, tipo: 'morning', emailsEnviados: 0, hoje, motivo: 'nada pendente' });
+  }
 
-  // DataJud e DJEN devem rodar sequencialmente — ambos fazem UPDATE em movimentos_recentes
-  const atualizacoesDatajud = await verificarDatajud(processos, admin, hoje);
-  const atualizacoesDJEN    = await verificarDJEN(processos, oabsPorUsuario, admin, hoje);
-  const agendaPorUsuario    = await buscarAgendaSemana(admin, userIds, hoje);
-  const descobertosPorUsuario = await verificarNovosProcessosPorOab(processos, oabsPorUsuario, admin, hoje);
+  // Agrupa por usuário
+  const porUsuario = {};
+  for (const p of pendentes) {
+    if (!porUsuario[p.user_id]) porUsuario[p.user_id] = [];
+    porUsuario[p.user_id].push({
+      processoId: p.id,
+      nome:       p.apelido || p.nome,
+      novos:      (p.novos_movimentos || []).slice(0, 3),
+      fonte:      (p.novos_movimentos?.[0]?.nome || '').startsWith('DJEN') ? 'DJEN' : 'CNJ DataJud',
+    });
+  }
 
-  const todosUserIds = [...new Set([
-    ...Object.keys(atualizacoesDatajud),
-    ...Object.keys(atualizacoesDJEN),
-    ...Object.keys(agendaPorUsuario),
-    ...Object.keys(descobertosPorUsuario),
-  ])];
+  const userIds          = Object.keys(porUsuario);
+  const agendaPorUsuario = await buscarAgendaSemana(admin, userIds, hoje);
 
   let emailsEnviados = 0;
   const processosNotificados = [];
 
-  for (const userId of todosUserIds) {
+  for (const userId of userIds) {
     if (await jaNotificouHoje(admin, userId, 'morning', hoje)) continue;
 
     const { data: ud } = await admin.auth.admin.getUserById(userId);
@@ -101,19 +81,11 @@ async function rodarMorning(admin, res, hoje) {
     if (!email) continue;
     const nome = ud.user.user_metadata?.full_name || ud.user.user_metadata?.nome || email.split('@')[0];
 
-    const atualizacoes = [
-      ...(atualizacoesDatajud[userId] || []),
-      ...(atualizacoesDJEN[userId] || []),
-    ];
-    const agenda      = agendaPorUsuario[userId] || [];
-    const descobertos = descobertosPorUsuario[userId] || [];
-    if (!atualizacoes.length && !agenda.length && !descobertos.length) continue;
-
     try {
-      await enviarDigestMorning(email, nome, agenda, atualizacoes, descobertos.length);
+      await enviarDigestMorning(email, nome, agendaPorUsuario[userId] || [], porUsuario[userId]);
       emailsEnviados++;
       await logNotif(admin, userId, 'morning', hoje);
-      processosNotificados.push(...atualizacoes.map(a => a.processoId).filter(Boolean));
+      processosNotificados.push(...porUsuario[userId].map(a => a.processoId));
     } catch (e) {
       await logErro(admin, 'cron:email-morning', e.message, { email }, userId);
     }
@@ -121,57 +93,53 @@ async function rodarMorning(admin, res, hoje) {
 
   if (processosNotificados.length) {
     await admin.from('processos')
-      .update({ ultima_notif_email: new Date().toISOString() })
+      .update({ notificacao_pendente: false, ultima_notif_email: new Date().toISOString() })
       .in('id', processosNotificados);
   }
 
   return res.status(200).json({ ok: true, tipo: 'morning', emailsEnviados, hoje });
 }
 
-// ── AFTERNOON (13h BRT) — DJEN do dia + prazo vencendo amanhã ────────────────
+// ── AFTERNOON ─────────────────────────────────────────────────────────────────
+// Picks up any pendentes from afternoon sync + prazos vencendo amanhã.
 
 async function rodarAfternoon(admin, res, hoje) {
-  // Só busca processos NÃO notificados esta manhã (ultima_notif_email < 11h UTC de hoje)
-  const cutoffMorning = `${hoje}T11:00:00Z`;
-  const { data: processos } = await admin
-    .from('processos')
-    .select('id, user_id, numero, nome, apelido, movimentos_hash, created_at, favorito')
-    .not('numero', 'is', null)
-    .neq('status', 'Arquivado')
-    .or(`ultima_notif_email.is.null,ultima_notif_email.lt.${cutoffMorning}`)
-    .order('favorito', { ascending: false });
-
-  const userIds = processos?.length ? [...new Set(processos.map(p => p.user_id))] : [];
-  const oabsPorUsuario = userIds.length ? await buscarOabsUsuarios(admin, userIds) : {};
-  const atualizacoesDJEN = processos?.length
-    ? await verificarDJEN(processos, oabsPorUsuario, admin, hoje)
-    : {};
-
   const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-  const { data: eventosAmanha } = await admin
-    .from('eventos')
-    .select('user_id, titulo, tipo, data, urgencia')
-    .gte('data', hoje)
-    .lte('data', amanha);
 
-  const prazosPorUsuario = {};
+  // Pendentes que surgiram APÓS o morning (ultima_notif_email não é de hoje)
+  const cutoffMorning = `${hoje}T11:30:00Z`;
+  const [{ data: pendentes }, { data: eventosAmanha }] = await Promise.all([
+    admin.from('processos')
+      .select('id, user_id, nome, apelido, novos_movimentos')
+      .eq('notificacao_pendente', true)
+      .neq('status', 'Arquivado')
+      .or(`ultima_notif_email.is.null,ultima_notif_email.lt.${cutoffMorning}`),
+    admin.from('eventos')
+      .select('user_id, titulo, tipo, data, urgencia')
+      .gte('data', hoje)
+      .lte('data', amanha),
+  ]);
+
+  const porUsuario = {};
+  for (const p of pendentes || []) {
+    if (!porUsuario[p.user_id]) porUsuario[p.user_id] = { atualizacoes: [], prazos: [] };
+    porUsuario[p.user_id].atualizacoes.push({
+      processoId: p.id,
+      nome:       p.apelido || p.nome,
+      novos:      (p.novos_movimentos || []).slice(0, 3),
+    });
+  }
   for (const e of eventosAmanha || []) {
-    if (!prazosPorUsuario[e.user_id]) prazosPorUsuario[e.user_id] = [];
-    prazosPorUsuario[e.user_id].push({ descricao: e.titulo, data_prazo: e.data, urgencia: e.urgencia });
+    if (!porUsuario[e.user_id]) porUsuario[e.user_id] = { atualizacoes: [], prazos: [] };
+    porUsuario[e.user_id].prazos.push({ descricao: e.titulo, data_prazo: e.data, urgencia: e.urgencia });
   }
 
-  const todosUserIds = [...new Set([
-    ...Object.keys(atualizacoesDJEN),
-    ...Object.keys(prazosPorUsuario),
-  ])];
-
   let emailsEnviados = 0;
-  for (const userId of todosUserIds) {
-    if (await jaNotificouHoje(admin, userId, 'afternoon', hoje)) continue;
+  const processosNotificados = [];
 
-    const djen   = atualizacoesDJEN[userId] || [];
-    const prazos = prazosPorUsuario[userId] || [];
-    if (!djen.length && !prazos.length) continue;
+  for (const [userId, dados] of Object.entries(porUsuario)) {
+    if (!dados.atualizacoes.length && !dados.prazos.length) continue;
+    if (await jaNotificouHoje(admin, userId, 'afternoon', hoje)) continue;
 
     const { data: ud } = await admin.auth.admin.getUserById(userId);
     const email = ud?.user?.email;
@@ -179,18 +147,25 @@ async function rodarAfternoon(admin, res, hoje) {
     const nome = ud.user.user_metadata?.full_name || ud.user.user_metadata?.nome || email.split('@')[0];
 
     try {
-      await enviarAlertaAfternoon(email, nome, djen, prazos);
+      await enviarAlertaAfternoon(email, nome, dados.atualizacoes, dados.prazos);
       emailsEnviados++;
       await logNotif(admin, userId, 'afternoon', hoje);
+      processosNotificados.push(...dados.atualizacoes.map(a => a.processoId));
     } catch (e) {
       await logErro(admin, 'cron:email-afternoon', e.message, { email }, userId);
     }
   }
 
+  if (processosNotificados.length) {
+    await admin.from('processos')
+      .update({ notificacao_pendente: false, ultima_notif_email: new Date().toISOString() })
+      .in('id', processosNotificados);
+  }
+
   return res.status(200).json({ ok: true, tipo: 'afternoon', emailsEnviados, hoje });
 }
 
-// ── EVENING (17h BRT) — Só prazos urgentes vencendo hoje ou amanhã ───────────
+// ── EVENING ───────────────────────────────────────────────────────────────────
 
 async function rodarEvening(admin, res, hoje) {
   const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
@@ -230,246 +205,17 @@ async function rodarEvening(admin, res, hoje) {
   return res.status(200).json({ ok: true, tipo: 'evening', emailsEnviados, hoje });
 }
 
-// ── DADOS ─────────────────────────────────────────────────────────────────────
-
-async function buscarOabsUsuarios(admin, userIds) {
-  const result = {};
-  for (const uid of userIds) {
-    try {
-      const { data: ud } = await admin.auth.admin.getUserById(uid);
-      const oabRaw = ud?.user?.user_metadata?.oab || '';
-      if (!oabRaw) continue;
-      result[uid] = oabRaw.split(',').map(s => s.trim()).filter(Boolean).map(o => {
-        const m = o.toUpperCase().replace(/\./g, '').match(/^(?:OAB[/ ]?)?([A-Z]{2})[/ ]?(\d{3,6})$/);
-        return m ? { uf: m[1], num: m[2] } : null;
-      }).filter(Boolean);
-    } catch (_) {}
-  }
-  return result;
-}
-
-async function verificarDatajudUm(proc, admin, hoje, porUsuario) {
-  if ((proc.created_at || '').slice(0, 10) === hoje) return; // importado hoje: não notifica
-  try {
-    const hits = await buscarNoDatajud(proc.datajud_index, proc.numero);
-    if (!hits?.length) return;
-
-    const todosMovs = (hits[0]._source.movimentos || [])
-      .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))
-      .slice(0, 100)
-      .map(m => ({ nome: m.nome, data: parsarData(m.dataHora) }));
-
-    const novoHash = todosMovs.slice(0, 6).map(m => m.data + m.nome).join('|');
-    if (novoHash === proc.movimentos_hash) return;
-
-    const importadoEm = (proc.created_at || '').slice(0, 10);
-    const todosNovos  = proc.movimentos_hash
-      ? todosMovs.filter(m => !proc.movimentos_hash.includes(m.data + m.nome))
-      : todosMovs.slice(0, 1);
-    const novosRecentes = todosNovos.filter(m => m.data && (!importadoEm || m.data >= importadoEm));
-
-    const update = { movimentos_recentes: todosMovs, movimentos_hash: novoHash, ultima_verificacao: new Date().toISOString() };
-    if (novosRecentes.length) {
-      update.notificacao_pendente = true;
-      update.novos_movimentos     = novosRecentes;
-    }
-    await admin.from('processos').update(update).eq('id', proc.id);
-
-    if (novosRecentes.length) {
-      if (!porUsuario[proc.user_id]) porUsuario[proc.user_id] = [];
-      porUsuario[proc.user_id].push({ processoId: proc.id, nome: proc.apelido || proc.nome, novos: novosRecentes.slice(0, 3), fonte: 'CNJ DataJud' });
-    }
-  } catch (e) {
-    await logErro(admin, 'cron:datajud', e.message, { numero: proc.numero, processoId: proc.id }, proc.user_id);
-  }
-}
-
-async function verificarDatajud(processos, admin, hoje) {
-  const porUsuario = {};
-  // Favoritos têm prioridade — são verificados primeiro
-  const ordenados = [...processos].sort((a, b) => (b.favorito ? 1 : 0) - (a.favorito ? 1 : 0))
-    .filter(p => p.datajud_index);
-
-  // Lotes em paralelo — sequencial 1-a-1 não cabe no maxDuration de 60s
-  // quando há muitos processos (cada chamada ao DataJud pode levar até 15s).
-  for (let i = 0; i < ordenados.length; i += 12) {
-    const lote = ordenados.slice(i, i + 12);
-    await Promise.all(lote.map(proc => verificarDatajudUm(proc, admin, hoje, porUsuario)));
-  }
-  return porUsuario;
-}
-
-async function verificarDJEN(processos, oabsPorUsuario, admin, hoje) {
-  const porUsuario = {};
-  const ontem      = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-  const numeroSet  = new Set(processos.map(p => p.numero).filter(Boolean));
-  const userIds    = [...new Set(processos.map(p => p.user_id))];
-
-  for (const uid of userIds) {
-    const oabs = oabsPorUsuario[uid];
-    if (!oabs?.length) continue;
-    try {
-      const reqs = oabs.map(oab =>
-        fetch(`${DJEN_API}?${new URLSearchParams({ numeroOab: oab.num, ufOab: oab.uf, dataDisponibilizacaoInicio: ontem, dataDisponibilizacaoFim: hoje, pagina: 1, tamanhoPagina: 100 })}`, { signal: AbortSignal.timeout(15000) })
-          .then(r => r.ok ? r.json() : { items: [] })
-      );
-      const items = (await Promise.all(reqs)).flatMap(r => r.items || []);
-
-      for (const item of items) {
-        const PADRAO = /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/g;
-        const nums = [...new Set(
-          (item.numeroprocessocommascara ? [item.numeroprocessocommascara] : [])
-            .concat((item.texto || '').match(PADRAO) || [])
-        )];
-
-        for (const num of nums) {
-          if (!numeroSet.has(num)) continue;
-          const proc = processos.find(p => p.numero === num && p.user_id === uid);
-          if (!proc) continue;
-          if ((proc.created_at || '').slice(0, 10) === hoje) continue; // importado hoje: não notifica
-
-          const movDJEN = { nome: `DJEN — ${item.tipoComunicacao || 'Publicação'}`, data: (item.data_disponibilizacao || hoje) + 'T00:00:00' };
-          const { data: atual } = await admin.from('processos').select('movimentos_recentes').eq('id', proc.id).single();
-          const movsAtuais = atual?.movimentos_recentes || [];
-          if (movsAtuais.some(m => m.data === movDJEN.data && m.nome === movDJEN.nome)) continue;
-
-          await admin.from('processos').update({
-            movimentos_recentes:  [movDJEN, ...movsAtuais].slice(0, 100),
-            ultima_verificacao:   new Date().toISOString(),
-            notificacao_pendente: true,
-            novos_movimentos:     [movDJEN],
-          }).eq('id', proc.id);
-
-          if (!porUsuario[uid]) porUsuario[uid] = [];
-          porUsuario[uid].push({ processoId: proc.id, nome: proc.apelido || proc.nome, novos: [movDJEN], fonte: 'DJEN' });
-        }
-      }
-    } catch (e) {
-      await logErro(admin, 'cron:djen', e.message, { oabs }, uid);
-    }
-  }
-  return porUsuario;
-}
-
-// ── DESCOBERTA DE PROCESSOS NOVOS POR OAB ────────────────────────────────────
-// Varre todos os tribunais do DataJud por cada OAB do advogado, 1x/dia, e
-// guarda em processos_descobertos os números que ele ainda não cadastrou.
-// Uma vez decidido (importado ou ignorado), nunca mais aparece na varredura.
-
-async function buscarPorOabNoDatajud(index, oab) {
-  const oabNum    = oab.num;
-  const ufUpper   = (oab.uf || '').toUpperCase();
-  const variantes = ufUpper ? [ufUpper + oabNum, ufUpper + ' ' + oabNum, oabNum] : [oabNum];
-  const body = {
-    size: 50,
-    query: { bool: { should: variantes.map(v => ({ match: { 'partes.advogados.OAB': v } })), minimum_should_match: 1 } },
-  };
-  try {
-    const r = await fetch(`https://api-publica.datajud.cnj.jus.br/${index}/_search`, {
-      method: 'POST',
-      headers: { 'Authorization': `ApiKey ${DATAJUD_KEY}`, 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(15000),
-      body: JSON.stringify(body),
-    });
-    if (!r.ok) return [];
-    const buffer = await r.arrayBuffer();
-    const json   = JSON.parse(decodificarBuffer(buffer));
-    return json.hits?.hits || [];
-  } catch { return []; }
-}
-
-function normalizarDescoberta(p, index) {
-  return {
-    numero:          p.numeroProcesso || '',
-    tribunal:        p.tribunal || index,
-    _datajudIndex:   index,
-    classe:          p.classe?.nome        || null,
-    orgaoJulgador:   p.orgaoJulgador?.nome || null,
-    dataAjuizamento: parsarData(p.dataAjuizamento),
-    partes: (p.partes || []).map(parte => ({
-      nome: parte.nome,
-      tipo: parte.tipoParte?.descricao || parte.tipoParte?.nome || parte.tipo || '',
-      oab:  parte.advogados?.[0]?.OAB || parte.advogados?.[0]?.oab || parte.oab || null,
-    })),
-    movimentos: (p.movimentos || [])
-      .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))
-      .slice(0, 100)
-      .map(m => ({ nome: m.nome, data: m.dataHora })),
-  };
-}
-
-async function verificarNovosProcessosPorOab(processos, oabsPorUsuario, admin, hoje) {
-  const porUsuario = {};
-
-  const numerosPorUsuario = {};
-  for (const p of processos) {
-    if (!numerosPorUsuario[p.user_id]) numerosPorUsuario[p.user_id] = new Set();
-    if (p.numero) numerosPorUsuario[p.user_id].add(p.numero.replace(/[.\-/ ]/g, ''));
-  }
-
-  for (const [userId, oabs] of Object.entries(oabsPorUsuario)) {
-    if (!oabs?.length) continue;
-    if (await jaNotificouHoje(admin, userId, 'oab_scan', hoje)) continue;
-    await logNotif(admin, userId, 'oab_scan', hoje); // marca já no início p/ não repetir mesmo se o cron disparar 2x
-
-    try {
-      const { data: jaVistos } = await admin
-        .from('processos_descobertos')
-        .select('numero')
-        .eq('user_id', userId);
-      const vistoSet  = new Set((jaVistos || []).map(d => d.numero));
-      const meusNumeros = numerosPorUsuario[userId] || new Set();
-      const novos = [];
-
-      // Lotes de 12 índices em paralelo — equilíbrio entre tempo total e não sobrecarregar o DataJud
-      for (let i = 0; i < TODOS_TRIBUNAIS.length; i += 12) {
-        const lote = TODOS_TRIBUNAIS.slice(i, i + 12);
-        const resultados = await Promise.allSettled(
-          lote.flatMap(index => oabs.map(oab => buscarPorOabNoDatajud(index, oab).then(hits => ({ index, hits }))))
-        );
-        for (const r of resultados) {
-          if (r.status !== 'fulfilled') continue;
-          for (const hit of r.value.hits) {
-            const fonte       = hit._source;
-            const numeroLimpo = String(fonte.numeroProcesso || '').replace(/\D/g, '');
-            if (!numeroLimpo) continue;
-            if (meusNumeros.has(numeroLimpo)) continue;
-            if (vistoSet.has(numeroLimpo)) continue;
-            vistoSet.add(numeroLimpo);
-            novos.push({ numero: numeroLimpo, tribunal: r.value.index, dados: normalizarDescoberta(fonte, r.value.index) });
-          }
-        }
-      }
-
-      if (novos.length) {
-        const { error } = await admin.from('processos_descobertos').insert(
-          novos.map(n => ({
-            user_id:          userId,
-            numero:            n.numero,
-            tribunal:          n.tribunal,
-            dados:             n.dados,
-            data_ajuizamento: n.dados.dataAjuizamento ? n.dados.dataAjuizamento.slice(0, 10) : null,
-          }))
-        );
-        if (!error) porUsuario[userId] = novos;
-        else await logErro(admin, 'cron:oab-scan-insert', error.message, null, userId);
-      }
-    } catch (e) {
-      await logErro(admin, 'cron:oab-scan', e.message, null, userId);
-    }
-  }
-
-  return porUsuario;
-}
+// ── AGENDA ────────────────────────────────────────────────────────────────────
 
 async function buscarAgendaSemana(admin, userIds, hoje) {
   if (!userIds.length) return {};
   const seteDias = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
   const agenda   = {};
 
-  const [{ data: eventos }, { data: honorarios }] = await Promise.all([
+  const [{ data: eventos }, { data: honorarios }, { data: tarefas }] = await Promise.all([
     admin.from('eventos').select('user_id, titulo, tipo, data, urgencia').in('user_id', userIds).gte('data', hoje).lte('data', seteDias).order('data'),
     admin.from('honorarios').select('user_id, descricao, data_vencimento, status').in('user_id', userIds).gte('data_vencimento', hoje).lte('data_vencimento', seteDias).in('status', ['pendente', 'vencido']).order('data_vencimento'),
+    admin.from('tarefas').select('user_id, titulo, prazo, prioridade').in('user_id', userIds).gte('prazo', hoje).lte('prazo', seteDias).neq('coluna', 'concluida').order('prazo'),
   ]);
 
   for (const e of eventos || []) {
@@ -478,7 +224,11 @@ async function buscarAgendaSemana(admin, userIds, hoje) {
   }
   for (const h of honorarios || []) {
     if (!agenda[h.user_id]) agenda[h.user_id] = [];
-    agenda[h.user_id].push({ tipo: 'honorario', descricao: `💰 Honorário: ${h.descricao}`, data: h.data_vencimento, urgencia: h.status === 'vencido' ? 'urgente' : 'baixa' });
+    agenda[h.user_id].push({ tipo: 'honorario', descricao: h.descricao, data: h.data_vencimento, urgencia: h.status === 'vencido' ? 'urgente' : 'baixa' });
+  }
+  for (const t of tarefas || []) {
+    if (!agenda[t.user_id]) agenda[t.user_id] = [];
+    agenda[t.user_id].push({ tipo: 'tarefa', descricao: t.titulo, data: t.prazo, urgencia: t.prioridade });
   }
   for (const uid of Object.keys(agenda)) {
     agenda[uid].sort((a, b) => a.data.localeCompare(b.data));
@@ -486,7 +236,7 @@ async function buscarAgendaSemana(admin, userIds, hoje) {
   return agenda;
 }
 
-// ── LOG / DEDUPLICAÇÃO ────────────────────────────────────────────────────────
+// ── LOG ───────────────────────────────────────────────────────────────────────
 
 async function jaNotificouHoje(admin, userId, tipo, hoje) {
   const { data } = await admin.from('notif_log')
@@ -515,57 +265,47 @@ function btnDashboard(cor) {
   return `<div style="text-align:center;margin-top:20px;padding:0 28px 24px"><a href="https://meuprocesso.app.br/dashboard" style="display:inline-block;background:${cor};color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:600">Abrir dashboard →</a></div>`;
 }
 
-async function enviarDigestMorning(para, nome, agenda, atualizacoes, descobertosCount = 0) {
+async function enviarDigestMorning(para, nome, agenda, atualizacoes) {
   const diaSemana = new Date().toLocaleDateString('pt-BR', { weekday: 'long' });
-  const partesAssunto = [];
-  if (descobertosCount) partesAssunto.push(`${descobertosCount} processo(s) novo(s) encontrado(s)`);
-  if (atualizacoes.length) partesAssunto.push(`${atualizacoes.length} atualização(ões)`);
-  const assunto = partesAssunto.length
-    ? `Bom dia! ${partesAssunto.join(' + ')}`
-    : `Bom dia! Sua agenda da semana — ${diaSemana}`;
+  const assunto = atualizacoes.length > 1
+    ? `[Meu Processo] ${atualizacoes.length} atualizações nos seus processos`
+    : `[Meu Processo] Atualização: ${atualizacoes[0]?.nome || 'processo'}`;
 
-  const blocoAgenda = agenda.length ? `
-<div style="padding:20px 28px 8px">
-  <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">📅 Sua semana</div>
-  ${agenda.slice(0, 8).map(item => {
-    const dataFmt = new Date(item.data + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' });
-    const badge   = item.urgencia === 'urgente'
-      ? '<span style="font-size:10px;background:#fef2f2;color:#dc2626;padding:2px 7px;border-radius:4px;font-weight:700;margin-left:6px">URGENTE</span>'
-      : '';
-    return `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:8px 0;border-bottom:1px solid #f3f4f6"><tr>
-      <td width="72" style="font-size:11px;color:#9ca3af;vertical-align:top;padding-top:2px;white-space:nowrap">${dataFmt}</td>
-      <td style="font-size:13px;color:#111827;padding-left:10px">${item.descricao}${badge}</td>
-    </tr></table>`;
-  }).join('')}
-</div>` : '';
+  const tipoIcon = { evento: '📅', tarefa: '✅', honorario: '💰' };
 
   const blocoAtualizacoes = atualizacoes.length ? `
-<div style="padding:20px 28px 8px;${agenda.length ? 'border-top:1px solid #e5e7eb' : ''}">
+<div style="padding:20px 28px 8px">
   <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">⚖️ Atualizações nos processos</div>
   ${atualizacoes.slice(0, 5).map(item => `
   <div style="background:#f8f9fa;border-left:4px solid #1a2e6b;border-radius:6px;padding:12px 14px;margin-bottom:10px">
     <div style="font-weight:700;color:#1a2e6b;font-size:13px;margin-bottom:6px">${item.nome}</div>
-    ${item.novos.map(m => `<div style="font-size:12px;color:#374151;padding:3px 0;border-bottom:1px solid #e5e7eb"><span style="color:#9ca3af">${formatarData(m.data)}</span> — ${m.nome}</div>`).join('')}
-    <div style="font-size:10px;color:#9ca3af;margin-top:6px">${item.fonte}</div>
+    ${(item.novos || []).map(m => `<div style="font-size:12px;color:#374151;padding:3px 0;border-bottom:1px solid #e5e7eb"><span style="color:#9ca3af">${formatarData(m.data)}</span> — ${m.nome}</div>`).join('')}
   </div>`).join('')}
 </div>` : '';
 
-  const blocoDescobertos = descobertosCount ? `
-<div style="padding:20px 28px 8px;${(agenda.length || atualizacoes.length) ? 'border-top:1px solid #e5e7eb' : ''}">
-  <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">🆕 Processos novos encontrados</div>
-  <div style="background:#fefbe7;border-left:4px solid #e8b400;border-radius:6px;padding:12px 14px;font-size:13px;color:#92400e">
-    Encontramos <strong>${descobertosCount}</strong> processo(s) na sua OAB que ainda não estão no seu sistema. Acesse o dashboard pra ver os detalhes e decidir se quer importar.
-  </div>
+  const blocoAgenda = agenda.length ? `
+<div style="padding:20px 28px 8px;${atualizacoes.length ? 'border-top:1px solid #e5e7eb' : ''}">
+  <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">📋 Esta semana</div>
+  ${agenda.slice(0, 10).map(item => {
+    const dataFmt = new Date(item.data + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' });
+    const badge   = item.urgencia === 'urgente'
+      ? '<span style="font-size:10px;background:#fef2f2;color:#dc2626;padding:2px 7px;border-radius:4px;font-weight:700;margin-left:6px">URGENTE</span>'
+      : '';
+    const icon = tipoIcon[item.tipo] || '•';
+    return `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:8px 0;border-bottom:1px solid #f3f4f6"><tr>
+      <td width="72" style="font-size:11px;color:#9ca3af;vertical-align:top;padding-top:2px;white-space:nowrap">${dataFmt}</td>
+      <td style="font-size:13px;color:#111827;padding-left:10px">${icon} ${item.descricao}${badge}</td>
+    </tr></table>`;
+  }).join('')}
 </div>` : '';
 
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
 <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
   ${cabecalho('Resumo do dia')}
-  <div style="padding:20px 28px 8px;font-size:15px;color:#111827">Bom dia, <strong>${nome}</strong>! Aqui está o resumo de ${diaSemana}.</div>
-  ${blocoDescobertos}
-  ${blocoAgenda}
+  <div style="padding:20px 28px 8px;font-size:15px;color:#111827">Bom dia, <strong>${nome}</strong>! Atualizações de ${diaSemana}.</div>
   ${blocoAtualizacoes}
+  ${blocoAgenda}
   ${btnDashboard('#1a2e6b')}
   ${rodape()}
 </div>
@@ -574,24 +314,24 @@ async function enviarDigestMorning(para, nome, agenda, atualizacoes, descobertos
   await enviarEmail(para, assunto, html);
 }
 
-async function enviarAlertaAfternoon(para, nome, djen, prazos) {
+async function enviarAlertaAfternoon(para, nome, atualizacoes, prazos) {
   const partes  = [];
-  if (djen.length)   partes.push(`${djen.length} publicação(ões) no DJEN`);
-  if (prazos.length) partes.push(`prazo${prazos.length > 1 ? 's' : ''} vencendo amanhã`);
+  if (atualizacoes.length) partes.push(`${atualizacoes.length} atualização(ões)`);
+  if (prazos.length)       partes.push(`prazo${prazos.length > 1 ? 's' : ''} vencendo amanhã`);
   const assunto = `[Meu Processo] ${partes.join(' + ')}`;
 
-  const blocoDJEN = djen.length ? `
+  const blocoAtualizacoes = atualizacoes.length ? `
 <div style="padding:20px 28px 8px">
-  <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">📢 Publicações no DJEN</div>
-  ${djen.map(item => `
+  <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">⚖️ Novidades desde esta manhã</div>
+  ${atualizacoes.map(item => `
   <div style="background:#f8f9fa;border-left:4px solid #1a2e6b;border-radius:6px;padding:12px 14px;margin-bottom:8px">
     <div style="font-weight:700;color:#1a2e6b;font-size:13px;margin-bottom:4px">${item.nome}</div>
-    ${item.novos.map(m => `<div style="font-size:12px;color:#374151">${m.nome}</div>`).join('')}
+    ${(item.novos || []).map(m => `<div style="font-size:12px;color:#374151">${m.nome}</div>`).join('')}
   </div>`).join('')}
 </div>` : '';
 
   const blocoPrazos = prazos.length ? `
-<div style="padding:20px 28px 8px;${djen.length ? 'border-top:1px solid #e5e7eb' : ''}">
+<div style="padding:20px 28px 8px;${atualizacoes.length ? 'border-top:1px solid #e5e7eb' : ''}">
   <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">⏰ Prazo amanhã</div>
   ${prazos.map(p => `
   <div style="background:#fffbeb;border-left:4px solid #d97706;border-radius:6px;padding:12px 14px;margin-bottom:8px">
@@ -604,8 +344,8 @@ async function enviarAlertaAfternoon(para, nome, djen, prazos) {
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
 <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
   ${cabecalho('Alerta do dia')}
-  <div style="padding:20px 28px 8px;font-size:15px;color:#111827">Olá, <strong>${nome}</strong>! Há novidades desde esta manhã.</div>
-  ${blocoDJEN}
+  <div style="padding:20px 28px 8px;font-size:15px;color:#111827">Olá, <strong>${nome}</strong>!</div>
+  ${blocoAtualizacoes}
   ${blocoPrazos}
   ${btnDashboard('#1a2e6b')}
   ${rodape()}
@@ -655,36 +395,6 @@ async function enviarEmail(para, assunto, html) {
     const msg = await r.text().catch(() => 'erro desconhecido');
     throw new Error(`Resend ${r.status}: ${msg}`);
   }
-}
-
-// ── HELPERS ───────────────────────────────────────────────────────────────────
-
-async function buscarNoDatajud(index, numero) {
-  const numeroLimpo = numero.replace(/[.\-\/ ]/g, '');
-  try {
-    const r = await fetch(`https://api-publica.datajud.cnj.jus.br/${index}/_search`, {
-      method: 'POST',
-      headers: { 'Authorization': `ApiKey ${DATAJUD_KEY}`, 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(15000),
-      body: JSON.stringify({ size: 1, query: { match: { numeroProcesso: numeroLimpo } } }),
-    });
-    if (!r.ok) return null;
-    const buffer = await r.arrayBuffer();
-    return JSON.parse(decodificarBuffer(buffer)).hits?.hits || null;
-  } catch { return null; }
-}
-
-function decodificarBuffer(buffer) {
-  try { return new TextDecoder('utf-8', { fatal: true }).decode(buffer); }
-  catch { return new TextDecoder('windows-1252').decode(buffer); }
-}
-
-function parsarData(s) {
-  if (!s) return null;
-  const str = String(s);
-  if (/^\d{14}$/.test(str)) return `${str.slice(0,4)}-${str.slice(4,6)}-${str.slice(6,8)}T${str.slice(8,10)}:${str.slice(10,12)}:${str.slice(12,14)}`;
-  if (/^\d{8}$/.test(str))  return `${str.slice(0,4)}-${str.slice(4,6)}-${str.slice(6,8)}`;
-  return s;
 }
 
 function formatarData(iso) {

@@ -32,6 +32,7 @@ async function init() {
 
   renderStats();
   renderAdvogados();
+  renderSincronizacoes();
   renderCodigos();
   renderAdmins();
   setupTabs();
@@ -53,8 +54,165 @@ function setupTabs() {
       document.querySelectorAll('.adm-panel').forEach(p => p.style.display = 'none');
       btn.classList.add('active');
       document.getElementById('tab-' + btn.dataset.tab).style.display = 'block';
+      if (btn.dataset.tab === 'emails') carregarEmails();
     });
   });
+}
+
+let _emailsCarregados = false;
+
+async function carregarEmails() {
+  if (_emailsCarregados) return;
+  _emailsCarregados = true;
+
+  document.getElementById('email-tabela-wrap').innerHTML =
+    '<p style="color:#9f9f98;padding:20px 0;">Carregando...</p>';
+
+  const r = await fetch('/api/admin?acao=emails', {
+    headers: { 'Authorization': `Bearer ${_adminToken}` },
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    document.getElementById('email-tabela-wrap').innerHTML =
+      `<p style="color:#c0392b;">Erro ao carregar: ${data.erro || 'desconhecido'}</p>`;
+    return;
+  }
+  renderEmails(data.logs || [], data.erros || []);
+}
+
+function renderEmails(logs, erros) {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const semAntesISO = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+
+  // Agrupa logs por usuário
+  const porUsuario = {};
+  for (const l of logs) {
+    if (!porUsuario[l.user_id]) porUsuario[l.user_id] = {};
+    if (!porUsuario[l.user_id][l.tipo] || l.data > porUsuario[l.user_id][l.tipo]) {
+      porUsuario[l.user_id][l.tipo] = l.data;
+    }
+  }
+
+  // Stats globais
+  const logsHoje    = logs.filter(l => l.data === hoje && l.tipo !== 'oab_scan');
+  const logsSemana  = logs.filter(l => l.data >= semAntesISO && l.tipo !== 'oab_scan');
+  const usersNotif  = new Set(logsHoje.map(l => l.user_id)).size;
+  const errosSemana = erros.filter(e => (e.created_at || '').slice(0, 10) >= semAntesISO).length;
+
+  document.getElementById('email-stats-row').innerHTML = `
+    <div class="sync-stat sync-stat-blue">
+      <span class="sync-stat-val">${logsHoje.length}</span>
+      <span class="sync-stat-lbl">Envios hoje</span>
+    </div>
+    <div class="sync-stat">
+      <span class="sync-stat-val">${usersNotif}</span>
+      <span class="sync-stat-lbl">Usuários notificados hoje</span>
+    </div>
+    <div class="sync-stat">
+      <span class="sync-stat-val">${logsSemana.length}</span>
+      <span class="sync-stat-lbl">Envios nos últimos 7 dias</span>
+    </div>
+    <div class="sync-stat ${errosSemana > 0 ? 'sync-stat-orange' : ''}">
+      <span class="sync-stat-val">${errosSemana}</span>
+      <span class="sync-stat-lbl">Erros de entrega (7d)</span>
+    </div>
+  `;
+
+  // Tabela por usuário — só quem tem processos
+  const advComProc = (_adminData.advogados || []).filter(a => a.numProcessos > 0);
+  const errosPorUser = {};
+  for (const e of erros) {
+    if (e.user_id) {
+      if (!errosPorUser[e.user_id]) errosPorUser[e.user_id] = 0;
+      errosPorUser[e.user_id]++;
+    }
+  }
+
+  const turnoIcon = { morning: '🌅', afternoon: '☀️', evening: '🌙' };
+
+  const linhas = advComProc.map(a => {
+    const u = porUsuario[a.id] || {};
+    const notifHoje = logs.some(l => l.user_id === a.id && l.data === hoje && l.tipo !== 'oab_scan');
+    const errosU = errosPorUser[a.id] || 0;
+
+    const cellTurno = (tipo) => {
+      const data = u[tipo];
+      if (!data) return '<td class="eml-cell eml-nunca">—</td>';
+      const isHoje = data === hoje;
+      return `<td class="eml-cell ${isHoje ? 'eml-hoje' : 'eml-ok'}" title="${data}">${isHoje ? '✓ hoje' : fmtData(data)}</td>`;
+    };
+
+    return `
+      <tr>
+        <td>
+          <div style="font-weight:600;font-size:13px;">${esc(a.nome)}</div>
+          <div style="font-size:11px;color:#9f9f98;">${esc(a.email)}</div>
+        </td>
+        ${cellTurno('morning')}
+        ${cellTurno('afternoon')}
+        ${cellTurno('evening')}
+        <td>
+          ${notifHoje
+            ? '<span class="adm-status-pill adm-status-ativo">✓ Notificado hoje</span>'
+            : '<span class="adm-status-pill adm-status-pendente">Não notificado hoje</span>'}
+        </td>
+        <td>${errosU > 0
+          ? `<span class="adm-status-pill adm-status-bloqueado">${errosU} erro(s)</span>`
+          : '<span style="color:#9f9f98;">—</span>'}</td>
+      </tr>
+    `;
+  }).join('');
+
+  document.getElementById('email-tabela-wrap').innerHTML = `
+    <div class="adm-table-wrap">
+      <table class="adm-table">
+        <thead>
+          <tr>
+            <th>Advogado</th>
+            <th>${turnoIcon.morning} Último morning</th>
+            <th>${turnoIcon.afternoon} Último afternoon</th>
+            <th>${turnoIcon.evening} Último evening</th>
+            <th>Status hoje</th>
+            <th>Erros (14d)</th>
+          </tr>
+        </thead>
+        <tbody>${linhas || '<tr><td colspan="6" style="text-align:center;color:#9f9f98;">Nenhum dado ainda.</td></tr>'}</tbody>
+      </table>
+    </div>
+  `;
+
+  // Log de erros detalhado
+  if (!erros.length) {
+    document.getElementById('email-erros-wrap').innerHTML = '';
+    return;
+  }
+
+  document.getElementById('email-erros-wrap').innerHTML = `
+    <h3 style="font-size:14px;font-weight:600;color:#991b1b;margin:0 0 12px;display:flex;align-items:center;gap:6px;">
+      <i class="ti ti-alert-triangle"></i> Log de erros de e-mail (14 dias)
+    </h3>
+    <div class="adm-table-wrap">
+      <table class="adm-table">
+        <thead>
+          <tr><th>Data/hora</th><th>Origem</th><th>Mensagem</th><th>Usuário</th></tr>
+        </thead>
+        <tbody>
+          ${erros.slice(0, 30).map(e => {
+            const adv = (_adminData.advogados || []).find(a => a.id === e.user_id);
+            const dt  = e.created_at
+              ? new Date(e.created_at).toLocaleString('pt-BR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
+              : '—';
+            return `<tr>
+              <td style="white-space:nowrap;font-size:12px;">${dt}</td>
+              <td><code style="font-size:11px;background:#fef2f2;color:#991b1b;padding:2px 6px;border-radius:4px;">${esc(e.origem)}</code></td>
+              <td style="font-size:12px;color:#374151;max-width:300px;">${esc(e.mensagem)}</td>
+              <td style="font-size:12px;">${adv ? esc(adv.nome) : (e.user_id ? e.user_id.slice(0,8)+'…' : '—')}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
 function fmtData(iso) {
@@ -108,6 +266,76 @@ function renderCodigos() {
     </tr>
   `;
   }).join('') || '<tr><td colspan="7" style="text-align:center;color:#9f9f98;">Nenhum código gerado ainda.</td></tr>';
+}
+
+function renderSincronizacoes() {
+  const s     = _adminData.stats || {};
+  const advs  = (_adminData.advogados || []).filter(a => a.numProcessos > 0);
+  const maxTotal = Math.max(...advs.map(a => a.numProcessos), 1);
+
+  // Mini-stats
+  const pctSync = s.totalProcessos > 0
+    ? Math.round((s.totalSincronizados / s.totalProcessos) * 100)
+    : 0;
+  document.getElementById('sync-stats-row').innerHTML = `
+    <div class="sync-stat"><span class="sync-stat-val">${s.totalProcessos ?? 0}</span><span class="sync-stat-lbl">Total de processos</span></div>
+    <div class="sync-stat sync-stat-blue"><span class="sync-stat-val">${s.totalSincronizados ?? 0}</span><span class="sync-stat-lbl">Sincronizados (CNJ)</span></div>
+    <div class="sync-stat sync-stat-orange"><span class="sync-stat-val">${s.totalNotificacoes ?? 0}</span><span class="sync-stat-lbl">Notificações pendentes</span></div>
+    <div class="sync-stat"><span class="sync-stat-val">${pctSync}%</span><span class="sync-stat-lbl">Taxa de sincronização</span></div>
+  `;
+
+  if (!advs.length) {
+    document.getElementById('sync-chart').innerHTML = '<p style="color:#9f9f98;text-align:center;padding:32px;">Nenhum processo cadastrado.</p>';
+    return;
+  }
+
+  // Ordena por mais sincronizados
+  const sorted = [...advs].sort((a, b) => b.numSincronizados - a.numSincronizados);
+
+  document.getElementById('sync-chart').innerHTML = `
+    <div class="sync-chart-header">
+      <span>Advogado</span>
+      <span style="display:flex;align-items:center;gap:16px;font-size:11px;">
+        <span><span class="sync-legend navy"></span> Total</span>
+        <span><span class="sync-legend blue"></span> Sincronizados CNJ</span>
+        <span><span class="sync-legend orange"></span> Notificações</span>
+      </span>
+    </div>
+    ${sorted.map(a => {
+      const pctTotal = (a.numProcessos / maxTotal) * 100;
+      const pctSinc  = a.numProcessos > 0 ? (a.numSincronizados / a.numProcessos) * 100 : 0;
+      const sincPct  = Math.round((a.numSincronizados / a.numProcessos) * 100) || 0;
+      const lastSync = a.ultimaSync
+        ? new Date(a.ultimaSync).toLocaleString('pt-BR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
+        : '—';
+      return `
+        <div class="sync-row">
+          <div class="sync-row-name">
+            <span>${esc(a.nome)}</span>
+            <span class="sync-row-email">${esc(a.email)}</span>
+          </div>
+          <div class="sync-row-bars">
+            <div class="sync-bar-wrap">
+              <div class="sync-bar-track">
+                <div class="sync-bar-fill navy" style="width:${pctTotal}%"></div>
+              </div>
+              <span class="sync-bar-num">${a.numProcessos}</span>
+            </div>
+            <div class="sync-bar-wrap">
+              <div class="sync-bar-track">
+                <div class="sync-bar-fill blue" style="width:${pctSinc}%"></div>
+              </div>
+              <span class="sync-bar-num">${a.numSincronizados} <span style="color:#9f9f98;">(${sincPct}%)</span></span>
+            </div>
+          </div>
+          <div class="sync-row-meta">
+            ${a.numNotificacoes > 0 ? `<span class="sync-notif">${a.numNotificacoes} notif.</span>` : '<span style="color:#d1d5db;">—</span>'}
+            <span class="sync-last">Última sync: ${lastSync}</span>
+          </div>
+        </div>
+      `;
+    }).join('')}
+  `;
 }
 
 function renderAdmins() {
@@ -200,6 +428,43 @@ async function convidarAdvogado() {
   fecharConvidarAdvogado();
   await init();
   if (r.avisoEmail) alert(r.avisoEmail);
+}
+
+async function sincronizarTodos(userId) {
+  const btn    = document.getElementById('btn-sincronizar');
+  const result = document.getElementById('sync-resultado');
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ti ti-loader"></i> Sincronizando…';
+  result.style.display = 'none';
+
+  const body = userId ? { userId } : {};
+  const r = await chamarAdmin('sincronizar-processos', body);
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="ti ti-refresh"></i> Sincronizar todos agora';
+
+  if (r.erro) {
+    result.style.cssText = 'display:block;padding:12px 16px;border-radius:8px;font-size:13px;background:#fef2f2;color:#991b1b;border:1px solid #fca5a5;margin-bottom:16px;';
+    result.textContent = 'Erro: ' + r.erro;
+    return;
+  }
+
+  result.style.cssText = 'display:block;padding:12px 16px;border-radius:8px;font-size:13px;background:#f0fdf4;color:#166534;border:1px solid #86efac;margin-bottom:16px;';
+  result.innerHTML = `<strong>${r.atualizados}</strong> processo(s) atualizados · <strong>${r.semMudanca}</strong> sem mudança · <strong>${r.erros}</strong> erro(s) · Total verificado: <strong>${r.total}</strong>`;
+
+  // Recarrega os dados de sync sem reiniciar a página inteira
+  await recarregarSyncStats();
+}
+
+async function recarregarSyncStats() {
+  const r = await fetch('/api/admin?acao=dados', {
+    headers: { 'Authorization': `Bearer ${_adminToken}` },
+  });
+  if (!r.ok) return;
+  _adminData = await r.json();
+  renderStats();
+  renderSincronizacoes();
 }
 
 async function reenviarConvite(id) {
