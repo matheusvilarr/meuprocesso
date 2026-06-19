@@ -122,16 +122,15 @@ async function aceitar(req, res) {
   if (error) return res.status(500).json({ erro: error.message });
   if (!data.ok) return res.status(422).json({ erro: data.erro });
 
-  let titularNome = 'Titular';
-  const { data: titularProc } = await supaAuth
-    .from('processos')
-    .select('user_id')
-    .eq('user_id', data.escritorio_id)
-    .limit(1)
-    .maybeSingle();
-
-  if (!titularProc) {
-    titularNome = 'Titular do escritório';
+  const SUPA_SVC_KEY = process.env.SUPABASE_SERVICE_KEY;
+  let titularNome = 'Titular do escritório';
+  if (SUPA_SVC_KEY) {
+    const supaAdmin = createClient(SUPA_URL, SUPA_SVC_KEY);
+    const { data: titularUser } = await supaAdmin.auth.admin.getUserById(data.escritorio_id);
+    titularNome = titularUser?.user?.user_metadata?.full_name
+      || titularUser?.user?.user_metadata?.nome
+      || titularUser?.user?.email?.split('@')[0]
+      || 'Titular do escritório';
   }
 
   return res.status(200).json({
