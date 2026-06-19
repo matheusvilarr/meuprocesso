@@ -1556,8 +1556,8 @@ function atualizarDashboard(processos, totalArquivados) {
       <div style="font-size:14px;font-weight:600;color:var(--navy);margin-bottom:6px">Nenhum processo ainda</div>
       <div style="font-size:12px;color:var(--gray-400);margin-bottom:18px">Adicione processos para acompanhar aqui</div>
       <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-        <button class="btn-primary" style="font-size:12px;padding:7px 14px" onclick="abrirModalNovoProcesso()"><i class="ti ti-plus"></i> Novo processo</button>
-        <button class="btn-secondary" style="font-size:12px;padding:7px 14px" onclick="abrirModalBusca()"><i class="ti ti-search"></i> Buscar no CNJ</button>
+        <button class="btn-primary" style="font-size:12px;padding:7px 14px" onclick="openModal('modal-novo-processo')"><i class="ti ti-plus"></i> Novo processo</button>
+        <button class="btn-secondary" style="font-size:12px;padding:7px 14px" onclick="openModal('modal-busca-tribunal')"><i class="ti ti-search"></i> Buscar no CNJ</button>
       </div>
     </div>`;
     return;

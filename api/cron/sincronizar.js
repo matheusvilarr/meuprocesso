@@ -52,7 +52,7 @@ async function rodarDatajud(admin, res, hoje) {
   const limite20h = new Date(Date.now() - 20 * 3600 * 1000).toISOString();
   const { data: processos, error } = await admin
     .from('processos')
-    .select('id, user_id, numero, nome, apelido, datajud_index, movimentos_hash, movimentos_recentes, created_at, ultima_mov_data')
+    .select('id, user_id, numero, nome, apelido, datajud_index, movimentos_hash, movimentos_recentes, created_at')
     .not('numero', 'is', null)
     .neq('status', 'Arquivado')
     .or(`ultima_verificacao.is.null,ultima_verificacao.lte.${limite20h}`)
