@@ -41,18 +41,13 @@
   },
   "crons": [
     { "path": "/api/cron/sincronizar",                           "schedule": "0 8 * * 1-5" },
-    { "path": "/api/cron/sincronizar",                           "schedule": "30 10 * * 1-5" },
     { "path": "/api/cron/verificar-atualizacoes?tipo=morning",   "schedule": "0 11 * * 1-5" },
-    { "path": "/api/cron/sincronizar",                           "schedule": "0 13 * * 1-5" },
-    { "path": "/api/cron/sincronizar",                           "schedule": "30 15 * * 1-5" },
+    { "path": "/api/cron/sincronizar",                           "schedule": "0 15 * * 1-5" },
     { "path": "/api/cron/verificar-atualizacoes?tipo=afternoon", "schedule": "0 16 * * 1-5" },
-    { "path": "/api/cron/sincronizar",                           "schedule": "0 18 * * 1-5" },
     { "path": "/api/cron/verificar-atualizacoes?tipo=evening",   "schedule": "0 20 * * 1-5" },
     { "path": "/api/cron/sincronizar?tipo=oab",                  "schedule": "30 21 * * 1-5" },
     { "path": "/api/cron/sincronizar",                           "schedule": "0 11 * * 0,6" },
     { "path": "/api/cron/verificar-atualizacoes?tipo=morning",   "schedule": "30 11 * * 0,6" },
-    { "path": "/api/cron/sincronizar",                           "schedule": "0 15 * * 0,6" },
-    { "path": "/api/cron/verificar-atualizacoes?tipo=afternoon", "schedule": "30 15 * * 0,6" },
     { "path": "/api/cron/sincronizar?tipo=oab",                  "schedule": "0 21 * * 0,6" }
   ]
 }

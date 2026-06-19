@@ -2969,12 +2969,9 @@ async function fazerLogout() {
 const SYNC_INTERVALO_MS = 10 * 60 * 1000; // 10 minutos
 let _syncTimer = null;
 
-async function sincronizarTodos(silencioso = false) {
+async function sincronizarTodos() {
   const procs = (window._processosDB || []).filter(p => p.datajud_index && p.numero);
   if (!procs.length) return;
-
-  atualizarBarraSync('sincronizando');
-  if (!silencioso) showToast(`Verificando ${procs.length} processo(s)...`);
 
   let atualizados = 0;
 
@@ -3004,28 +3001,15 @@ async function sincronizarTodos(silencioso = false) {
     } catch (_) {}
   }
 
-  atualizarBarraSync('ok', new Date());
-  await carregarProcessos();
-  if (atualizados > 0) showToast(`${atualizados} processo(s) com nova movimentação!`);
-  else if (!silencioso) showToast('Nenhuma novidade nos processos.');
-}
-
-function atualizarBarraSync(estado, data) {
-  const el = document.getElementById('sync-status-bar');
-  if (!el) return;
-  const fmt = d => d ? d.toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' }) : '';
-  if (estado === 'sincronizando') {
-    el.innerHTML = `<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Sincronizando com CNJ DataJud...`;
-    el.style.color = 'var(--amber)';
-  } else {
-    el.innerHTML = `<i class="ti ti-cloud-check"></i> Sincronizado com CNJ DataJud${data ? ' · ' + fmt(data) : ''}`;
-    el.style.color = 'var(--green)';
+  if (atualizados > 0) {
+    await carregarProcessos();
+    showToast(`${atualizados} processo(s) com nova movimentação!`);
   }
 }
 
 function iniciarSyncAutomatico() {
   if (_syncTimer) clearInterval(_syncTimer);
-  _syncTimer = setInterval(() => sincronizarTodos(true), SYNC_INTERVALO_MS);
+  _syncTimer = setInterval(() => sincronizarTodos(), SYNC_INTERVALO_MS);
 }
 
 // ── INIT: carrega dados ao abrir dashboard ────────────────────────────────
@@ -3043,7 +3027,7 @@ window.addEventListener('DOMContentLoaded', () => {
       if (window._user) {
         carregarProcessos().then(() => {
           iniciarSyncAutomatico();
-          sincronizarTodos(true);
+          sincronizarTodos();
         });
         carregarEventosDashboard();
         carregarTarefas();

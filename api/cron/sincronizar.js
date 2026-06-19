@@ -33,9 +33,9 @@ export default async function handler(req, res) {
     return res.status(500).json({ erro: 'SUPABASE_SERVICE_KEY não configurada.' });
   }
 
-  const admin  = createClient(SUPA_URL, SUPA_SERVICE_KEY);
-  const hoje   = new Date().toISOString().slice(0, 10);
-  const tipo   = req.query?.tipo || 'datajud';
+  const admin = createClient(SUPA_URL, SUPA_SERVICE_KEY);
+  const hoje  = new Date().toISOString().slice(0, 10);
+  const tipo  = req.query?.tipo || 'datajud';
 
   if (tipo === 'oab') return rodarOabScan(admin, res, hoje);
   return rodarDatajud(admin, res, hoje);
@@ -45,13 +45,19 @@ export default async function handler(req, res) {
 
 async function rodarDatajud(admin, res, hoje) {
   const startAt = Date.now();
+  const agora   = new Date().toISOString();
 
+  // O browser do usuário sincroniza em tempo real enquanto o dashboard está aberto.
+  // O servidor só entra para cobrir usuários que não abriram o browser nas últimas 20h.
+  const limite20h = new Date(Date.now() - 20 * 3600 * 1000).toISOString();
   const { data: processos, error } = await admin
     .from('processos')
-    .select('id, user_id, numero, nome, apelido, datajud_index, movimentos_hash, movimentos_recentes, created_at, ultima_verificacao')
+    .select('id, user_id, numero, nome, apelido, datajud_index, movimentos_hash, movimentos_recentes, created_at, ultima_mov_data')
     .not('numero', 'is', null)
     .neq('status', 'Arquivado')
-    .order('ultima_verificacao', { ascending: true, nullsFirst: true });
+    .or(`ultima_verificacao.is.null,ultima_verificacao.lte.${limite20h}`)
+    .order('ultima_verificacao', { ascending: true, nullsFirst: true })
+    .limit(300);
 
   if (error) return res.status(500).json({ erro: error.message });
 
@@ -65,6 +71,7 @@ async function rodarDatajud(admin, res, hoje) {
 
   return res.status(200).json({
     ok: true, tipo: 'datajud', hoje,
+    processosNaFila: processos?.length || 0,
     datajud: atualizadosDatajud,
     djen: atualizadosDJEN,
     elapsed: Math.round((Date.now() - startAt) / 1000) + 's',
@@ -91,7 +98,10 @@ async function sincronizarDatajudUm(proc, admin, hoje) {
   if ((proc.created_at || '').slice(0, 10) === hoje) return false;
   try {
     const hits = await buscarNoDatajud(proc.datajud_index, proc.numero);
-    if (!hits?.length) return false;
+    if (!hits?.length) {
+      await admin.from('processos').update({ ultima_verificacao: new Date().toISOString() }).eq('id', proc.id);
+      return false;
+    }
 
     const todosMovs = (hits[0]._source.movimentos || [])
       .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))
@@ -99,15 +109,15 @@ async function sincronizarDatajudUm(proc, admin, hoje) {
       .map(m => ({ nome: m.nome, data: parsarData(m.dataHora) }));
 
     const novoHash = todosMovs.slice(0, 6).map(m => m.data + m.nome).join('|');
+
     if (novoHash === proc.movimentos_hash) {
-      // Atualiza ultima_verificacao mesmo sem mudança — mantém a rotação
       await admin.from('processos').update({ ultima_verificacao: new Date().toISOString() }).eq('id', proc.id);
       return false;
     }
 
-    const importadoEm = (proc.created_at || '').slice(0, 10);
-    const seteDias    = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
-    const todosNovos  = proc.movimentos_hash
+    const importadoEm   = (proc.created_at || '').slice(0, 10);
+    const seteDias      = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const todosNovos    = proc.movimentos_hash
       ? todosMovs.filter(m => !proc.movimentos_hash.includes(m.data + m.nome))
       : todosMovs.slice(0, 1);
     const novosRecentes = todosNovos.filter(m => m.data && m.data >= seteDias && (!importadoEm || m.data >= importadoEm));
