@@ -953,14 +953,33 @@
           </div>
           <div class="form-field">
             <label class="form-label" style="display:flex;align-items:center;gap:6px">
-              OAB
+              OABs
               <span style="font-size:10px;background:#fef3c7;color:#92400e;font-weight:700;padding:1px 7px;border-radius:10px">OBRIGATÓRIA</span>
             </label>
-            <input type="text" id="config-oab" class="form-input" placeholder="DF 00000" style="font-family:monospace;letter-spacing:.04em">
-            <div style="font-size:11px;color:var(--gray-400);margin-top:5px">
-              Formato: UF + número. Ex: <b>DF 12345</b> ou <b>GO 50723</b>.<br>
-              Múltiplas OABs? Separe por vírgula: <b>DF 12345, GO 50723</b>.<br>
-              <span style="color:#d97706;font-weight:500">Necessária para o monitoramento automático do DJEN.</span>
+            <div id="oab-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;min-height:28px"></div>
+            <div style="display:flex;gap:6px;align-items:center">
+              <select id="oab-add-uf" class="form-select" style="width:78px;flex-shrink:0">
+                <option value="">UF</option>
+                <option>AC</option><option>AL</option><option>AP</option><option>AM</option>
+                <option>BA</option><option>CE</option><option>DF</option><option>ES</option>
+                <option>GO</option><option>MA</option><option>MT</option><option>MS</option>
+                <option>MG</option><option>PA</option><option>PB</option><option>PR</option>
+                <option>PE</option><option>PI</option><option>RJ</option><option>RN</option>
+                <option>RS</option><option>RO</option><option>RR</option><option>SC</option>
+                <option>SE</option><option>SP</option><option>TO</option>
+              </select>
+              <input type="text" id="oab-add-num" class="form-input" placeholder="Número, ex: 50723"
+                style="font-family:monospace;letter-spacing:.04em" maxlength="7"
+                oninput="this.value=this.value.replace(/\D/g,'')"
+                onkeydown="if(event.key==='Enter'){event.preventDefault();_oabAdicionarChip();}">
+              <button type="button" onclick="_oabAdicionarChip()" class="btn-secondary" style="white-space:nowrap;flex-shrink:0">
+                <i class="ti ti-plus"></i> Adicionar
+              </button>
+            </div>
+            <input type="hidden" id="config-oab">
+            <div style="font-size:11px;color:var(--gray-400);margin-top:8px">
+              <span style="color:#d97706;font-weight:500">Necessária para monitoramento automático do DJEN.</span>
+              Advogados que atuam em vários estados devem adicionar todas as OABs.
             </div>
           </div>
           <div class="form-field">

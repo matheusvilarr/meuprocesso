@@ -2,8 +2,9 @@
 // ?tipo=datajud (padrão) — atualiza movimentos de todos os processos no DataJud + DJEN
 // ?tipo=oab     — varre todos os tribunais pela OAB do advogado buscando processos novos
 //
-// DataJud: time guard de 45s, rotação por ultima_verificacao (processa os mais desatualizados primeiro).
-// Com 5 runs/dia × ~150 processos/run, todos os processos são cobertos diariamente.
+// DataJud: filtro de 20h (browser cobre usuários ativos). Time guard 45s.
+// DJEN: roda em TODOS os processos ativos a cada execução, sem filtro de inatividade.
+//       Usa OABs do titular + todos os colaboradores ativos do escritório.
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -45,10 +46,8 @@ export default async function handler(req, res) {
 
 async function rodarDatajud(admin, res, hoje) {
   const startAt = Date.now();
-  const agora   = new Date().toISOString();
 
-  // O browser do usuário sincroniza em tempo real enquanto o dashboard está aberto.
-  // O servidor só entra para cobrir usuários que não abriram o browser nas últimas 20h.
+  // DataJud: browser cobre usuários ativos — servidor só entra para quem ficou 20h+ sem abrir.
   const limite20h = new Date(Date.now() - 20 * 3600 * 1000).toISOString();
   const { data: processos, error } = await admin
     .from('processos')
@@ -61,17 +60,25 @@ async function rodarDatajud(admin, res, hoje) {
 
   if (error) return res.status(500).json({ erro: error.message });
 
-  const userIds        = [...new Set((processos || []).map(p => p.user_id))];
-  const oabsPorUsuario = await buscarOabsUsuarios(admin, userIds);
+  // DJEN: sem filtro de inatividade — verifica todos os processos todos os dias.
+  const { data: todosProcessos } = await admin
+    .from('processos')
+    .select('id, user_id, numero, movimentos_recentes, created_at')
+    .not('numero', 'is', null)
+    .neq('status', 'Arquivado');
+
+  const djenUserIds    = [...new Set((todosProcessos || []).map(p => p.user_id))];
+  const oabsPorUsuario = await buscarOabsUsuarios(admin, djenUserIds);
 
   const [atualizadosDatajud, atualizadosDJEN] = await Promise.all([
     sincronizarDatajud(processos, admin, hoje, startAt),
-    sincronizarDJEN(processos, oabsPorUsuario, admin, hoje),
+    sincronizarDJEN(todosProcessos || [], oabsPorUsuario, admin, hoje),
   ]);
 
   return res.status(200).json({
     ok: true, tipo: 'datajud', hoje,
     processosNaFila: processos?.length || 0,
+    todosParaDJEN: todosProcessos?.length || 0,
     datajud: atualizadosDatajud,
     djen: atualizadosDJEN,
     elapsed: Math.round((Date.now() - startAt) / 1000) + 's',
@@ -308,15 +315,44 @@ function normalizarDescoberta(p, index) {
 
 async function buscarOabsUsuarios(admin, userIds) {
   const result = {};
+
+  const parseOab = raw =>
+    (raw || '').split(',').map(s => s.trim()).filter(Boolean).map(o => {
+      const m = o.toUpperCase().replace(/\./g, '').match(/^(?:OAB[/ ]?)?([A-Z]{2})[/ ]?(\d{3,6})$/);
+      return m ? { uf: m[1], num: m[2] } : null;
+    }).filter(Boolean);
+
+  // Colaboradores ativos de todos os escritórios de uma vez
+  const { data: colabs } = await admin
+    .from('colaboradores')
+    .select('escritorio_id, user_id')
+    .in('escritorio_id', userIds)
+    .eq('status', 'ativo');
+
+  const colabPorEscritorio = {};
+  for (const c of colabs || []) {
+    (colabPorEscritorio[c.escritorio_id] ||= []).push(c.user_id);
+  }
+
   for (const uid of userIds) {
     try {
+      const oabs = new Map(); // chave `${uf}${num}` para deduplicar
+
+      // OAB do titular
       const { data: ud } = await admin.auth.admin.getUserById(uid);
-      const oabRaw = ud?.user?.user_metadata?.oab || '';
-      if (!oabRaw) continue;
-      result[uid] = oabRaw.split(',').map(s => s.trim()).filter(Boolean).map(o => {
-        const m = o.toUpperCase().replace(/\./g, '').match(/^(?:OAB[/ ]?)?([A-Z]{2})[/ ]?(\d{3,6})$/);
-        return m ? { uf: m[1], num: m[2] } : null;
-      }).filter(Boolean);
+      for (const oab of parseOab(ud?.user?.user_metadata?.oab)) {
+        oabs.set(`${oab.uf}${oab.num}`, oab);
+      }
+
+      // OABs dos colaboradores ativos do escritório
+      for (const colabId of colabPorEscritorio[uid] || []) {
+        const { data: cu } = await admin.auth.admin.getUserById(colabId);
+        for (const oab of parseOab(cu?.user?.user_metadata?.oab)) {
+          oabs.set(`${oab.uf}${oab.num}`, oab);
+        }
+      }
+
+      if (oabs.size) result[uid] = [...oabs.values()];
     } catch (_) {}
   }
   return result;

@@ -771,7 +771,7 @@ async function buscarAdvogadoDJEN() {
       showToast('Cadastre sua OAB nas configurações para buscar no DJEN.', 'warning');
       closeModal('modal-busca-tribunal');
       showPage('configuracoes');
-      setTimeout(() => document.getElementById('config-oab')?.focus(), 400);
+      setTimeout(() => document.getElementById('oab-add-uf')?.focus(), 400);
       return;
     }
     showToast('Informe OAB ou nome do advogado.');
@@ -3805,6 +3805,54 @@ function aplicarAvatarSidebar() {
   }
 }
 
+// ── OAB CHIPS ─────────────────────────────────────────────────────────────────
+
+function _oabRenderChips() {
+  const hiddenEl = document.getElementById('config-oab');
+  const chipsEl  = document.getElementById('oab-chips');
+  if (!chipsEl || !hiddenEl) return;
+  const oabs = (hiddenEl.value || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (!oabs.length) {
+    chipsEl.innerHTML = '<span style="font-size:12px;color:var(--gray-400);font-style:italic;line-height:28px">Nenhuma OAB cadastrada</span>';
+    return;
+  }
+  chipsEl.innerHTML = oabs.map((oab, i) => `
+    <span style="display:inline-flex;align-items:center;gap:5px;background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:7px;padding:5px 11px;font-size:13px;font-weight:700;font-family:monospace;color:#1e3a5f;letter-spacing:.04em">
+      ${oab}
+      <button type="button" onclick="_oabRemoverChip(${i})" title="Remover" style="background:none;border:none;cursor:pointer;padding:0 0 0 3px;font-size:15px;line-height:1;color:#93c5fd;transition:color .15s" onmouseover="this.style.color='#dc2626'" onmouseout="this.style.color='#93c5fd'">×</button>
+    </span>
+  `).join('');
+}
+
+function _oabAdicionarChip() {
+  const uf  = (document.getElementById('oab-add-uf')?.value  || '').trim().toUpperCase();
+  const num = (document.getElementById('oab-add-num')?.value || '').trim();
+  if (!uf)  { showToast('Selecione a UF da OAB.', 'warning');    return; }
+  if (!num) { showToast('Informe o número da OAB.', 'warning');   return; }
+  const nova     = `${uf} ${num}`;
+  const hiddenEl = document.getElementById('config-oab');
+  const atual    = (hiddenEl.value || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (atual.some(o => o.toUpperCase() === nova)) { showToast('Esta OAB já está cadastrada.', 'warning'); return; }
+  atual.push(nova);
+  hiddenEl.value = atual.join(', ');
+  _oabRenderChips();
+  document.getElementById('oab-add-uf').value  = '';
+  document.getElementById('oab-add-num').value = '';
+  document.getElementById('oab-add-uf').focus();
+  const alertaOAB = document.getElementById('config-oab-alerta');
+  if (alertaOAB) alertaOAB.style.display = 'none';
+}
+
+function _oabRemoverChip(idx) {
+  const hiddenEl = document.getElementById('config-oab');
+  const atual    = (hiddenEl.value || '').split(',').map(s => s.trim()).filter(Boolean);
+  atual.splice(idx, 1);
+  hiddenEl.value = atual.join(', ');
+  _oabRenderChips();
+  const alertaOAB = document.getElementById('config-oab-alerta');
+  if (alertaOAB) alertaOAB.style.display = atual.length ? 'none' : 'flex';
+}
+
 function carregarConfiguracoes() {
   const meta  = window._user?.user_metadata || {};
   const nome  = meta.full_name || meta.nome || '';
@@ -3827,14 +3875,11 @@ function carregarConfiguracoes() {
   if (oabEl) oabEl.value = meta.oab        || '';
   if (telEl) telEl.value = meta.telefone   || '';
 
+  _oabRenderChips();
+
   // Mostra alerta se OAB não preenchida
   const alertaOAB = document.getElementById('config-oab-alerta');
-  if (alertaOAB) alertaOAB.style.display = meta.oab ? 'none' : 'flex';
-
-  // Esconde alerta ao preencher OAB
-  if (oabEl) oabEl.addEventListener('input', function () {
-    if (alertaOAB) alertaOAB.style.display = this.value.trim() ? 'none' : 'flex';
-  }, { once: false });
+  if (alertaOAB) alertaOAB.style.display = (meta.oab || '').trim() ? 'none' : 'flex';
 
   const picker = document.getElementById('config-color-picker');
   if (picker) {
@@ -5521,7 +5566,7 @@ async function rodarMonitorDJe() {
     if (!oabPerfil) {
       showToast('Cadastre sua OAB nas configurações para buscar no DJEN.', 'warning');
       showPage('configuracoes');
-      setTimeout(() => document.getElementById('config-oab')?.focus(), 400);
+      setTimeout(() => document.getElementById('oab-add-uf')?.focus(), 400);
       return;
     }
     showToast('Informe OAB ou nome do advogado.');
