@@ -129,8 +129,14 @@ async function sincronizarDatajudUm(proc, admin, hoje) {
       : todosMovs.slice(0, 1);
     const novosRecentes = todosNovos.filter(m => m.data && m.data >= seteDias && (!importadoEm || m.data >= importadoEm));
 
+    // Preserva movimentos DJEN existentes — DataJud não deve apagá-los
+    const djenExistentes = (proc.movimentos_recentes || []).filter(m => (m.nome || '').startsWith('DJEN'));
+    const movimentosFinal = [...todosMovs, ...djenExistentes]
+      .sort((a, b) => (b.data || '') > (a.data || '') ? 1 : -1)
+      .slice(0, 100);
+
     const update = {
-      movimentos_recentes: todosMovs,
+      movimentos_recentes: movimentosFinal,
       movimentos_hash:     novoHash,
       ultima_verificacao:  new Date().toISOString(),
     };
@@ -174,7 +180,10 @@ async function sincronizarDJEN(processos, oabsPorUsuario, admin, hoje) {
           if (!numeroSet.has(num)) continue;
           const proc = processos.find(p => p.numero === num && p.user_id === uid);
           if (!proc || (proc.created_at || '').slice(0, 10) === hoje) continue;
-          const movDJEN = { nome: `DJEN — ${item.tipoComunicacao || 'Publicação'}`, data: (item.data_disponibilizacao || hoje) + 'T00:00:00' };
+          const dataPub = item.data_disponibilizacao || hoje;
+          // Guard: ignora publicações fora da janela consultada (API pode devolver itens antigos)
+          if (dataPub < ontem) continue;
+          const movDJEN = { nome: `DJEN — ${item.tipoComunicacao || 'Publicação'}`, data: dataPub + 'T00:00:00' };
           const movsAtuais = proc.movimentos_recentes || [];
           if (movsAtuais.some(m => m.data === movDJEN.data && m.nome === movDJEN.nome)) continue;
           await admin.from('processos').update({
