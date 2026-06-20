@@ -274,11 +274,23 @@ function _datajudIndexFromNumero(numero) {
   if (seg === '3') return 'api_publica_stj';
   if (seg === '4' && trib >= 1 && trib <= 6)  return `api_publica_trf${trib}`;
   if (seg === '5' && trib >= 1 && trib <= 24) return `api_publica_trt${trib}`;
+  if (seg === '6') {
+    const ufsTre = ['','ac','al','ap','am','ba','ce','df','es','go','ma','mt','ms','mg','pa','pb','pr','pe','pi','rj','rn','rs','ro','rr','sc','se','sp','to'];
+    const uf = ufsTre[trib];
+    if (!uf) return null;
+    return `api_publica_tre_${uf}`;
+  }
   if (seg === '8') {
     const ufs = ['','ac','al','ap','am','ba','ce','dft','es','go','ma','mt','ms','mg','pa','pb','pr','pe','pi','rj','rn','rs','ro','rr','sc','se','sp','to'];
     const uf = ufs[trib];
     if (!uf) return null;
     return uf === 'dft' ? 'api_publica_tjdft' : `api_publica_tj${uf}`;
+  }
+  if (seg === '9') {
+    if (trib === 13) return 'api_publica_tjmmg';
+    if (trib === 21) return 'api_publica_tjmrs';
+    if (trib === 26) return 'api_publica_tjmsp';
+    return null;
   }
   return null;
 }
@@ -427,12 +439,17 @@ async function buscarOabsUsuarios(admin, userIds) {
     todosIds.add(c.user_id);
   }
 
-  // Um único listUsers no lugar de N chamadas getUserById sequenciais
+  // Um único listUsers paginado no lugar de N chamadas getUserById sequenciais
   const metaMap = {};
   try {
-    const { data: listResult } = await admin.auth.admin.listUsers({ perPage: 1000 });
-    for (const u of listResult?.users || []) {
-      metaMap[u.id] = u.user_metadata?.oab;
+    let page = 1;
+    while (true) {
+      const { data: listResult, error: listErr } = await admin.auth.admin.listUsers({ perPage: 1000, page });
+      if (listErr) throw listErr;
+      const users = listResult?.users || [];
+      for (const u of users) metaMap[u.id] = u.user_metadata?.oab;
+      if (users.length < 1000) break;
+      page++;
     }
   } catch (e) {
     await logErro(admin, 'cron:buscar-oabs', e.message, {});

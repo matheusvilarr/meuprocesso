@@ -83,10 +83,16 @@ async function rodarMorning(admin, res, hoje) {
   for (const userId of userIds) {
     if (await jaNotificouHoje(admin, userId, 'morning', hoje)) continue;
 
-    const { data: ud } = await admin.auth.admin.getUserById(userId);
-    const email = ud?.user?.email;
-    if (!email) continue;
-    const nome = ud.user.user_metadata?.full_name || ud.user.user_metadata?.nome || email.split('@')[0];
+    let email, nome;
+    try {
+      const { data: ud } = await admin.auth.admin.getUserById(userId);
+      email = ud?.user?.email;
+      if (!email) continue;
+      nome = ud.user.user_metadata?.full_name || ud.user.user_metadata?.nome || email.split('@')[0];
+    } catch (e) {
+      await logErro(admin, 'cron:email-morning', e.message, { userId }, userId);
+      continue;
+    }
 
     const { atualizacoes, novosProcessos } = porUsuario[userId];
     try {
@@ -157,10 +163,16 @@ async function rodarAfternoon(admin, res, hoje) {
     if (!dados.atualizacoes.length && !dados.novosProcessos.length && !dados.prazos.length) continue;
     if (await jaNotificouHoje(admin, userId, 'afternoon', hoje)) continue;
 
-    const { data: ud } = await admin.auth.admin.getUserById(userId);
-    const email = ud?.user?.email;
-    if (!email) continue;
-    const nome = ud.user.user_metadata?.full_name || ud.user.user_metadata?.nome || email.split('@')[0];
+    let email, nome;
+    try {
+      const { data: ud } = await admin.auth.admin.getUserById(userId);
+      email = ud?.user?.email;
+      if (!email) continue;
+      nome = ud.user.user_metadata?.full_name || ud.user.user_metadata?.nome || email.split('@')[0];
+    } catch (e) {
+      await logErro(admin, 'cron:email-afternoon', e.message, { userId }, userId);
+      continue;
+    }
 
     try {
       await enviarAlertaAfternoon(email, nome, dados.atualizacoes, dados.prazos, dados.novosProcessos);
@@ -204,10 +216,16 @@ async function rodarEvening(admin, res, hoje) {
   for (const [userId, lista] of Object.entries(prazosPorUsuario)) {
     if (await jaNotificouHoje(admin, userId, 'evening', hoje)) continue;
 
-    const { data: ud } = await admin.auth.admin.getUserById(userId);
-    const email = ud?.user?.email;
-    if (!email) continue;
-    const nome = ud.user.user_metadata?.full_name || ud.user.user_metadata?.nome || email.split('@')[0];
+    let email, nome;
+    try {
+      const { data: ud } = await admin.auth.admin.getUserById(userId);
+      email = ud?.user?.email;
+      if (!email) continue;
+      nome = ud.user.user_metadata?.full_name || ud.user.user_metadata?.nome || email.split('@')[0];
+    } catch (e) {
+      await logErro(admin, 'cron:email-evening', e.message, { userId }, userId);
+      continue;
+    }
 
     try {
       await enviarAlertaEvening(email, nome, lista, hoje);

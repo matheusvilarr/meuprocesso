@@ -24,6 +24,48 @@
 
     <main class="adm-main">
 
+      <!-- STATS -->
+      <div class="adm-stats">
+        <div class="adm-stat-card adm-stat-blue">
+          <i class="ti ti-users adm-stat-icon"></i>
+          <div class="adm-stat-value" id="stat-total">—</div>
+          <div class="adm-stat-label">Advogados cadastrados</div>
+        </div>
+        <div class="adm-stat-card adm-stat-indigo">
+          <i class="ti ti-files adm-stat-icon"></i>
+          <div class="adm-stat-value" id="stat-processos">—</div>
+          <div class="adm-stat-label">Processos ativos</div>
+        </div>
+        <div class="adm-stat-card adm-stat-amber">
+          <i class="ti ti-mail-forward adm-stat-icon"></i>
+          <div class="adm-stat-value" id="stat-convites">—</div>
+          <div class="adm-stat-label">Convites pendentes</div>
+        </div>
+        <div class="adm-stat-card adm-stat-red">
+          <i class="ti ti-lock adm-stat-icon"></i>
+          <div class="adm-stat-value" id="stat-bloqueados">—</div>
+          <div class="adm-stat-label">Bloqueados</div>
+        </div>
+        <div class="adm-stat-card adm-stat-red">
+          <i class="ti ti-mail-x adm-stat-icon"></i>
+          <div class="adm-stat-value" id="stat-sem-confirmar">—</div>
+          <div class="adm-stat-label">E-mail não confirmado</div>
+        </div>
+      </div>
+
+      <!-- CRON SCHEDULE -->
+      <div class="cron-schedule">
+        <div class="cron-schedule-header">
+          <div class="cron-schedule-title">
+            <i class="ti ti-clock-2"></i> Agenda de notificações
+          </div>
+          <div class="cron-now-brt" id="cron-now-brt">— : — BRT</div>
+        </div>
+        <div class="cron-grid" id="cron-grid">
+          <div style="color:#9f9f98;font-size:13px;padding:8px 0;">Carregando…</div>
+        </div>
+      </div>
+
       <nav class="adm-tabs">
         <button class="adm-tab active" data-tab="advogados"><i class="ti ti-users"></i> Advogados</button>
         <button class="adm-tab" data-tab="sincronizacoes"><i class="ti ti-refresh"></i> Sincronizações</button>
@@ -31,30 +73,6 @@
         <button class="adm-tab" data-tab="codigos"><i class="ti ti-ticket"></i> Códigos de convite</button>
         <button class="adm-tab" data-tab="admins"><i class="ti ti-shield-lock"></i> Administradores</button>
       </nav>
-
-      <!-- STATS -->
-      <div class="adm-stats">
-        <div class="adm-stat-card">
-          <div class="adm-stat-value" id="stat-total">—</div>
-          <div class="adm-stat-label">Advogados cadastrados</div>
-        </div>
-        <div class="adm-stat-card">
-          <div class="adm-stat-value" id="stat-processos">—</div>
-          <div class="adm-stat-label">Processos ativos</div>
-        </div>
-        <div class="adm-stat-card">
-          <div class="adm-stat-value" id="stat-convites">—</div>
-          <div class="adm-stat-label">Convites pendentes</div>
-        </div>
-        <div class="adm-stat-card warn">
-          <div class="adm-stat-value" id="stat-bloqueados">—</div>
-          <div class="adm-stat-label">Bloqueados</div>
-        </div>
-        <div class="adm-stat-card warn">
-          <div class="adm-stat-value" id="stat-sem-confirmar">—</div>
-          <div class="adm-stat-label">E-mail não confirmado</div>
-        </div>
-      </div>
 
       <!-- ADVOGADOS -->
       <section id="tab-advogados" class="adm-panel">

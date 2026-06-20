@@ -36,6 +36,94 @@ async function init() {
   renderCodigos();
   renderAdmins();
   setupTabs();
+  renderCronSchedule();
+  startCronClock();
+}
+
+// ── CRON SCHEDULE ──────────────────────────────────────────────────────────────
+
+const CRON_DEFS = [
+  // dias úteis
+  { name: 'Sincronizar DataJud+DJEN', utcH: 8,  utcM: 0,  days: [1,2,3,4,5], icon: 'ti-refresh',   color: '#3b82f6', label: '5h BRT · seg–sex' },
+  { name: 'E-mail Morning',           utcH: 11, utcM: 0,  days: [1,2,3,4,5], icon: 'ti-sun',        color: '#f59e0b', label: '8h BRT · seg–sex' },
+  { name: 'Sincronizar DataJud+DJEN', utcH: 15, utcM: 0,  days: [1,2,3,4,5], icon: 'ti-refresh',   color: '#3b82f6', label: '12h BRT · seg–sex' },
+  { name: 'E-mail Tarde',             utcH: 16, utcM: 0,  days: [1,2,3,4,5], icon: 'ti-mail',       color: '#f97316', label: '13h BRT · seg–sex' },
+  { name: 'E-mail Noite',             utcH: 20, utcM: 0,  days: [1,2,3,4,5], icon: 'ti-moon',       color: '#8b5cf6', label: '17h BRT · seg–sex' },
+  { name: 'OAB Scan',                 utcH: 21, utcM: 30, days: [1,2,3,4,5], icon: 'ti-id-badge-2', color: '#10b981', label: '18h30 BRT · seg–sex' },
+  // fins de semana
+  { name: 'Sincronizar DataJud+DJEN', utcH: 11, utcM: 0,  days: [0,6],       icon: 'ti-refresh',   color: '#3b82f6', label: '8h BRT · fim de semana' },
+  { name: 'E-mail Morning',           utcH: 11, utcM: 30, days: [0,6],       icon: 'ti-sun',        color: '#f59e0b', label: '8h30 BRT · fim de semana' },
+  { name: 'OAB Scan',                 utcH: 21, utcM: 0,  days: [0,6],       icon: 'ti-id-badge-2', color: '#10b981', label: '18h BRT · fim de semana' },
+];
+
+function nextFire(utcH, utcM, days) {
+  const now = Date.now();
+  for (let d = 0; d <= 7; d++) {
+    const t = new Date(now);
+    t.setUTCDate(t.getUTCDate() + d);
+    t.setUTCHours(utcH, utcM, 0, 0);
+    if (days.includes(t.getUTCDay()) && t.getTime() > now) return t;
+  }
+  return null;
+}
+
+function formatCountdown(ms) {
+  if (ms <= 0) return 'agora';
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  if (h >= 24) {
+    const dias = Math.floor(h / 24);
+    return `em ${dias}d ${h % 24}h`;
+  }
+  if (h > 0) return `em ${h}h ${m}min`;
+  return `em ${m}min`;
+}
+
+function countdownClass(ms) {
+  if (ms < 30 * 60000)  return 'cron-urgente';
+  if (ms < 120 * 60000) return 'cron-proximo';
+  return 'cron-ok';
+}
+
+function renderCronSchedule() {
+  const now = Date.now();
+  const brtDate = new Date(now - 3 * 3600000);
+  const brtH = String(brtDate.getUTCHours()).padStart(2, '0');
+  const brtM = String(brtDate.getUTCMinutes()).padStart(2, '0');
+  document.getElementById('cron-now-brt').textContent = `Agora: ${brtH}:${brtM} BRT`;
+
+  const items = CRON_DEFS.map(c => {
+    const fire = nextFire(c.utcH, c.utcM, c.days);
+    const ms   = fire ? fire.getTime() - now : null;
+    const brtFire = fire ? new Date(fire.getTime() - 3 * 3600000) : null;
+    const brtStr  = brtFire
+      ? `${String(brtFire.getUTCHours()).padStart(2,'0')}:${String(brtFire.getUTCMinutes()).padStart(2,'0')}`
+      : '—';
+    return { ...c, fire, ms, brtStr };
+  }).sort((a, b) => (a.ms ?? Infinity) - (b.ms ?? Infinity));
+
+  document.getElementById('cron-grid').innerHTML = items.map(c => `
+    <div class="cron-item ${c.ms != null ? countdownClass(c.ms) : ''}">
+      <div class="cron-item-icon" style="background:${c.color}20;color:${c.color};">
+        <i class="ti ${c.icon}"></i>
+      </div>
+      <div class="cron-item-body">
+        <div class="cron-item-name">${c.name}</div>
+        <div class="cron-item-label">${c.label}</div>
+      </div>
+      <div class="cron-item-next">
+        ${c.ms != null
+          ? `<span class="cron-countdown">${formatCountdown(c.ms)}</span><span class="cron-fire-time">${c.brtStr} BRT</span>`
+          : '<span style="color:#9f9f98;font-size:12px;">—</span>'}
+      </div>
+    </div>
+  `).join('');
+}
+
+let _cronClockTimer = null;
+function startCronClock() {
+  if (_cronClockTimer) clearInterval(_cronClockTimer);
+  _cronClockTimer = setInterval(renderCronSchedule, 30000);
 }
 
 function renderStats() {
