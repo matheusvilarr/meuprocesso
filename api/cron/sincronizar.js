@@ -191,39 +191,91 @@ async function _djenUsuario(uid, processos, oabsPorUsuario, numeroSet, admin, ho
       const dataPub = item.data_disponibilizacao || hoje;
       if (dataPub < ontem) continue;
 
-      const PADRAO = /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/g;
-      const nums = [...new Set(
-        (item.numeroprocessocommascara ? [item.numeroprocessocommascara] : [])
-          .concat((item.texto || '').match(PADRAO) || [])
-      )];
-      for (const num of nums) {
-        if (!numeroSet.has(num)) continue;
+      const movDJEN = { nome: `DJEN — ${item.tipoComunicacao || 'Publicação'}`, data: dataPub + 'T00:00:00' };
+      const PADRAO  = /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/g;
+
+      // Número principal da publicação: auto-importar se ainda não cadastrado
+      const numPrincipal = item.numeroprocessocommascara;
+      if (numPrincipal) {
+        const proc = processos.find(p => p.numero === numPrincipal && p.user_id === uid);
+        if (!proc) {
+          const importado = await _djenAutoImportar(numPrincipal, uid, movDJEN, admin);
+          if (importado) atualizados++;
+        } else if ((proc.created_at || '').slice(0, 10) !== hoje) {
+          const ok = await _djenAtualizarProcesso(proc.id, movDJEN, admin);
+          if (ok) atualizados++;
+        }
+      }
+
+      // Números citados no texto: só atualizar processos já cadastrados (evita falsos positivos)
+      const numsTexto = [...new Set((item.texto || '').match(PADRAO) || [])]
+        .filter(n => n !== numPrincipal && numeroSet.has(n));
+      for (const num of numsTexto) {
         const proc = processos.find(p => p.numero === num && p.user_id === uid);
         if (!proc || (proc.created_at || '').slice(0, 10) === hoje) continue;
-
-        const movDJEN = { nome: `DJEN — ${item.tipoComunicacao || 'Publicação'}`, data: dataPub + 'T00:00:00' };
-
-        // Lê movimentos_recentes frescos do banco (DataJud pode ter atualizado logo antes)
-        const { data: procFresh } = await admin.from('processos')
-          .select('movimentos_recentes')
-          .eq('id', proc.id)
-          .single();
-        const movsAtuais = procFresh?.movimentos_recentes || [];
-        if (movsAtuais.some(m => m.data === movDJEN.data && m.nome === movDJEN.nome)) continue;
-
-        await admin.from('processos').update({
-          movimentos_recentes:  [movDJEN, ...movsAtuais].slice(0, 100),
-          ultima_verificacao:   new Date().toISOString(),
-          notificacao_pendente: true,
-          novos_movimentos:     [movDJEN],
-        }).eq('id', proc.id);
-        atualizados++;
+        const ok = await _djenAtualizarProcesso(proc.id, movDJEN, admin);
+        if (ok) atualizados++;
       }
     }
   } catch (e) {
     await logErro(admin, 'cron:djen', e.message, { oabs }, uid);
   }
   return atualizados;
+}
+
+async function _djenAtualizarProcesso(processoId, movDJEN, admin) {
+  const { data: procFresh } = await admin.from('processos')
+    .select('movimentos_recentes').eq('id', processoId).single();
+  const movsAtuais = procFresh?.movimentos_recentes || [];
+  if (movsAtuais.some(m => m.data === movDJEN.data && m.nome === movDJEN.nome)) return false;
+  await admin.from('processos').update({
+    movimentos_recentes:  [movDJEN, ...movsAtuais].slice(0, 100),
+    ultima_verificacao:   new Date().toISOString(),
+    notificacao_pendente: true,
+    novos_movimentos:     [movDJEN],
+  }).eq('id', processoId);
+  return true;
+}
+
+async function _djenAutoImportar(numero, userId, movDJEN, admin) {
+  try {
+    const { data: existente } = await admin.from('processos')
+      .select('id').eq('user_id', userId).eq('numero', numero).maybeSingle();
+    if (existente) return false;
+
+    await admin.from('processos').insert({
+      user_id:              userId,
+      numero,
+      nome:                 numero,  // DataJud preenche no próximo cron
+      status:               'Ativo',
+      datajud_index:        _datajudIndexFromNumero(numero),
+      movimentos_recentes:  [movDJEN],
+      novos_movimentos:     [movDJEN],
+      notificacao_pendente: true,
+      ultima_verificacao:   new Date().toISOString(),
+    });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+// Deriva o índice DataJud a partir do número CNJ (NNNNNNN-DD.AAAA.J.TT.OOOO)
+function _datajudIndexFromNumero(numero) {
+  const m = (numero || '').match(/\d{7}-\d{2}\.\d{4}\.(\d)\.(\d{2})\.\d{4}/);
+  if (!m) return null;
+  const seg = m[1], trib = parseInt(m[2], 10);
+  if (seg === '1') return 'api_publica_stf';
+  if (seg === '3') return 'api_publica_stj';
+  if (seg === '4' && trib >= 1 && trib <= 6)  return `api_publica_trf${trib}`;
+  if (seg === '5' && trib >= 1 && trib <= 24) return `api_publica_trt${trib}`;
+  if (seg === '8') {
+    const ufs = ['','ac','al','ap','am','ba','ce','dft','es','go','ma','mt','ms','mg','pa','pb','pr','pe','pi','rj','rn','rs','ro','rr','sc','se','sp','to'];
+    const uf = ufs[trib];
+    if (!uf) return null;
+    return uf === 'dft' ? 'api_publica_tjdft' : `api_publica_tj${uf}`;
+  }
+  return null;
 }
 
 // ── OAB SCAN — busca processos novos por OAB em todos os tribunais ────────────
