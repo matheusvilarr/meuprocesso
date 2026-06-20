@@ -60,7 +60,7 @@ async function rodarDatajud(admin, res, hoje) {
 
   if (error) return res.status(500).json({ erro: error.message });
 
-  // DJEN: sem filtro de inatividade — verifica todos os processos todos os dias.
+  // OABs buscadas antes — uma chamada listUsers no lugar de N getUserById sequenciais
   const { data: todosProcessos } = await admin
     .from('processos')
     .select('id, user_id, numero, movimentos_recentes, created_at')
@@ -70,10 +70,17 @@ async function rodarDatajud(admin, res, hoje) {
   const djenUserIds    = [...new Set((todosProcessos || []).map(p => p.user_id))];
   const oabsPorUsuario = await buscarOabsUsuarios(admin, djenUserIds);
 
-  const [atualizadosDatajud, atualizadosDJEN] = await Promise.all([
-    sincronizarDatajud(processos, admin, hoje, startAt),
-    sincronizarDJEN(todosProcessos || [], oabsPorUsuario, admin, hoje),
-  ]);
+  // DataJud primeiro, DJEN depois com dados frescos — evita race condition
+  const atualizadosDatajud = await sincronizarDatajud(processos, admin, hoje, startAt);
+
+  // Re-carrega movimentos_recentes depois que DataJud atualizou
+  const { data: todosProcessosFresh } = await admin
+    .from('processos')
+    .select('id, user_id, numero, movimentos_recentes, created_at')
+    .not('numero', 'is', null)
+    .neq('status', 'Arquivado');
+
+  const atualizadosDJEN = await sincronizarDJEN(todosProcessosFresh || [], oabsPorUsuario, admin, hoje);
 
   return res.status(200).json({
     ok: true, tipo: 'datajud', hoje,
@@ -155,49 +162,66 @@ async function sincronizarDatajudUm(proc, admin, hoje) {
 // ── DJEN ─────────────────────────────────────────────────────────────────────
 
 async function sincronizarDJEN(processos, oabsPorUsuario, admin, hoje) {
-  let atualizados = 0;
   const ontem     = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
   const numeroSet = new Set(processos.map(p => p.numero).filter(Boolean));
   const userIds   = [...new Set(processos.map(p => p.user_id))];
 
-  for (const uid of userIds) {
-    const oabs = oabsPorUsuario[uid];
-    if (!oabs?.length) continue;
-    try {
-      const reqs = oabs.map(oab =>
-        fetch(`${DJEN_API}?${new URLSearchParams({ numeroOab: oab.num, ufOab: oab.uf, dataDisponibilizacaoInicio: ontem, dataDisponibilizacaoFim: hoje, pagina: 1, tamanhoPagina: 100 })}`, { signal: AbortSignal.timeout(15000) })
-          .then(r => r.ok ? r.json() : { items: [] })
-      );
-      const items = (await Promise.all(reqs)).flatMap(r => r.items || []);
+  // Todos os usuários em paralelo — elimina gargalo sequencial
+  const resultados = await Promise.allSettled(
+    userIds.map(uid => _djenUsuario(uid, processos, oabsPorUsuario, numeroSet, admin, hoje, ontem))
+  );
 
-      for (const item of items) {
-        const PADRAO = /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/g;
-        const nums = [...new Set(
-          (item.numeroprocessocommascara ? [item.numeroprocessocommascara] : [])
-            .concat((item.texto || '').match(PADRAO) || [])
-        )];
-        for (const num of nums) {
-          if (!numeroSet.has(num)) continue;
-          const proc = processos.find(p => p.numero === num && p.user_id === uid);
-          if (!proc || (proc.created_at || '').slice(0, 10) === hoje) continue;
-          const dataPub = item.data_disponibilizacao || hoje;
-          // Guard: ignora publicações fora da janela consultada (API pode devolver itens antigos)
-          if (dataPub < ontem) continue;
-          const movDJEN = { nome: `DJEN — ${item.tipoComunicacao || 'Publicação'}`, data: dataPub + 'T00:00:00' };
-          const movsAtuais = proc.movimentos_recentes || [];
-          if (movsAtuais.some(m => m.data === movDJEN.data && m.nome === movDJEN.nome)) continue;
-          await admin.from('processos').update({
-            movimentos_recentes:  [movDJEN, ...movsAtuais].slice(0, 100),
-            ultima_verificacao:   new Date().toISOString(),
-            notificacao_pendente: true,
-            novos_movimentos:     [movDJEN],
-          }).eq('id', proc.id);
-          atualizados++;
-        }
+  return resultados.reduce((acc, r) => acc + (r.status === 'fulfilled' ? r.value : 0), 0);
+}
+
+async function _djenUsuario(uid, processos, oabsPorUsuario, numeroSet, admin, hoje, ontem) {
+  const oabs = oabsPorUsuario[uid];
+  if (!oabs?.length) return 0;
+
+  let atualizados = 0;
+  try {
+    const reqs = oabs.map(oab =>
+      fetch(`${DJEN_API}?${new URLSearchParams({ numeroOab: oab.num, ufOab: oab.uf, dataDisponibilizacaoInicio: ontem, dataDisponibilizacaoFim: hoje, pagina: 1, tamanhoPagina: 100 })}`, { signal: AbortSignal.timeout(15000) })
+        .then(r => r.ok ? r.json() : { items: [] })
+        .catch(() => ({ items: [] }))
+    );
+    const items = (await Promise.all(reqs)).flatMap(r => r.items || []);
+
+    for (const item of items) {
+      const dataPub = item.data_disponibilizacao || hoje;
+      if (dataPub < ontem) continue;
+
+      const PADRAO = /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/g;
+      const nums = [...new Set(
+        (item.numeroprocessocommascara ? [item.numeroprocessocommascara] : [])
+          .concat((item.texto || '').match(PADRAO) || [])
+      )];
+      for (const num of nums) {
+        if (!numeroSet.has(num)) continue;
+        const proc = processos.find(p => p.numero === num && p.user_id === uid);
+        if (!proc || (proc.created_at || '').slice(0, 10) === hoje) continue;
+
+        const movDJEN = { nome: `DJEN — ${item.tipoComunicacao || 'Publicação'}`, data: dataPub + 'T00:00:00' };
+
+        // Lê movimentos_recentes frescos do banco (DataJud pode ter atualizado logo antes)
+        const { data: procFresh } = await admin.from('processos')
+          .select('movimentos_recentes')
+          .eq('id', proc.id)
+          .single();
+        const movsAtuais = procFresh?.movimentos_recentes || [];
+        if (movsAtuais.some(m => m.data === movDJEN.data && m.nome === movDJEN.nome)) continue;
+
+        await admin.from('processos').update({
+          movimentos_recentes:  [movDJEN, ...movsAtuais].slice(0, 100),
+          ultima_verificacao:   new Date().toISOString(),
+          notificacao_pendente: true,
+          novos_movimentos:     [movDJEN],
+        }).eq('id', proc.id);
+        atualizados++;
       }
-    } catch (e) {
-      await logErro(admin, 'cron:djen', e.message, { oabs }, uid);
     }
+  } catch (e) {
+    await logErro(admin, 'cron:djen', e.message, { oabs }, uid);
   }
   return atualizados;
 }
@@ -323,15 +347,16 @@ function normalizarDescoberta(p, index) {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function buscarOabsUsuarios(admin, userIds) {
+  if (!userIds.length) return {};
   const result = {};
 
   const parseOab = raw =>
     (raw || '').split(',').map(s => s.trim()).filter(Boolean).map(o => {
-      const m = o.toUpperCase().replace(/\./g, '').match(/^(?:OAB[/ ]?)?([A-Z]{2})[/ ]?(\d{3,6})$/);
+      const m = o.toUpperCase().replace(/[.\-]/g, '').match(/^(?:OAB[/ ]?)?([A-Z]{2})[/ ]?(\d{3,7})$/);
       return m ? { uf: m[1], num: m[2] } : null;
     }).filter(Boolean);
 
-  // Colaboradores ativos de todos os escritórios de uma vez
+  // Colaboradores ativos de uma vez só
   const { data: colabs } = await admin
     .from('colaboradores')
     .select('escritorio_id, user_id')
@@ -339,30 +364,35 @@ async function buscarOabsUsuarios(admin, userIds) {
     .eq('status', 'ativo');
 
   const colabPorEscritorio = {};
+  const todosIds = new Set(userIds);
   for (const c of colabs || []) {
     (colabPorEscritorio[c.escritorio_id] ||= []).push(c.user_id);
+    todosIds.add(c.user_id);
+  }
+
+  // Um único listUsers no lugar de N chamadas getUserById sequenciais
+  const metaMap = {};
+  try {
+    const { data: listResult } = await admin.auth.admin.listUsers({ perPage: 1000 });
+    for (const u of listResult?.users || []) {
+      metaMap[u.id] = u.user_metadata?.oab;
+    }
+  } catch (e) {
+    await logErro(admin, 'cron:buscar-oabs', e.message, {});
+    return result;
   }
 
   for (const uid of userIds) {
-    try {
-      const oabs = new Map(); // chave `${uf}${num}` para deduplicar
-
-      // OAB do titular
-      const { data: ud } = await admin.auth.admin.getUserById(uid);
-      for (const oab of parseOab(ud?.user?.user_metadata?.oab)) {
+    const oabs = new Map();
+    for (const oab of parseOab(metaMap[uid])) {
+      oabs.set(`${oab.uf}${oab.num}`, oab);
+    }
+    for (const colabId of colabPorEscritorio[uid] || []) {
+      for (const oab of parseOab(metaMap[colabId])) {
         oabs.set(`${oab.uf}${oab.num}`, oab);
       }
-
-      // OABs dos colaboradores ativos do escritório
-      for (const colabId of colabPorEscritorio[uid] || []) {
-        const { data: cu } = await admin.auth.admin.getUserById(colabId);
-        for (const oab of parseOab(cu?.user?.user_metadata?.oab)) {
-          oabs.set(`${oab.uf}${oab.num}`, oab);
-        }
-      }
-
-      if (oabs.size) result[uid] = [...oabs.values()];
-    } catch (_) {}
+    }
+    if (oabs.size) result[uid] = [...oabs.values()];
   }
   return result;
 }
