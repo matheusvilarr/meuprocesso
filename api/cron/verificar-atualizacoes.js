@@ -55,19 +55,23 @@ async function rodarMorning(admin, res, hoje) {
     return res.status(200).json({ ok: true, tipo: 'morning', emailsEnviados: 0, hoje, motivo: 'nada pendente' });
   }
 
-  // Agrupa por usuário
+  // Agrupa por usuário — separa atualizações de processos novos auto-importados
   const porUsuario = {};
   for (const p of pendentes) {
-    if (!porUsuario[p.user_id]) porUsuario[p.user_id] = [];
-    porUsuario[p.user_id].push({
+    if (!porUsuario[p.user_id]) porUsuario[p.user_id] = { atualizacoes: [], novosProcessos: [] };
+    const novos        = (p.novos_movimentos || []).slice(0, 3);
+    const autoImportado = novos.some(m => m._auto_importado);
+    const item = {
       processoId:        p.id,
       numero:            p.numero,
       nome:              p.apelido || p.nome,
       cliente:           p.cliente || null,
       tribunal:          p.tribunal || extrairTribunal(p.datajud_index),
       ultimaVerificacao: p.ultima_verificacao,
-      novos:             (p.novos_movimentos || []).slice(0, 3),
-    });
+      novos,
+    };
+    if (autoImportado) porUsuario[p.user_id].novosProcessos.push(item);
+    else               porUsuario[p.user_id].atualizacoes.push(item);
   }
 
   const userIds          = Object.keys(porUsuario);
@@ -84,11 +88,12 @@ async function rodarMorning(admin, res, hoje) {
     if (!email) continue;
     const nome = ud.user.user_metadata?.full_name || ud.user.user_metadata?.nome || email.split('@')[0];
 
+    const { atualizacoes, novosProcessos } = porUsuario[userId];
     try {
-      await enviarDigestMorning(email, nome, agendaPorUsuario[userId] || [], porUsuario[userId]);
+      await enviarDigestMorning(email, nome, agendaPorUsuario[userId] || [], atualizacoes, novosProcessos);
       emailsEnviados++;
       await logNotif(admin, userId, 'morning', hoje);
-      processosNotificados.push(...porUsuario[userId].map(a => a.processoId));
+      processosNotificados.push(...[...atualizacoes, ...novosProcessos].map(a => a.processoId));
     } catch (e) {
       await logErro(admin, 'cron:email-morning', e.message, { email }, userId);
     }
@@ -125,19 +130,23 @@ async function rodarAfternoon(admin, res, hoje) {
 
   const porUsuario = {};
   for (const p of pendentes || []) {
-    if (!porUsuario[p.user_id]) porUsuario[p.user_id] = { atualizacoes: [], prazos: [] };
-    porUsuario[p.user_id].atualizacoes.push({
+    if (!porUsuario[p.user_id]) porUsuario[p.user_id] = { atualizacoes: [], novosProcessos: [], prazos: [] };
+    const novos        = (p.novos_movimentos || []).slice(0, 3);
+    const autoImportado = novos.some(m => m._auto_importado);
+    const item = {
       processoId:        p.id,
       numero:            p.numero,
       nome:              p.apelido || p.nome,
       cliente:           p.cliente || null,
       tribunal:          p.tribunal || extrairTribunal(p.datajud_index),
       ultimaVerificacao: p.ultima_verificacao,
-      novos:             (p.novos_movimentos || []).slice(0, 3),
-    });
+      novos,
+    };
+    if (autoImportado) porUsuario[p.user_id].novosProcessos.push(item);
+    else               porUsuario[p.user_id].atualizacoes.push(item);
   }
   for (const e of eventosAmanha || []) {
-    if (!porUsuario[e.user_id]) porUsuario[e.user_id] = { atualizacoes: [], prazos: [] };
+    if (!porUsuario[e.user_id]) porUsuario[e.user_id] = { atualizacoes: [], novosProcessos: [], prazos: [] };
     porUsuario[e.user_id].prazos.push({ descricao: e.titulo, data_prazo: e.data, urgencia: e.urgencia });
   }
 
@@ -145,7 +154,7 @@ async function rodarAfternoon(admin, res, hoje) {
   const processosNotificados = [];
 
   for (const [userId, dados] of Object.entries(porUsuario)) {
-    if (!dados.atualizacoes.length && !dados.prazos.length) continue;
+    if (!dados.atualizacoes.length && !dados.novosProcessos.length && !dados.prazos.length) continue;
     if (await jaNotificouHoje(admin, userId, 'afternoon', hoje)) continue;
 
     const { data: ud } = await admin.auth.admin.getUserById(userId);
@@ -154,10 +163,10 @@ async function rodarAfternoon(admin, res, hoje) {
     const nome = ud.user.user_metadata?.full_name || ud.user.user_metadata?.nome || email.split('@')[0];
 
     try {
-      await enviarAlertaAfternoon(email, nome, dados.atualizacoes, dados.prazos);
+      await enviarAlertaAfternoon(email, nome, dados.atualizacoes, dados.prazos, dados.novosProcessos);
       emailsEnviados++;
       await logNotif(admin, userId, 'afternoon', hoje);
-      processosNotificados.push(...dados.atualizacoes.map(a => a.processoId));
+      processosNotificados.push(...[...dados.atualizacoes, ...dados.novosProcessos].map(a => a.processoId));
     } catch (e) {
       await logErro(admin, 'cron:email-afternoon', e.message, { email }, userId);
     }
@@ -272,13 +281,28 @@ function btnDashboard(cor) {
   return `<div style="text-align:center;margin-top:20px;padding:0 28px 24px"><a href="https://meuprocesso.app.br/dashboard" style="display:inline-block;background:${cor};color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:600">Abrir dashboard →</a></div>`;
 }
 
-async function enviarDigestMorning(para, nome, agenda, atualizacoes) {
+async function enviarDigestMorning(para, nome, agenda, atualizacoes, novosProcessos = []) {
   const diaSemana = new Date().toLocaleDateString('pt-BR', { weekday: 'long' });
-  const assunto = atualizacoes.length > 1
-    ? `[Meu Processo] ${atualizacoes.length} atualizações nos seus processos`
-    : `[Meu Processo] Atualização: ${atualizacoes[0]?.nome || 'processo'}`;
+  const totalItens = atualizacoes.length + novosProcessos.length;
+  const assunto = novosProcessos.length && !atualizacoes.length
+    ? `[Meu Processo] ${novosProcessos.length} novo(s) processo(s) encontrado(s) no seu nome`
+    : totalItens > 1
+      ? `[Meu Processo] ${totalItens} atualizações nos seus processos`
+      : `[Meu Processo] Atualização: ${atualizacoes[0]?.nome || novosProcessos[0]?.numero || 'processo'}`;
 
   const tipoIcon = { evento: '📅', tarefa: '✅', honorario: '💰' };
+
+  const blocoNovosProcessos = novosProcessos.length ? `
+<div style="padding:20px 28px 8px;border-top:3px solid #f59e0b;background:#fffbeb">
+  <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em">🔔 Novo processo encontrado no seu nome</div>
+  <div style="font-size:12px;color:#78350f;margin-bottom:12px">Identificamos publicações no DJEN com a sua OAB referentes a processos que ainda não estavam na sua conta. Eles foram adicionados automaticamente.</div>
+  ${novosProcessos.slice(0, 5).map(item => `
+  <div style="background:#fff;border:1.5px solid #fcd34d;border-radius:8px;padding:10px 14px;margin-bottom:8px">
+    <div style="font-weight:700;color:#92400e;font-size:13px;font-family:monospace">${item.numero}</div>
+    <div style="font-size:11px;color:#6b7280;margin-top:3px">${[item.tribunal, item.novos?.[0]?.nome?.replace('DJEN — ','') || 'Publicação DJEN'].filter(Boolean).join(' · ')}</div>
+    <div style="font-size:11px;color:#d97706;margin-top:4px;font-weight:600">→ Acesse o dashboard para ver os detalhes e acompanhar este processo.</div>
+  </div>`).join('')}
+</div>` : '';
 
   const blocoAtualizacoes = atualizacoes.length ? `
 <div style="padding:20px 28px 8px">
@@ -331,6 +355,7 @@ async function enviarDigestMorning(para, nome, agenda, atualizacoes) {
 <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
   ${cabecalho('Resumo do dia')}
   <div style="padding:20px 28px 8px;font-size:15px;color:#111827">Bom dia, <strong>${nome}</strong>! Atualizações de ${diaSemana}.</div>
+  ${blocoNovosProcessos}
   ${blocoAtualizacoes}
   ${blocoAgenda}
   ${btnDashboard('#1a2e6b')}
@@ -341,10 +366,11 @@ async function enviarDigestMorning(para, nome, agenda, atualizacoes) {
   await enviarEmail(para, assunto, html);
 }
 
-async function enviarAlertaAfternoon(para, nome, atualizacoes, prazos) {
+async function enviarAlertaAfternoon(para, nome, atualizacoes, prazos, novosProcessos = []) {
   const partes  = [];
-  if (atualizacoes.length) partes.push(`${atualizacoes.length} atualização(ões)`);
-  if (prazos.length)       partes.push(`prazo${prazos.length > 1 ? 's' : ''} vencendo amanhã`);
+  if (novosProcessos.length) partes.push(`${novosProcessos.length} processo(s) novo(s) encontrado(s)`);
+  if (atualizacoes.length)   partes.push(`${atualizacoes.length} atualização(ões)`);
+  if (prazos.length)         partes.push(`prazo${prazos.length > 1 ? 's' : ''} vencendo amanhã`);
   const assunto = `[Meu Processo] ${partes.join(' + ')}`;
 
   const blocoAtualizacoes = atualizacoes.length ? `
@@ -378,7 +404,7 @@ async function enviarAlertaAfternoon(para, nome, atualizacoes, prazos) {
 </div>` : '';
 
   const blocoPrazos = prazos.length ? `
-<div style="padding:20px 28px 8px;${atualizacoes.length ? 'border-top:1px solid #e5e7eb' : ''}">
+<div style="padding:20px 28px 8px;${atualizacoes.length || novosProcessos.length ? 'border-top:1px solid #e5e7eb' : ''}">
   <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">⏰ Prazo amanhã</div>
   ${prazos.map(p => `
   <div style="background:#fffbeb;border-left:4px solid #d97706;border-radius:6px;padding:12px 14px;margin-bottom:8px">
@@ -387,11 +413,24 @@ async function enviarAlertaAfternoon(para, nome, atualizacoes, prazos) {
   </div>`).join('')}
 </div>` : '';
 
+  const blocoNovosProcessos = novosProcessos.length ? `
+<div style="padding:20px 28px 8px;border-top:3px solid #f59e0b;background:#fffbeb">
+  <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em">🔔 Novo processo encontrado no seu nome</div>
+  <div style="font-size:12px;color:#78350f;margin-bottom:12px">Identificamos publicações no DJEN com a sua OAB referentes a processos que ainda não estavam na sua conta. Eles foram adicionados automaticamente.</div>
+  ${novosProcessos.slice(0, 5).map(item => `
+  <div style="background:#fff;border:1.5px solid #fcd34d;border-radius:8px;padding:10px 14px;margin-bottom:8px">
+    <div style="font-weight:700;color:#92400e;font-size:13px;font-family:monospace">${item.numero}</div>
+    <div style="font-size:11px;color:#6b7280;margin-top:3px">${[item.tribunal, item.novos?.[0]?.nome?.replace('DJEN — ','') || 'Publicação DJEN'].filter(Boolean).join(' · ')}</div>
+    <div style="font-size:11px;color:#d97706;margin-top:4px;font-weight:600">→ Acesse o dashboard para ver os detalhes e acompanhar este processo.</div>
+  </div>`).join('')}
+</div>` : '';
+
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
 <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
   ${cabecalho('Alerta do dia')}
   <div style="padding:20px 28px 8px;font-size:15px;color:#111827">Olá, <strong>${nome}</strong>!</div>
+  ${blocoNovosProcessos}
   ${blocoAtualizacoes}
   ${blocoPrazos}
   ${btnDashboard('#1a2e6b')}

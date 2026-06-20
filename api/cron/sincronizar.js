@@ -243,14 +243,15 @@ async function _djenAutoImportar(numero, userId, movDJEN, admin) {
       .select('id').eq('user_id', userId).eq('numero', numero).maybeSingle();
     if (existente) return false;
 
+    const movMarcado = { ...movDJEN, _auto_importado: true };
     await admin.from('processos').insert({
       user_id:              userId,
       numero,
       nome:                 numero,  // DataJud preenche no próximo cron
       status:               'Ativo',
       datajud_index:        _datajudIndexFromNumero(numero),
-      movimentos_recentes:  [movDJEN],
-      novos_movimentos:     [movDJEN],
+      movimentos_recentes:  [movMarcado],
+      novos_movimentos:     [movMarcado],
       notificacao_pendente: true,
       ultima_verificacao:   new Date().toISOString(),
     });
