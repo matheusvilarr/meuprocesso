@@ -57,7 +57,9 @@ document.getElementById('registroForm').addEventListener('submit', async functio
 
   const nome   = document.getElementById('reg-nome').value.trim();
   const email  = document.getElementById('reg-email').value.trim();
-  const oab    = document.getElementById('reg-oab').value.trim();
+  const oabUf  = document.getElementById('reg-oab-uf').value;
+  const oabNum = document.getElementById('reg-oab-num').value.trim();
+  const oab    = oabUf && oabNum ? `${oabUf} ${oabNum}` : '';
   const codigo = document.getElementById('reg-codigo').value.trim();
   const senha  = document.getElementById('reg-senha').value;
   const btn    = document.getElementById('btnRegistro');
@@ -75,8 +77,10 @@ document.getElementById('registroForm').addEventListener('submit', async functio
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     mostrarErro('emailError', 'Digite um e-mail válido.'); ok = false;
   }
-  if (!oab) {
-    mostrarErro('oabError', 'OAB é obrigatória para usar o sistema.'); ok = false;
+  if (!oabUf) {
+    mostrarErro('oabError', 'Selecione o estado (UF) da sua OAB.'); ok = false;
+  } else if (!oabNum) {
+    mostrarErro('oabError', 'Informe o número da sua OAB.'); ok = false;
   }
   if (!senha || senha.length < 6) {
     mostrarErro('senhaError', 'A senha deve ter pelo menos 6 caracteres.'); ok = false;

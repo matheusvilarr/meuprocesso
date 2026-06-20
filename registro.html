@@ -60,8 +60,22 @@
       <div class="form-row">
         <div class="field">
           <label>OAB <span class="req">*</span></label>
-          <input type="text" id="reg-oab" placeholder="DF 00000" autocomplete="off" required>
-          <div class="hint">Formato: UF + número. Ex: DF 12345 ou SP 98765.<br>Múltiplas OABs? Separe por vírgula.</div>
+          <div style="display:flex;gap:8px">
+            <select id="reg-oab-uf" style="width:80px;flex-shrink:0;padding:13px 8px;border:1.5px solid var(--g200);border-radius:10px;font-size:14px;font-family:'Inter',sans-serif;color:var(--g900);background:var(--white);outline:none;cursor:pointer;transition:border-color .15s" required>
+              <option value="">UF</option>
+              <option>AC</option><option>AL</option><option>AP</option><option>AM</option>
+              <option>BA</option><option>CE</option><option>DF</option><option>ES</option>
+              <option>GO</option><option>MA</option><option>MT</option><option>MS</option>
+              <option>MG</option><option>PA</option><option>PB</option><option>PR</option>
+              <option>PE</option><option>PI</option><option>RJ</option><option>RN</option>
+              <option>RS</option><option>RO</option><option>RR</option><option>SC</option>
+              <option>SE</option><option>SP</option><option>TO</option>
+            </select>
+            <input type="text" id="reg-oab-num" placeholder="Número" autocomplete="off"
+              inputmode="numeric" maxlength="7"
+              oninput="this.value=this.value.replace(/\D/g,'')" style="flex:1">
+          </div>
+          <div class="hint">OAB principal. Adicione outras no perfil após o login.</div>
           <div class="error-msg" id="oabError"></div>
         </div>
         <div class="field">
