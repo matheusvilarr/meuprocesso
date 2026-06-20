@@ -238,6 +238,10 @@ async function _djenAtualizarProcesso(processoId, movDJEN, admin) {
 }
 
 async function _djenAutoImportar(numero, userId, movDJEN, admin) {
+  // Só importa processos do ano corrente — publicações de casos antigos não cadastrados são ignoradas
+  const m = (numero || '').match(/\d{7}-\d{2}\.(\d{4})\./);
+  if (!m || parseInt(m[1], 10) < new Date().getFullYear()) return false;
+
   try {
     const { data: existente } = await admin.from('processos')
       .select('id').eq('user_id', userId).eq('numero', numero).maybeSingle();
