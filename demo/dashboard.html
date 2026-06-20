@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Demo — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
+<link rel="stylesheet" href="../css/dashboard.css">
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark">
+      <img src="../img/images/logo.png" alt="Meu Processo" class="sidebar-logo-img">
+      <div class="logo-sub">Gestão Jurídica</div>
+      <div class="logo-version">Beta 1.0</div>
+    </div>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-section">Principal</div>
+    <div class="nav-item active"><i class="ti ti-layout-dashboard"></i> Dashboard</div>
+    <div class="nav-item"><i class="ti ti-briefcase"></i> Meus Processos <span class="nav-badge">12</span></div>
+    <div class="nav-section">Organização</div>
+    <div class="nav-item"><i class="ti ti-calendar"></i> Calendário <span class="nav-badge">3</span></div>
+    <div class="nav-item"><i class="ti ti-checklist"></i> Tarefas</div>
+    <div class="nav-section">Financeiro</div>
+    <div class="nav-item"><i class="ti ti-address-book"></i> Clientes</div>
+    <div class="nav-item"><i class="ti ti-cash"></i> Honorários <span class="nav-badge" style="background:#c0392b">2</span></div>
+    <div class="nav-section">Equipe</div>
+    <div class="nav-item"><i class="ti ti-users"></i> Parceiros</div>
+    <div class="nav-item"><i class="ti ti-archive"></i> Arquivados & Encerrados</div>
+    <div class="nav-section">Conta</div>
+    <div class="nav-item"><i class="ti ti-settings"></i> Configurações</div>
+    <div class="nav-item" style="color:#ff8a8a"><i class="ti ti-logout"></i> Sair</div>
+  </nav>
+  <div class="sidebar-user">
+    <div style="display:flex;align-items:center;gap:10px;flex:1">
+      <div class="user-avatar" style="background:linear-gradient(135deg,#1e3a5f,#2563eb)">MV</div>
+      <div class="user-info">
+        <div class="user-name">Dr. Matheus Vilar</div>
+        <div class="user-role">OAB/DF 45.821</div>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<div class="main">
+  <header class="topbar">
+    <div class="topbar-title">Dashboard</div>
+    <div class="topbar-search">
+      <i class="ti ti-search"></i>
+      <input type="search" placeholder="Buscar processo, cliente, número...">
+    </div>
+    <div class="topbar-actions">
+      <div class="icon-btn" style="position:relative">
+        <i class="ti ti-bell"></i>
+        <span style="position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;background:#3b82f6;border:1.5px solid #fff"></span>
+      </div>
+    </div>
+  </header>
+
+  <div class="page active" style="padding:28px">
+
+    <!-- Saudação -->
+    <div style="margin-bottom:28px">
+      <h1 style="font-size:24px;font-weight:700;color:var(--navy);margin:0 0 4px">Boa tarde, Dr. Matheus!</h1>
+      <div style="font-size:13px;color:var(--gray-400)">Quinta-feira, 19 de junho de 2025</div>
+    </div>
+
+    <!-- Stat cards -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px">
+      <div class="card" style="padding:18px 20px">
+        <div style="font-size:12px;color:var(--gray-400);font-weight:500;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Processos Ativos</div>
+        <div style="font-size:32px;font-weight:700;color:var(--navy);line-height:1">12</div>
+        <div style="font-size:12px;color:var(--gray-400);margin-top:6px">10 sincronizados com CNJ</div>
+      </div>
+      <div class="card" style="padding:18px 20px">
+        <div style="font-size:12px;color:var(--gray-400);font-weight:500;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Prazos esta Semana</div>
+        <div style="font-size:32px;font-weight:700;color:var(--navy);line-height:1">4</div>
+        <div style="font-size:12px;color:var(--gray-400);margin-top:6px">3 compromissos · 1 honorário</div>
+      </div>
+      <div class="card" style="padding:18px 20px">
+        <div style="font-size:12px;color:var(--gray-400);font-weight:500;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Com Atividade Recente</div>
+        <div style="font-size:32px;font-weight:700;color:var(--amber);line-height:1">5</div>
+        <div class="stat-change up" style="font-size:12px;margin-top:6px">5 processos com atividade</div>
+      </div>
+      <div class="card" style="padding:18px 20px">
+        <div style="font-size:12px;color:var(--gray-400);font-weight:500;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Arquivados</div>
+        <div style="font-size:32px;font-weight:700;color:var(--navy);line-height:1">8</div>
+        <div style="font-size:12px;color:var(--gray-400);margin-top:6px">Encerrados ou suspensos</div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:20px">
+
+      <!-- Processos recentes -->
+      <div class="card" style="padding:0;overflow:hidden">
+        <div style="padding:16px 20px;border-bottom:1px solid var(--gray-100);display:flex;align-items:center;justify-content:space-between">
+          <div style="font-size:14px;font-weight:700;color:var(--navy)">Processos Recentes</div>
+          <span style="font-size:12px;color:var(--blue);cursor:pointer">Ver todos</span>
+        </div>
+        <div>
+          <div class="process-row" style="padding:14px 20px;border-bottom:1px solid var(--gray-50);cursor:pointer">
+            <div class="process-num" style="font-size:11px;color:var(--gray-400);font-family:monospace;min-width:160px">0012345-67.2023.8.07.0001</div>
+            <div class="process-info" style="flex:1;min-width:0">
+              <div class="process-name" style="font-size:13px;font-weight:600;color:var(--navy);display:flex;align-items:center;gap:5px">
+                Silva vs. Construtora Horizonte
+                <span style="width:6px;height:6px;border-radius:50%;background:var(--amber);display:inline-block"></span>
+              </div>
+              <div class="process-meta" style="font-size:11px;color:var(--gray-400);margin-top:2px">
+                <i class="ti ti-cloud-check" style="color:var(--green)"></i> CNJ DataJud · 3ª Vara Cível
+              </div>
+            </div>
+            <span class="badge badge-civil" style="flex-shrink:0">Cível</span>
+          </div>
+          <div class="process-row" style="padding:14px 20px;border-bottom:1px solid var(--gray-50);cursor:pointer">
+            <div class="process-num" style="font-size:11px;color:var(--gray-400);font-family:monospace;min-width:160px">0087432-11.2022.8.07.0015</div>
+            <div class="process-info" style="flex:1;min-width:0">
+              <div class="process-name" style="font-size:13px;font-weight:600;color:var(--navy)">Pensão Alimentícia — Ferreira</div>
+              <div class="process-meta" style="font-size:11px;color:var(--gray-400);margin-top:2px">
+                <i class="ti ti-cloud-check" style="color:var(--green)"></i> CNJ DataJud · 1ª Vara de Família
+              </div>
+            </div>
+            <span class="badge badge-familia" style="flex-shrink:0">Família</span>
+          </div>
+          <div class="process-row" style="padding:14px 20px;border-bottom:1px solid var(--gray-50);cursor:pointer">
+            <div class="process-num" style="font-size:11px;color:var(--gray-400);font-family:monospace;min-width:160px">0034521-89.2024.5.10.0001</div>
+            <div class="process-info" style="flex:1;min-width:0">
+              <div class="process-name" style="font-size:13px;font-weight:600;color:var(--navy)">Rescisão Contratual — TechCorp</div>
+              <div class="process-meta" style="font-size:11px;color:var(--gray-400);margin-top:2px">
+                <i class="ti ti-cloud-check" style="color:var(--green)"></i> CNJ DataJud · 1ª Vara do Trabalho
+              </div>
+            </div>
+            <span class="badge badge-trabalhista" style="flex-shrink:0">Trabalhista</span>
+          </div>
+          <div class="process-row" style="padding:14px 20px;border-bottom:1px solid var(--gray-50);cursor:pointer">
+            <div class="process-num" style="font-size:11px;color:var(--gray-400);font-family:monospace;min-width:160px">0019876-44.2023.4.01.3400</div>
+            <div class="process-info" style="flex:1;min-width:0">
+              <div class="process-name" style="font-size:13px;font-weight:600;color:var(--navy)">Auto de Infração — Posto BV</div>
+              <div class="process-meta" style="font-size:11px;color:var(--gray-400);margin-top:2px">
+                <i class="ti ti-cloud-check" style="color:var(--green)"></i> CNJ DataJud · 3ª Vara Federal
+              </div>
+            </div>
+            <span class="badge badge-tributario" style="flex-shrink:0">Tributário</span>
+          </div>
+          <div class="process-row" style="padding:14px 20px;cursor:pointer">
+            <div class="process-num" style="font-size:11px;color:var(--gray-400);font-family:monospace;min-width:160px">0099123-55.2020.4.03.6301</div>
+            <div class="process-info" style="flex:1;min-width:0">
+              <div class="process-name" style="font-size:13px;font-weight:600;color:var(--navy)">Aposentadoria por Invalidez — Costa</div>
+              <div class="process-meta" style="font-size:11px;color:var(--gray-400);margin-top:2px">
+                <i class="ti ti-cloud-check" style="color:var(--green)"></i> CNJ DataJud · JEF Cível
+              </div>
+            </div>
+            <span class="badge badge-previdenciario" style="flex-shrink:0">Previdenciário</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:20px">
+
+        <!-- Prazos -->
+        <div class="card" style="padding:0;overflow:hidden">
+          <div style="padding:16px 20px;border-bottom:1px solid var(--gray-100)">
+            <div style="font-size:14px;font-weight:700;color:var(--navy)">Prazos desta Semana</div>
+          </div>
+          <div>
+            <div class="prazo-item" style="padding:12px 16px;border-bottom:1px solid var(--gray-50);display:flex;align-items:center;gap:10px;cursor:pointer">
+              <div class="prazo-date" style="text-align:center;min-width:32px"><div class="prazo-day" style="font-size:16px;font-weight:700;color:var(--navy);line-height:1">20</div><div class="prazo-month" style="font-size:10px;color:var(--gray-400)">jun</div></div>
+              <div class="prazo-urgency urgency-alta"></div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:600;color:var(--navy)">Audiência de Instrução</div>
+                <div style="font-size:11px;color:var(--gray-400)">Silva vs. Construtora Horizonte</div>
+              </div>
+              <span class="dias-badge dias-urgente">Amanhã</span>
+            </div>
+            <div class="prazo-item" style="padding:12px 16px;border-bottom:1px solid var(--gray-50);display:flex;align-items:center;gap:10px;cursor:pointer">
+              <div class="prazo-date" style="text-align:center;min-width:32px"><div class="prazo-day" style="font-size:16px;font-weight:700;color:var(--navy);line-height:1">23</div><div class="prazo-month" style="font-size:10px;color:var(--gray-400)">jun</div></div>
+              <div class="prazo-urgency urgency-media"></div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:600;color:var(--navy)">Prazo Recursal</div>
+                <div style="font-size:11px;color:var(--gray-400)">Rescisão Contratual — TechCorp</div>
+              </div>
+              <span class="dias-badge dias-aviso">4d</span>
+            </div>
+            <div class="prazo-item" style="padding:12px 16px;display:flex;align-items:center;gap:10px;cursor:pointer">
+              <div class="prazo-date" style="text-align:center;min-width:32px"><div class="prazo-day" style="font-size:16px;font-weight:700;color:var(--navy);line-height:1">25</div><div class="prazo-month" style="font-size:10px;color:var(--gray-400)">jun</div></div>
+              <div class="prazo-urgency urgency-baixa"></div>
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px;font-weight:600;color:var(--navy)">Contestação</div>
+                <div style="font-size:11px;color:var(--gray-400)">Auto de Infração — Posto BV</div>
+              </div>
+              <span class="dias-badge dias-ok">6d</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Atualizações recentes -->
+        <div class="card" style="padding:0;overflow:hidden">
+          <div style="padding:16px 20px;border-bottom:1px solid var(--gray-100)">
+            <div style="font-size:14px;font-weight:700;color:var(--navy)">Atualizações Recentes</div>
+          </div>
+          <div style="padding:8px 16px">
+            <div class="timeline-item" style="padding:10px 0;border-bottom:1px solid var(--gray-50)">
+              <div class="tl-dot gold"></div>
+              <div class="tl-content">
+                <div class="tl-text"><strong>Silva vs. Construtora</strong> — Decisão interlocutória publicada</div>
+                <div class="tl-time">Há 2h · CNJ DataJud</div>
+              </div>
+            </div>
+            <div class="timeline-item" style="padding:10px 0;border-bottom:1px solid var(--gray-50)">
+              <div class="tl-dot navy"></div>
+              <div class="tl-content">
+                <div class="tl-text"><strong>Pensão Alimentícia</strong> — Juntada de petição</div>
+                <div class="tl-time">Há 5h · CNJ DataJud</div>
+              </div>
+            </div>
+            <div class="timeline-item" style="padding:10px 0;border-bottom:1px solid var(--gray-50)">
+              <div class="tl-dot gold"></div>
+              <div class="tl-content">
+                <div class="tl-text"><strong>Rescisão TechCorp</strong> — Pauta de audiência designada</div>
+                <div class="tl-time">Ontem · CNJ DataJud</div>
+              </div>
+            </div>
+            <div class="timeline-item" style="padding:10px 0">
+              <div class="tl-dot navy"></div>
+              <div class="tl-content">
+                <div class="tl-text"><strong>Posto BV</strong> — Certidão de objeto e pé</div>
+                <div class="tl-time">19 jun · CNJ DataJud</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Demo — Tarefas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
+<link rel="stylesheet" href="../css/dashboard.css">
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark">
+      <img src="../img/images/logo.png" alt="Meu Processo" class="sidebar-logo-img">
+      <div class="logo-sub">Gestão Jurídica</div>
+      <div class="logo-version">Beta 1.0</div>
+    </div>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-section">Principal</div>
+    <div class="nav-item"><i class="ti ti-layout-dashboard"></i> Dashboard</div>
+    <div class="nav-item"><i class="ti ti-briefcase"></i> Meus Processos <span class="nav-badge">12</span></div>
+    <div class="nav-section">Organização</div>
+    <div class="nav-item"><i class="ti ti-calendar"></i> Calendário <span class="nav-badge">3</span></div>
+    <div class="nav-item active"><i class="ti ti-checklist"></i> Tarefas</div>
+    <div class="nav-section">Financeiro</div>
+    <div class="nav-item"><i class="ti ti-address-book"></i> Clientes</div>
+    <div class="nav-item"><i class="ti ti-cash"></i> Honorários <span class="nav-badge" style="background:#c0392b">2</span></div>
+    <div class="nav-section">Equipe</div>
+    <div class="nav-item"><i class="ti ti-users"></i> Parceiros</div>
+    <div class="nav-item"><i class="ti ti-archive"></i> Arquivados & Encerrados</div>
+    <div class="nav-section">Conta</div>
+    <div class="nav-item"><i class="ti ti-settings"></i> Configurações</div>
+    <div class="nav-item" style="color:#ff8a8a"><i class="ti ti-logout"></i> Sair</div>
+  </nav>
+  <div class="sidebar-user">
+    <div style="display:flex;align-items:center;gap:10px;flex:1">
+      <div class="user-avatar" style="background:linear-gradient(135deg,#1e3a5f,#2563eb)">MV</div>
+      <div class="user-info">
+        <div class="user-name">Dr. Matheus Vilar</div>
+        <div class="user-role">OAB/DF 45.821</div>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<div class="main">
+  <header class="topbar">
+    <div class="topbar-title">Tarefas</div>
+    <div class="topbar-search">
+      <i class="ti ti-search"></i>
+      <input type="search" placeholder="Buscar processo, cliente, número...">
+    </div>
+    <div class="topbar-actions">
+      <div class="icon-btn"><i class="ti ti-bell"></i></div>
+    </div>
+  </header>
+
+  <div class="page active" style="padding:28px">
+    <div class="page-header">
+      <div>
+        <h1 style="font-size:22px;font-weight:700;color:var(--navy);margin:0">Quadro de Tarefas</h1>
+        <div style="font-size:13px;color:var(--gray-400);margin-top:3px">9 tarefas ativas</div>
+      </div>
+      <button class="btn-primary"><i class="ti ti-plus"></i> Nova tarefa</button>
+    </div>
+
+    <div class="kanban-board" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;align-items:start">
+
+      <!-- A Fazer -->
+      <div class="kanban-col" style="background:var(--gray-50);border-radius:12px;padding:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div style="font-size:13px;font-weight:700;color:var(--gray-500);text-transform:uppercase;letter-spacing:.06em">A Fazer</div>
+          <span style="font-size:11px;background:var(--gray-200);color:var(--gray-500);padding:2px 8px;border-radius:20px;font-weight:600">3</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+
+          <div class="card" style="padding:14px;cursor:grab">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:8px">
+              <div style="font-size:13px;font-weight:600;color:var(--navy);line-height:1.3">Elaborar contestação — Auto de Infração</div>
+              <span style="font-size:10px;padding:2px 7px;border-radius:20px;background:#fef2f2;color:#dc2626;font-weight:600;white-space:nowrap">Urgente</span>
+            </div>
+            <div style="font-size:11px;color:var(--gray-400);margin-bottom:6px;display:flex;align-items:center;gap:4px">
+              <i class="ti ti-briefcase" style="font-size:10px"></i> Posto BV — TRF1
+            </div>
+            <div style="font-size:11px;color:#dc2626;display:flex;align-items:center;gap:4px">
+              <i class="ti ti-calendar-due" style="font-size:10px"></i> Prazo: 25/06/2025
+            </div>
+          </div>
+
+          <div class="card" style="padding:14px;cursor:grab">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:8px">
+              <div style="font-size:13px;font-weight:600;color:var(--navy);line-height:1.3">Protocolar recurso ordinário</div>
+              <span style="font-size:10px;padding:2px 7px;border-radius:20px;background:#fff7ed;color:#ea580c;font-weight:600;white-space:nowrap">Média</span>
+            </div>
+            <div style="font-size:11px;color:var(--gray-400);margin-bottom:6px;display:flex;align-items:center;gap:4px">
+              <i class="ti ti-briefcase" style="font-size:10px"></i> Rescisão TechCorp — TRT10
+            </div>
+            <div style="font-size:11px;color:#ea580c;display:flex;align-items:center;gap:4px">
+              <i class="ti ti-calendar" style="font-size:10px"></i> Prazo: 23/06/2025
+            </div>
+          </div>
+
+          <div class="card" style="padding:14px;cursor:grab">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:8px">
+              <div style="font-size:13px;font-weight:600;color:var(--navy);line-height:1.3">Juntar comprovante de pagamento de custas</div>
+              <span style="font-size:10px;padding:2px 7px;border-radius:20px;background:#f0fdf4;color:#16a34a;font-weight:600;white-space:nowrap">Baixa</span>
+            </div>
+            <div style="font-size:11px;color:var(--gray-400);display:flex;align-items:center;gap:4px">
+              <i class="ti ti-briefcase" style="font-size:10px"></i> Pensão Alimentícia — TJDFT
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Em Andamento -->
+      <div class="kanban-col" style="background:#eff6ff;border-radius:12px;padding:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div style="font-size:13px;font-weight:700;color:#1d4ed8;text-transform:uppercase;letter-spacing:.06em">Em Andamento</div>
+          <span style="font-size:11px;background:#bfdbfe;color:#1d4ed8;padding:2px 8px;border-radius:20px;font-weight:600">3</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+
+          <div class="card" style="padding:14px;cursor:grab;border-left:3px solid #3b82f6">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:8px">
+              <div style="font-size:13px;font-weight:600;color:var(--navy);line-height:1.3">Preparar memoriais para audiência</div>
+              <span style="font-size:10px;padding:2px 7px;border-radius:20px;background:#fef2f2;color:#dc2626;font-weight:600;white-space:nowrap">Urgente</span>
+            </div>
+            <div style="font-size:11px;color:var(--gray-400);margin-bottom:6px;display:flex;align-items:center;gap:4px">
+              <i class="ti ti-briefcase" style="font-size:10px"></i> Silva vs. Construtora
+            </div>
+            <div style="font-size:11px;color:#dc2626;display:flex;align-items:center;gap:4px">
+              <i class="ti ti-calendar-event" style="font-size:10px"></i> Audiência: 20/06/2025
+            </div>
+          </div>
+
+          <div class="card" style="padding:14px;cursor:grab;border-left:3px solid #3b82f6">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:6px;margin-bottom:8px">
+              <div style="font-size:13px;font-weight:600;color:var(--navy);line-height:1.3">Colher documentos médicos do cliente</div>
+              <span style="font-size:10px;padding:2px 7px;border-radius:20px;background:#fff7ed;color:#ea580c;font-weight:600;white-space:nowrap">Média</span>
+            </div>
+            <div style="font-size:11px;color:var(--gray-400);display:flex;align-items:center;gap:4px">
+              <i class="ti ti-briefcase" style="font-size:10px"></i> Aposentadoria — Costa
+            </div>
+          </div>
+
+          <div class="card" style="padding:14px;cursor:grab;border-left:3px solid #3b82f6">
+            <div style="font-size:13px;font-weight:600;color:var(--navy);line-height:1.3;margin-bottom:8px">Revisar planilha de cálculo de danos</div>
+            <div style="font-size:11px;color:var(--gray-400);display:flex;align-items:center;gap:4px">
+              <i class="ti ti-briefcase" style="font-size:10px"></i> Indenização — Santos
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Revisão -->
+      <div class="kanban-col" style="background:#fdf4ff;border-radius:12px;padding:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div style="font-size:13px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:.06em">Revisão</div>
+          <span style="font-size:11px;background:#e9d5ff;color:#7c3aed;padding:2px 8px;border-radius:20px;font-weight:600">2</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+
+          <div class="card" style="padding:14px;cursor:grab">
+            <div style="font-size:13px;font-weight:600;color:var(--navy);line-height:1.3;margin-bottom:8px">Minuta de petição inicial — nova ação</div>
+            <div style="font-size:11px;color:var(--gray-400);margin-bottom:6px;display:flex;align-items:center;gap:4px">
+              <i class="ti ti-briefcase" style="font-size:10px"></i> Novo cliente — Cível
+            </div>
+            <div style="font-size:11px;color:var(--gray-400);display:flex;align-items:center;gap:4px">
+              <i class="ti ti-user" style="font-size:10px"></i> Aguardando revisão do sócio
+            </div>
+          </div>
+
+          <div class="card" style="padding:14px;cursor:grab">
+            <div style="font-size:13px;font-weight:600;color:var(--navy);line-height:1.3;margin-bottom:8px">Contrato de honorários atualizado</div>
+            <div style="font-size:11px;color:var(--gray-400);display:flex;align-items:center;gap:4px">
+              <i class="ti ti-user" style="font-size:10px"></i> Roberto Alves dos Santos
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Concluído -->
+      <div class="kanban-col" style="background:#f0fdf4;border-radius:12px;padding:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+          <div style="font-size:13px;font-weight:700;color:#15803d;text-transform:uppercase;letter-spacing:.06em">Concluído</div>
+          <span style="font-size:11px;background:#bbf7d0;color:#15803d;padding:2px 8px;border-radius:20px;font-weight:600">1</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+
+          <div class="card" style="padding:14px;cursor:grab;opacity:.75">
+            <div style="font-size:13px;font-weight:600;color:var(--navy);line-height:1.3;margin-bottom:8px;text-decoration:line-through;opacity:.6">Protocolar impugnação ao laudo pericial</div>
+            <div style="font-size:11px;color:var(--gray-400);margin-bottom:4px;display:flex;align-items:center;gap:4px">
+              <i class="ti ti-briefcase" style="font-size:10px"></i> Silva vs. Construtora
+            </div>
+            <div style="font-size:11px;color:#15803d;display:flex;align-items:center;gap:4px">
+              <i class="ti ti-check" style="font-size:10px"></i> Concluído em 17/06/2025
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>

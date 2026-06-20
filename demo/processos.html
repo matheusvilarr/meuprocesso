@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Demo — Meus Processos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
+<link rel="stylesheet" href="../css/dashboard.css">
+</head>
+<body>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="logo-mark">
+      <img src="../img/images/logo.png" alt="Meu Processo" class="sidebar-logo-img">
+      <div class="logo-sub">Gestão Jurídica</div>
+      <div class="logo-version">Beta 1.0</div>
+    </div>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-section">Principal</div>
+    <div class="nav-item"><i class="ti ti-layout-dashboard"></i> Dashboard</div>
+    <div class="nav-item active"><i class="ti ti-briefcase"></i> Meus Processos <span class="nav-badge">12</span></div>
+    <div class="nav-section">Organização</div>
+    <div class="nav-item"><i class="ti ti-calendar"></i> Calendário <span class="nav-badge">3</span></div>
+    <div class="nav-item"><i class="ti ti-checklist"></i> Tarefas</div>
+    <div class="nav-section">Financeiro</div>
+    <div class="nav-item"><i class="ti ti-address-book"></i> Clientes</div>
+    <div class="nav-item"><i class="ti ti-cash"></i> Honorários</div>
+    <div class="nav-section">Equipe</div>
+    <div class="nav-item"><i class="ti ti-users"></i> Parceiros</div>
+    <div class="nav-item"><i class="ti ti-archive"></i> Arquivados & Encerrados</div>
+    <div class="nav-section">Conta</div>
+    <div class="nav-item"><i class="ti ti-settings"></i> Configurações</div>
+    <div class="nav-item" style="color:#ff8a8a"><i class="ti ti-logout"></i> Sair</div>
+  </nav>
+  <div class="sidebar-user">
+    <div style="display:flex;align-items:center;gap:10px;flex:1">
+      <div class="user-avatar" style="background:linear-gradient(135deg,#1e3a5f,#2563eb)">MV</div>
+      <div class="user-info">
+        <div class="user-name">Dr. Matheus Vilar</div>
+        <div class="user-role">OAB/DF 45.821</div>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<div class="main">
+  <header class="topbar">
+    <div class="topbar-title">Meus Processos</div>
+    <div class="topbar-search">
+      <i class="ti ti-search"></i>
+      <input type="search" placeholder="Buscar processo, cliente, número...">
+    </div>
+    <div class="topbar-actions">
+      <div class="icon-btn"><i class="ti ti-bell"></i></div>
+    </div>
+  </header>
+
+  <div class="page active" style="padding:28px">
+
+    <div class="page-header">
+      <div>
+        <h1 style="font-size:22px;font-weight:700;color:var(--navy);margin:0">Meus Processos</h1>
+        <div style="font-size:13px;color:var(--gray-400);margin-top:3px">12 processos ativos · 10 sincronizados com CNJ</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn-secondary"><i class="ti ti-plus"></i> Novo processo</button>
+        <button class="btn-primary"><i class="ti ti-search"></i> Buscar no CNJ</button>
+      </div>
+    </div>
+
+    <div class="filter-bar">
+      <div class="filter-search" style="flex:1;display:flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--gray-200);border-radius:var(--radius);padding:0 12px;height:38px">
+        <i class="ti ti-search" style="color:var(--gray-400)"></i>
+        <input type="text" placeholder="Número, cliente ou assunto..." style="border:none;outline:none;flex:1;font-size:13px">
+      </div>
+      <select class="filter-select"><option>Todas as áreas</option></select>
+      <select class="filter-select"><option>Todos os status</option></select>
+      <button class="btn-secondary" style="font-size:12px;padding:6px 12px"><i class="ti ti-star"></i> Favoritos</button>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px">
+
+      <!-- Card 1 — com notificação -->
+      <div class="card" style="cursor:pointer;border-left:3px solid var(--amber)">
+        <div class="card-header" style="padding:16px 16px 10px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:3px;display:flex;align-items:center;gap:6px">
+                Silva vs. Construtora Horizonte
+                <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--amber);flex-shrink:0" title="Nova movimentação"></span>
+              </div>
+              <div style="font-size:11px;color:var(--gray-400)">0012345-67.2023.8.07.0001</div>
+            </div>
+            <span class="badge badge-civil">Cível</span>
+          </div>
+        </div>
+        <div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:12px;color:var(--gray-500);display:flex;align-items:center;gap:5px">
+            <i class="ti ti-user" style="font-size:11px"></i> João Paulo Silva
+          </div>
+          <div style="font-size:12px;color:var(--gray-500);display:flex;align-items:center;gap:5px">
+            <i class="ti ti-building-courthouse" style="font-size:11px"></i> 3ª Vara Cível — TJDFT
+          </div>
+          <div style="margin-top:6px;padding:8px 10px;background:#fffbeb;border-radius:8px;border:1px solid #fef3c7">
+            <div style="font-size:11px;font-weight:600;color:#92400e;margin-bottom:2px">⚡ Nova movimentação</div>
+            <div style="font-size:11px;color:#78350f">Decisão interlocutória publicada — há 2h</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+            <i class="ti ti-cloud-check" style="font-size:11px;color:var(--green)"></i>
+            <span style="font-size:11px;color:var(--gray-400)">CNJ DataJud · Atualizado há 2h</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 2 -->
+      <div class="card" style="cursor:pointer">
+        <div class="card-header" style="padding:16px 16px 10px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:3px">
+                Pensão Alimentícia — Ferreira
+              </div>
+              <div style="font-size:11px;color:var(--gray-400)">0087432-11.2022.8.07.0015</div>
+            </div>
+            <span class="badge badge-familia">Família</span>
+          </div>
+        </div>
+        <div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:12px;color:var(--gray-500);display:flex;align-items:center;gap:5px">
+            <i class="ti ti-user" style="font-size:11px"></i> Ana Beatriz Ferreira
+          </div>
+          <div style="font-size:12px;color:var(--gray-500);display:flex;align-items:center;gap:5px">
+            <i class="ti ti-building-courthouse" style="font-size:11px"></i> 1ª Vara de Família — TJDFT
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
+            <i class="ti ti-cloud-check" style="font-size:11px;color:var(--green)"></i>
+            <span style="font-size:11px;color:var(--gray-400)">CNJ DataJud · Atualizado hoje</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 3 -->
+      <div class="card" style="cursor:pointer">
+        <div class="card-header" style="padding:16px 16px 10px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:3px">
+                Rescisão Contratual — TechCorp
+              </div>
+              <div style="font-size:11px;color:var(--gray-400)">0034521-89.2024.5.10.0001</div>
+            </div>
+            <span class="badge badge-trabalhista">Trabalhista</span>
+          </div>
+        </div>
+        <div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:12px;color:var(--gray-500);display:flex;align-items:center;gap:5px">
+            <i class="ti ti-user" style="font-size:11px"></i> Carlos Eduardo Mendes
+          </div>
+          <div style="font-size:12px;color:var(--gray-500);display:flex;align-items:center;gap:5px">
+            <i class="ti ti-building-courthouse" style="font-size:11px"></i> 1ª Vara do Trabalho — TRT10
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
+            <i class="ti ti-cloud-check" style="font-size:11px;color:var(--green)"></i>
+            <span style="font-size:11px;color:var(--gray-400)">CNJ DataJud · Atualizado ontem</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 4 -->
+      <div class="card" style="cursor:pointer">
+        <div class="card-header" style="padding:16px 16px 10px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:3px">
+                Auto de Infração — Posto BV
+              </div>
+              <div style="font-size:11px;color:var(--gray-400)">0019876-44.2023.4.01.3400</div>
+            </div>
+            <span class="badge badge-tributario">Tributário</span>
+          </div>
+        </div>
+        <div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:12px;color:var(--gray-500);display:flex;align-items:center;gap:5px">
+            <i class="ti ti-user" style="font-size:11px"></i> Posto Bem Viver Ltda.
+          </div>
+          <div style="font-size:12px;color:var(--gray-500);display:flex;align-items:center;gap:5px">
+            <i class="ti ti-building-courthouse" style="font-size:11px"></i> 3ª Vara Federal — TRF1
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
+            <i class="ti ti-cloud-check" style="font-size:11px;color:var(--green)"></i>
+            <span style="font-size:11px;color:var(--gray-400)">CNJ DataJud · Atualizado hoje</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 5 — favorito -->
+      <div class="card" style="cursor:pointer">
+        <div class="card-header" style="padding:16px 16px 10px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:3px;display:flex;align-items:center;gap:5px">
+                <i class="ti ti-star-filled" style="font-size:12px;color:#f59e0b"></i>
+                Indenização por Danos Morais
+              </div>
+              <div style="font-size:11px;color:var(--gray-400)">0056789-22.2021.8.07.0003</div>
+            </div>
+            <span class="badge badge-civil">Cível</span>
+          </div>
+        </div>
+        <div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:12px;color:var(--gray-500);display:flex;align-items:center;gap:5px">
+            <i class="ti ti-user" style="font-size:11px"></i> Roberto Alves dos Santos
+          </div>
+          <div style="font-size:12px;color:var(--gray-500);display:flex;align-items:center;gap:5px">
+            <i class="ti ti-building-courthouse" style="font-size:11px"></i> 7ª Vara Cível — TJDFT
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
+            <i class="ti ti-cloud-check" style="font-size:11px;color:var(--green)"></i>
+            <span style="font-size:11px;color:var(--gray-400)">CNJ DataJud · Atualizado hoje</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card 6 -->
+      <div class="card" style="cursor:pointer">
+        <div class="card-header" style="padding:16px 16px 10px">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:3px">
+                Aposentadoria por Invalidez — Costa
+              </div>
+              <div style="font-size:11px;color:var(--gray-400)">0099123-55.2020.4.03.6301</div>
+            </div>
+            <span class="badge badge-previdenciario">Previdenciário</span>
+          </div>
+        </div>
+        <div style="padding:0 16px 14px;display:flex;flex-direction:column;gap:6px">
+          <div style="font-size:12px;color:var(--gray-500);display:flex;align-items:center;gap:5px">
+            <i class="ti ti-user" style="font-size:11px"></i> Maria das Graças Costa
+          </div>
+          <div style="font-size:12px;color:var(--gray-500);display:flex;align-items:center;gap:5px">
+            <i class="ti ti-building-courthouse" style="font-size:11px"></i> JEF Cível — TRF3
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:8px">
+            <i class="ti ti-cloud-check" style="font-size:11px;color:var(--green)"></i>
+            <span style="font-size:11px;color:var(--gray-400)">CNJ DataJud · Atualizado ontem</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+</body>
+</html>
