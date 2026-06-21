@@ -518,6 +518,33 @@ async function convidarAdvogado() {
   if (r.avisoEmail) alert(r.avisoEmail);
 }
 
+async function enviarEmailsAgora() {
+  const btn    = document.getElementById('btn-enviar-emails');
+  const result = document.getElementById('email-resultado');
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ti ti-loader"></i> Enviando…';
+  result.style.display = 'none';
+
+  const r = await chamarAdmin('rodar-emails', { tipo: 'morning' });
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="ti ti-mail-forward"></i> Enviar e-mails agora';
+
+  if (r.erro) {
+    result.style.cssText = 'display:block;padding:12px 16px;border-radius:8px;font-size:13px;background:#fef2f2;color:#991b1b;border:1px solid #fca5a5;';
+    result.textContent = 'Erro: ' + r.erro;
+    return;
+  }
+
+  const res = r.resultado || {};
+  result.style.cssText = 'display:block;padding:12px 16px;border-radius:8px;font-size:13px;background:#f0fdf4;color:#166534;border:1px solid #86efac;';
+  result.innerHTML = `<strong>${res.emailsEnviados ?? 0}</strong> e-mail(s) enviado(s)`;
+
+  _emailsCarregados = false;
+  await carregarEmails();
+}
+
 async function rodarDjenScan() {
   const btn    = document.getElementById('btn-djen-scan');
   const result = document.getElementById('sync-resultado');

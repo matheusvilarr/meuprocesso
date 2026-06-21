@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import sincronizarHandler from './cron/sincronizar.js';
+import emailHandler from './cron/verificar-atualizacoes.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
 const SUPA_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -508,6 +509,22 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
   });
 }
 
+async function acaoRodarEmails(req, res) {
+  const { tipo = 'morning' } = req.body || {};
+  const fakeReq = { headers: {}, query: { tipo } };
+  let resultado = null;
+  const fakeRes = {
+    status(code) { this._code = code; return this; },
+    json(data)   { resultado = data; return this; },
+  };
+  try {
+    await emailHandler(fakeReq, fakeRes);
+    return res.json({ ok: true, resultado });
+  } catch (e) {
+    return res.status(500).json({ erro: e.message });
+  }
+}
+
 async function acaoRodarDjenScan(req, res) {
   const cronSecret = process.env.CRON_SECRET;
   const fakeReq = {
@@ -547,6 +564,7 @@ export default async function handler(req, res) {
   if (acao === 'reenviar-convite')      return acaoReenviarConvite(req, res, admin);
   if (acao === 'sincronizar-processos') return acaoSincronizarProcessos(req, res, admin, adminUser);
   if (acao === 'rodar-djen-scan')       return acaoRodarDjenScan(req, res);
+  if (acao === 'rodar-emails')          return acaoRodarEmails(req, res);
   if (acao === 'emails' || req.query?.acao === 'emails') return acaoEmails(req, res, admin);
 
   return res.status(400).json({ erro: 'acao inválida.' });

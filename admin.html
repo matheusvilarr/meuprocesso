@@ -130,8 +130,14 @@
       <section id="tab-emails" class="adm-panel" style="display:none;">
         <div class="adm-panel-header">
           <h2>Notificações por e-mail</h2>
-          <span style="font-size:12px;color:#9f9f98;">Últimos 14 dias</span>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:12px;color:#9f9f98;">Últimos 14 dias</span>
+            <button class="adm-btn-primary" id="btn-enviar-emails" onclick="enviarEmailsAgora()">
+              <i class="ti ti-mail-forward"></i> Enviar e-mails agora
+            </button>
+          </div>
         </div>
+        <div id="email-resultado" style="display:none;margin-bottom:16px;padding:12px 16px;border-radius:8px;font-size:13px;"></div>
         <div id="email-stats-row" class="sync-stats-row"></div>
         <div id="email-tabela-wrap"></div>
         <div id="email-erros-wrap" style="margin-top:24px;"></div>
