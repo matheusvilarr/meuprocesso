@@ -518,6 +518,32 @@ async function convidarAdvogado() {
   if (r.avisoEmail) alert(r.avisoEmail);
 }
 
+async function rodarDjenScan() {
+  const btn    = document.getElementById('btn-djen-scan');
+  const result = document.getElementById('sync-resultado');
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ti ti-loader"></i> Rodando…';
+  result.style.display = 'none';
+
+  const r = await chamarAdmin('rodar-djen-scan', {});
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="ti ti-scan"></i> DJEN + OAB scan agora';
+
+  if (r.erro) {
+    result.style.cssText = 'display:block;padding:12px 16px;border-radius:8px;font-size:13px;background:#fef2f2;color:#991b1b;border:1px solid #fca5a5;margin-bottom:16px;';
+    result.textContent = 'Erro: ' + r.erro;
+    return;
+  }
+
+  const res = r.resultado || {};
+  result.style.cssText = 'display:block;padding:12px 16px;border-radius:8px;font-size:13px;background:#f0fdf4;color:#166534;border:1px solid #86efac;margin-bottom:16px;';
+  result.innerHTML = `DJEN+DataJud concluído · DJEN: <strong>${res.djen ?? '—'}</strong> atualizados · DataJud: <strong>${res.datajud ?? '—'}</strong> · ${res.elapsed ?? ''}`;
+
+  await recarregarSyncStats();
+}
+
 async function sincronizarTodos(userId) {
   const btn    = document.getElementById('btn-sincronizar');
   const result = document.getElementById('sync-resultado');

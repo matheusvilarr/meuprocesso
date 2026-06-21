@@ -507,6 +507,22 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
   });
 }
 
+async function acaoRodarDjenScan(req, res) {
+  const cronSecret = process.env.CRON_SECRET;
+  const base = process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : 'http://localhost:3002';
+  try {
+    const r = await fetch(`${base}/api/cron/sincronizar`, {
+      headers: cronSecret ? { 'Authorization': `Bearer ${cronSecret}` } : {},
+    });
+    const data = await r.json();
+    return res.json({ ok: true, resultado: data });
+  } catch (e) {
+    return res.status(500).json({ erro: e.message });
+  }
+}
+
 export default async function handler(req, res) {
   const admin = getAdminClient();
   const adminUser = await requireAdmin(req, admin);
@@ -526,6 +542,7 @@ export default async function handler(req, res) {
   if (acao === 'convidar-advogado')     return acaoConvidarAdvogado(req, res, admin, adminUser);
   if (acao === 'reenviar-convite')      return acaoReenviarConvite(req, res, admin);
   if (acao === 'sincronizar-processos') return acaoSincronizarProcessos(req, res, admin, adminUser);
+  if (acao === 'rodar-djen-scan')       return acaoRodarDjenScan(req, res);
   if (acao === 'emails' || req.query?.acao === 'emails') return acaoEmails(req, res, admin);
 
   return res.status(400).json({ erro: 'acao inválida.' });
