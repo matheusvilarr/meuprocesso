@@ -114,11 +114,17 @@
   <div id="notif-panel-body" style="overflow-y:auto;flex:1"></div>
 </div>
 
+<!-- Overlay da sidebar para mobile -->
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
 <!-- MAIN -->
 <div class="main">
 
   <!-- TOPBAR -->
   <header class="topbar">
+    <button class="hamburger" id="btn-hamburger" onclick="toggleSidebar()" aria-label="Abrir menu">
+      <i class="ti ti-menu-2"></i>
+    </button>
     <div class="topbar-title" id="topbar-title">Dashboard</div>
     <div class="topbar-search" style="position:relative">
       <i class="ti ti-search"></i>

@@ -1881,19 +1881,117 @@ body {
 .tp-send-btn:hover { background: var(--blue); }
 
 /* Responsive */
+/* ── HAMBURGER (só aparece em mobile) ── */
+.hamburger {
+  display: none;
+  align-items: center; justify-content: center;
+  width: 36px; height: 36px;
+  border: none; background: none;
+  cursor: pointer; color: var(--navy);
+  font-size: 20px; flex-shrink: 0;
+}
+
+/* ── SIDEBAR OVERLAY ── */
+.sidebar-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.45);
+  z-index: 99;
+}
+.sidebar-overlay.show { display: block; }
+
+/* ── SIDEBAR TRANSITION ── */
+.sidebar { transition: transform 0.25s ease; }
+
+/* ── 1100px ── */
 @media (max-width: 1100px) {
   .dash-grid  { grid-template-columns: 1fr; }
   .task-cols  { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* ── 768px — mobile ── */
 @media (max-width: 768px) {
-  .sidebar       { transform: translateX(-100%); }
-  .main          { margin-left: 0; }
-  .stats-row     { grid-template-columns: repeat(2, 1fr); }
-  .task-cols     { grid-template-columns: 1fr; }
+  /* Sidebar: drawer deslizante */
+  .sidebar          { transform: translateX(-100%); }
+  .sidebar.open     { transform: translateX(0); box-shadow: 4px 0 24px rgba(0,0,0,0.25); }
+
+  /* Main: ocupa tela toda */
+  .main { margin-left: 0; }
+
+  /* Hamburger visível */
+  .hamburger { display: flex; }
+
+  /* Topbar */
+  .topbar { padding: 0 12px; gap: 10px; }
+  .topbar-search { display: none; }
+  .topbar-title  { font-size: 15px; }
+
+  /* Páginas */
+  .page { padding: 16px; }
+  .page-header { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .page-header > div:last-child { width: 100%; }
+  .page-header .btn-primary,
+  .page-header .btn-secondary { width: 100%; justify-content: center; }
+
+  /* Dashboard header */
+  .dash-header { flex-direction: column; gap: 12px; }
+  .dash-header .btn-primary { width: 100%; justify-content: center; }
+
+  /* Stats */
+  .stats-row { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .stat-card { padding: 14px 14px; }
+  .stat-icon { width: 34px; height: 34px; font-size: 16px; }
+  .stat-value { font-size: 20px; }
+
+  /* Dash grid */
+  .dash-grid { grid-template-columns: 1fr; }
+
+  /* Processos */
+  .process-grid { grid-template-columns: 1fr; }
+  .filter-bar   { gap: 8px; }
+  .filter-bar .btn-primary,
+  .filter-bar .btn-secondary { font-size: 12px; padding: 7px 10px; }
+
+  /* Kanban */
+  .task-cols { grid-template-columns: 1fr; }
+
+  /* Detalhe */
   .detail-layout { grid-template-columns: 1fr; }
   .detail-grid   { grid-template-columns: 1fr 1fr; }
-  .hon-kpi-row   { grid-template-columns: 1fr; }
+
+  /* Outros grids */
+  .hon-kpi-row   { grid-template-columns: 1fr 1fr; }
   .form-row-2    { grid-template-columns: 1fr; }
   .clientes-grid { grid-template-columns: 1fr; }
+  .form-row      { grid-template-columns: 1fr; }
+
+  /* Modais: bottom sheet */
+  .modal-backdrop { align-items: flex-end; }
+  .modal {
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    max-height: 92vh;
+    overflow-y: auto;
+  }
+
+  /* Toast: full width */
+  .toast { left: 12px; right: 12px; bottom: 16px; width: auto; }
+
+  /* Topbar search drop: full width */
+  #topbar-search-drop { left: 0 !important; right: 0 !important; }
+}
+
+/* ── 480px — telefones pequenos ── */
+@media (max-width: 480px) {
+  .stats-row  { grid-template-columns: 1fr 1fr; }
+  .detail-grid { grid-template-columns: 1fr; }
+  .hon-kpi-row { grid-template-columns: 1fr; }
+  .page { padding: 12px; }
+  .topbar { padding: 0 10px; }
+  .modal-header { padding: 16px 18px; }
+  .modal-body   { padding: 16px 18px; }
+  .modal-footer { padding: 12px 18px; flex-wrap: wrap; }
+  .modal-footer .btn-primary,
+  .modal-footer .btn-secondary { flex: 1; justify-content: center; }
 }
