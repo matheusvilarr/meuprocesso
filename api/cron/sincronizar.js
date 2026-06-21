@@ -164,7 +164,8 @@ async function sincronizarDatajudUm(proc, admin, hoje) {
 async function sincronizarDJEN(processos, oabsPorUsuario, admin, hoje) {
   const ontem     = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
   const numeroSet = new Set(processos.map(p => p.numero).filter(Boolean));
-  const userIds   = [...new Set(processos.map(p => p.user_id))];
+  // Inclui todos com OAB, mesmo sem processos — auto-import cria os processos faltantes
+  const userIds   = [...new Set([...processos.map(p => p.user_id), ...Object.keys(oabsPorUsuario)])];
 
   // Todos os usuários em paralelo — elimina gargalo sequencial
   const resultados = await Promise.allSettled(
@@ -312,10 +313,9 @@ async function rodarOabScan(admin, res, hoje) {
     if (p.numero) numerosPorUsuario[p.user_id].add(p.numero.replace(/[.\-/ ]/g, ''));
   }
 
-  // Todos os usuários em paralelo
+  // Todos os usuários com OAB em paralelo — inclui quem não tem processos ainda
   const resultados = await Promise.allSettled(
-    userIds
-      .filter(uid => oabsPorUsuario[uid]?.length)
+    Object.keys(oabsPorUsuario)
       .map(uid => oabScanUsuario(uid, oabsPorUsuario[uid], numerosPorUsuario[uid] || new Set(), admin, hoje, startAt))
   );
 
@@ -456,7 +456,10 @@ async function buscarOabsUsuarios(admin, userIds) {
     return result;
   }
 
-  for (const uid of userIds) {
+  // Inclui usuários com OAB mesmo sem processos — permite auto-import para novos usuários
+  const todosComOab = [...new Set([...userIds, ...Object.keys(metaMap).filter(id => metaMap[id])])];
+
+  for (const uid of todosComOab) {
     const oabs = new Map();
     for (const oab of parseOab(metaMap[uid])) {
       oabs.set(`${oab.uf}${oab.num}`, oab);
