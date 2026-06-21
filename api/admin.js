@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import sincronizarHandler from './cron/sincronizar.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
 const SUPA_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -509,15 +510,18 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
 
 async function acaoRodarDjenScan(req, res) {
   const cronSecret = process.env.CRON_SECRET;
-  const base = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : 'http://localhost:3002';
+  const fakeReq = {
+    headers: { authorization: cronSecret ? `Bearer ${cronSecret}` : '' },
+    query: {},
+  };
+  let resultado = null;
+  const fakeRes = {
+    status(code) { this._code = code; return this; },
+    json(data)   { resultado = data; return this; },
+  };
   try {
-    const r = await fetch(`${base}/api/cron/sincronizar`, {
-      headers: cronSecret ? { 'Authorization': `Bearer ${cronSecret}` } : {},
-    });
-    const data = await r.json();
-    return res.json({ ok: true, resultado: data });
+    await sincronizarHandler(fakeReq, fakeRes);
+    return res.json({ ok: true, resultado });
   } catch (e) {
     return res.status(500).json({ erro: e.message });
   }
