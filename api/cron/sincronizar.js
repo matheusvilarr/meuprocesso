@@ -44,8 +44,34 @@ export default async function handler(req, res) {
 
 // ── DATAJUD SYNC ──────────────────────────────────────────────────────────────
 
+export async function repararDatajudIndex(admin) {
+  const { data: semIndex } = await admin
+    .from('processos')
+    .select('id, numero')
+    .is('datajud_index', null)
+    .not('numero', 'is', null)
+    .neq('status', 'Arquivado');
+
+  if (!semIndex?.length) return 0;
+
+  const updates = (semIndex || []).map(p => {
+    const idx = _datajudIndexFromNumero(p.numero);
+    return idx ? { id: p.id, idx } : null;
+  }).filter(Boolean);
+
+  await Promise.allSettled(
+    updates.map(({ id, idx }) =>
+      admin.from('processos').update({ datajud_index: idx }).eq('id', id)
+    )
+  );
+  return updates.length;
+}
+
 async function rodarDatajud(admin, res, hoje) {
   const startAt = Date.now();
+
+  // Backfill: preenche datajud_index para processos que têm numero mas não têm index
+  const reparados = await repararDatajudIndex(admin);
 
   // DataJud: browser cobre usuários ativos — servidor só entra para quem ficou 20h+ sem abrir.
   const limite20h = new Date(Date.now() - 20 * 3600 * 1000).toISOString();
@@ -84,6 +110,7 @@ async function rodarDatajud(admin, res, hoje) {
 
   return res.status(200).json({
     ok: true, tipo: 'datajud', hoje,
+    reparados,
     processosNaFila: processos?.length || 0,
     todosParaDJEN: todosProcessos?.length || 0,
     datajud: atualizadosDatajud,

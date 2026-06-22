@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
-import sincronizarHandler from './cron/sincronizar.js';
+import sincronizarHandler, { repararDatajudIndex } from './cron/sincronizar.js';
 import emailHandler from './cron/verificar-atualizacoes.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
@@ -453,6 +453,9 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
   const { userId } = req.body || {};
   const startAt = Date.now();
 
+  // Backfill: preenche datajud_index para processos que têm numero mas não têm index
+  const reparados = await repararDatajudIndex(admin);
+
   // Ordena pelos menos sincronizados primeiro — garante rotação entre todos
   let q = admin.from('processos')
     .select('id, user_id, numero, datajud_index, movimentos_hash, created_at')
@@ -500,6 +503,7 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
 
   return res.json({
     ok: true,
+    reparados,
     total: processos.length,
     atualizados,
     semMudanca,
