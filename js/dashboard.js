@@ -2069,11 +2069,13 @@ async function abrirProcesso(id) {
 
   // Marca notificação como lida
   if (proc.notificacao_pendente) {
-    await _supabase.from('processos')
-      .update({ notificacao_pendente: false, novos_movimentos: null })
-      .eq('id', id);
     proc.notificacao_pendente = false;
-    carregarProcessos();
+    proc.novos_movimentos     = null;
+    atualizarBell(); // atualiza o badge imediatamente
+    _supabase.from('processos')
+      .update({ notificacao_pendente: false, novos_movimentos: null })
+      .eq('id', id)
+      .then(() => carregarProcessos());
   }
 
   showPage('processo-detalhe');
