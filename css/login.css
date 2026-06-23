@@ -238,6 +238,72 @@ html, body {
   text-underline-offset: 2px;
 }
 
+/* ── GOOGLE BUTTON ── */
+.btn-google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 0;
+  border: 1.5px solid var(--g200);
+  border-radius: 10px;
+  background: var(--white);
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--g700);
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s;
+  margin-bottom: 16px;
+}
+
+.btn-google:hover {
+  border-color: #4285F4;
+  box-shadow: 0 0 0 3px rgba(66,133,244,.12);
+}
+
+/* ── DIVIDER OR ── */
+.divider-or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  color: var(--g400);
+  font-size: 12px;
+}
+
+.divider-or::before,
+.divider-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--g200);
+}
+
+/* ── PASSWORD STRENGTH ── */
+.pw-strength {
+  height: 4px;
+  background: var(--g200);
+  border-radius: 4px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.pw-strength-bar {
+  height: 100%;
+  border-radius: 4px;
+  width: 0%;
+  transition: width .25s, background .25s;
+}
+
+.pw-strength-label {
+  font-size: 11px;
+  margin-top: 4px;
+  color: var(--g400);
+  min-height: 16px;
+}
+
 /* ── TABS ── */
 .auth-tabs {
   display: flex;
