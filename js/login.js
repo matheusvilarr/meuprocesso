@@ -122,17 +122,13 @@ document.getElementById('su-password').addEventListener('input', function () {
   label.style.color     = cores[score - 1] || '#ef4444';
 });
 
-// Validação de OAB: UF (2 letras) + número (4–7 dígitos)
-function validarOab(raw) {
-  return /^[A-Za-z]{2}\d{4,7}$/.test(raw.replace(/[.\-/ ]/g, ''));
-}
-
 document.getElementById('signupForm').addEventListener('submit', async function (e) {
   e.preventDefault();
 
   const nome     = document.getElementById('su-nome').value.trim();
   const email    = document.getElementById('su-email').value.trim();
-  const oabRaw   = document.getElementById('su-oab').value.trim();
+  const uf       = document.getElementById('su-uf').value.trim().toUpperCase();
+  const oabNum   = document.getElementById('su-oab-num').value.trim().replace(/\D/g, '');
   const password = document.getElementById('su-password').value;
   const btn      = document.getElementById('btnSignup');
 
@@ -142,6 +138,7 @@ document.getElementById('signupForm').addEventListener('submit', async function 
   const pwErr    = document.getElementById('suPwError');
 
   [nomeErr, emailErr, oabErr, pwErr].forEach(el => el.classList.remove('show'));
+  document.getElementById('su-uf').classList.remove('error');
 
   let ok = true;
 
@@ -155,8 +152,13 @@ document.getElementById('signupForm').addEventListener('submit', async function 
     emailErr.classList.add('show');
     ok = false;
   }
-  if (!oabRaw || !validarOab(oabRaw)) {
-    oabErr.textContent = 'OAB inválida. Use o formato: DF12345 ou SP123456.';
+  if (!uf) {
+    oabErr.textContent = 'Selecione o estado da OAB.';
+    oabErr.classList.add('show');
+    document.getElementById('su-uf').classList.add('error');
+    ok = false;
+  } else if (!oabNum || oabNum.length < 3) {
+    oabErr.textContent = 'Digite o número da OAB (somente números).';
     oabErr.classList.add('show');
     ok = false;
   }
@@ -170,8 +172,7 @@ document.getElementById('signupForm').addEventListener('submit', async function 
 
   if (!ok) return;
 
-  // Normaliza OAB: UF maiúsculo + número (ex: "df 12345" → "DF12345")
-  const oab = oabRaw.replace(/[.\-/ ]/g, '').toUpperCase();
+  const oab = `${uf}${oabNum}`;
 
   btn.classList.add('loading');
   btn.textContent = 'Criando conta...';

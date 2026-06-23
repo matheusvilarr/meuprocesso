@@ -77,10 +77,24 @@
         <div class="error-msg" id="suEmailError"></div>
       </div>
 
-      <div class="field">
-        <input type="text" id="su-oab" placeholder="OAB (ex: DF12345 ou SP123456)" autocomplete="off" maxlength="20" required>
-        <div class="error-msg" id="suOabError"></div>
+      <div class="field-row">
+        <div class="field field-uf">
+          <select id="su-uf" required>
+            <option value="">UF</option>
+            <option>AC</option><option>AL</option><option>AP</option><option>AM</option>
+            <option>BA</option><option>CE</option><option>DF</option><option>ES</option>
+            <option>GO</option><option>MA</option><option>MT</option><option>MS</option>
+            <option>MG</option><option>PA</option><option>PB</option><option>PR</option>
+            <option>PE</option><option>PI</option><option>RJ</option><option>RN</option>
+            <option>RS</option><option>RO</option><option>RR</option><option>SC</option>
+            <option>SE</option><option>SP</option><option>TO</option>
+          </select>
+        </div>
+        <div class="field field-oab-num">
+          <input type="text" id="su-oab-num" placeholder="Número da OAB" autocomplete="off" maxlength="10" inputmode="numeric" required>
+        </div>
       </div>
+      <div class="error-msg" id="suOabError"></div>
 
       <div class="field">
         <div style="position:relative">
