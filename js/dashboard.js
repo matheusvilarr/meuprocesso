@@ -2997,12 +2997,13 @@ async function sincronizarTodos() {
       if (!res.ok || !data.resultados?.length) continue;
 
       const movs  = data.resultados[0].movimentos || [];
-      const hash  = movs.map(m => m.data + m.nome).join('|');
+      // Hash usa slice(0,6) igual ao cron do servidor — evita mismatch permanente
+      const hash  = movs.slice(0, 6).map(m => m.data + m.nome).join('|');
       if (hash === p.movimentos_hash) continue;
 
-      const novos = p.movimentos_hash
-        ? movs.filter(m => !p.movimentos_hash.includes(m.data + m.nome))
-        : [];
+      // Compara contra movimentos_recentes (não contra o hash truncado)
+      const existentes = new Set((p.movimentos_recentes || []).map(m => m.data + m.nome));
+      const novos = movs.filter(m => !existentes.has(m.data + m.nome));
 
       await _supabase.from('processos').update({
         movimentos_recentes:  movs,
