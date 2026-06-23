@@ -123,8 +123,9 @@ function mostrarAguardando(email, nome) {
   document.getElementById('tela-aguardando').style.display = 'block';
   document.getElementById('aguardando-email').textContent  = email;
 
-  if (!sessionStorage.getItem('email-cadastro-enviado')) {
-    sessionStorage.setItem('email-cadastro-enviado', '1');
+  const flagKey = `email-cadastro-enviado-${_session.user.id}`;
+  if (!localStorage.getItem(flagKey)) {
+    localStorage.setItem(flagKey, '1');
     fetch('/api/email-transacional', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -132,6 +133,7 @@ function mostrarAguardando(email, nome) {
     }).catch(() => {});
   }
 }
+
 
 document.getElementById('perfilForm').addEventListener('submit', async function (e) {
   e.preventDefault();

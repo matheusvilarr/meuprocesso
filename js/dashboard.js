@@ -2651,18 +2651,20 @@ async function sincronizarDetalhe() {
     const data = await res.json();
     if (!res.ok || !data.resultados?.length) throw new Error();
 
-    const movs  = data.resultados[0].movimentos || [];
-    const hash  = movs.map(m => m.data + m.nome).join('|');
-    const novos = _processoAtual.movimentos_hash
-      ? movs.filter(m => !_processoAtual.movimentos_hash.includes(m.data + m.nome))
-      : [];
+    const movs        = data.resultados[0].movimentos || [];
+    const hash        = movs.slice(0, 6).map(m => m.data + m.nome).join('|');
+    const importadoEm = (_processoAtual.created_at || '').slice(0, 10);
+    const existentes  = new Set((_processoAtual.movimentos_recentes || []).map(m => m.data + m.nome));
+    const novos       = movs.filter(m =>
+      !existentes.has(m.data + m.nome) && (!importadoEm || m.data >= importadoEm)
+    );
 
     const upd = {
-      movimentos_recentes: movs,
-      movimentos_hash:     hash,
-      ultima_verificacao:  new Date().toISOString(),
+      movimentos_recentes:  movs,
+      movimentos_hash:      hash,
+      ultima_verificacao:   new Date().toISOString(),
       notificacao_pendente: novos.length > 0,
-      novos_movimentos:    novos.length ? novos : null,
+      novos_movimentos:     novos.length ? novos : null,
     };
 
     await _supabase.from('processos').update(upd).eq('id', _processoAtual.id);
@@ -5906,7 +5908,7 @@ async function importarProcessoDJe(docIndex) {
     const novasMovs   = [novoMov, ...movsAtuais].slice(0, 100);
     const { error } = await _supabase.from('processos').update({
       movimentos_recentes:  novasMovs,
-      movimentos_hash:      novasMovs.map(m => m.data + m.nome).join('|').slice(0, 500),
+      movimentos_hash:      novasMovs.slice(0, 6).map(m => m.data + m.nome).join('|'),
       ultima_verificacao:   new Date().toISOString(),
       notificacao_pendente: true,
       novos_movimentos:     [novoMov],
