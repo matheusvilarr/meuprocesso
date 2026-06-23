@@ -300,88 +300,50 @@ function btnDashboard(cor) {
 }
 
 async function enviarDigestMorning(para, nome, agenda, atualizacoes, novosProcessos = []) {
-  const diaSemana = new Date().toLocaleDateString('pt-BR', { weekday: 'long' });
-  const totalItens = atualizacoes.length + novosProcessos.length;
-  const assunto = novosProcessos.length && !atualizacoes.length
-    ? `[Meu Processo] ${novosProcessos.length} novo(s) processo(s) encontrado(s) no seu nome`
-    : totalItens > 1
-      ? `[Meu Processo] ${totalItens} atualizações nos seus processos`
-      : `[Meu Processo] Atualização: ${atualizacoes[0]?.nome || novosProcessos[0]?.numero || 'processo'}`;
+  const diaSemana  = new Date().toLocaleDateString('pt-BR', { weekday: 'long' });
+  const todos      = [...atualizacoes, ...novosProcessos];
+  const primeiro   = todos[0];
+  const primMov    = primeiro?.novos?.[0]?.nome || '';
+
+  // Assunto claro: o que aconteceu + em qual processo
+  const assunto = todos.length === 1
+    ? `${primMov ? truncar(primMov, 55) + ' — ' : ''}${truncar(primeiro.nome || primeiro.numero, 45)}`
+    : `${todos.length} processos atualizados — ${todos.slice(0, 2).map(i => truncar(i.nome || i.numero, 20)).join(', ')}${todos.length > 2 ? ` +${todos.length - 2}` : ''}`;
 
   const tipoIcon = { evento: '📅', tarefa: '✅', honorario: '💰' };
 
   const blocoNovosProcessos = novosProcessos.length ? `
-<div style="padding:20px 28px 8px;border-top:3px solid #f59e0b;background:#fffbeb">
-  <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em">🔔 Novo processo encontrado no seu nome</div>
-  <div style="font-size:12px;color:#78350f;margin-bottom:12px">Identificamos publicações no DJEN com a sua OAB referentes a processos que ainda não estavam na sua conta. Eles foram adicionados automaticamente.</div>
-  ${novosProcessos.slice(0, 5).map(item => `
-  <div style="background:#fff;border:1.5px solid #fcd34d;border-radius:8px;padding:10px 14px;margin-bottom:8px">
-    <div style="font-weight:700;color:#92400e;font-size:13px;font-family:monospace">${item.numero}</div>
-    <div style="font-size:11px;color:#6b7280;margin-top:3px">${[item.tribunal, item.novos?.[0]?.nome?.replace('DJEN — ','') || 'Publicação DJEN'].filter(Boolean).join(' · ')}</div>
-    <div style="font-size:11px;color:#d97706;margin-top:4px;font-weight:600">→ Acesse o dashboard para ver os detalhes e acompanhar este processo.</div>
-  </div>`).join('')}
+<div style="padding:16px 24px;background:#fffbeb;border-bottom:1px solid #fde68a">
+  <div style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">🔔 Novo processo identificado no seu nome</div>
+  ${novosProcessos.slice(0, 5).map(item => cardProcesso(item, true)).join('')}
 </div>` : '';
 
   const blocoAtualizacoes = atualizacoes.length ? `
-<div style="padding:20px 28px 8px">
-  <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">⚖️ Atualizações nos processos</div>
-  ${atualizacoes.slice(0, 5).map(item => {
-    const novos = (item.novos || []).slice(0, 3);
-    const detectadoEm = novos[0]?._detectadoEm;
-    const movDate     = (novos[0]?.data || '').slice(0, 10);
-    const atrasado    = detectadoEm && movDate && movDate < detectadoEm
-      ? `<div style="font-size:10px;color:#6366f1;margin-top:3px;margin-bottom:2px">📡 Identificado hoje no DataJud · pub. tribunal: ${formatarDataCurta(movDate + 'T12:00:00')}</div>`
-      : '';
-    return `
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:10px">
-    <tr>
-      <td width="72" valign="top" style="padding-right:10px;text-align:center">
-        <div style="background:#eef2ff;border-radius:6px;padding:6px 4px">
-          <div style="font-size:14px;font-weight:700;color:#1a2e6b;line-height:1">${item.ultimaVerificacao ? formatarHora(item.ultimaVerificacao) : '—'}</div>
-          <div style="font-size:10px;color:#6366f1;margin-top:2px">${item.ultimaVerificacao ? formatarDataCurta(item.ultimaVerificacao) : ''}</div>
-        </div>
-      </td>
-      <td valign="top">
-        <div style="background:#f8f9fa;border-left:3px solid #1a2e6b;border-radius:0 6px 6px 0;padding:8px 12px">
-          <div style="font-weight:700;color:#1a2e6b;font-size:13px">${item.nome}</div>
-          <div style="font-size:11px;color:#6b7280;margin-top:2px">
-            ${[item.cliente ? `👤 ${item.cliente}` : '', item.tribunal || '', item.numero || ''].filter(Boolean).join(' · ')}
-          </div>
-          ${atrasado}
-          <div style="margin-top:4px">
-            ${novos.map(m => `
-            <div style="font-size:11px;color:#374151;padding:2px 0;border-bottom:1px solid #e5e7eb">
-              <span style="color:#9ca3af">${formatarData(m.data)}</span> — ${m.nome}
-            </div>`).join('')}
-          </div>
-        </div>
-      </td>
-    </tr>
-  </table>`;
-  }).join('')}
+<div style="padding:16px 24px">
+  ${atualizacoes.length > 1 ? `<div style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">⚖️ ${atualizacoes.length} atualizações</div>` : ''}
+  ${atualizacoes.slice(0, 5).map(item => cardProcesso(item, false)).join('')}
 </div>` : '';
 
   const blocoAgenda = agenda.length ? `
-<div style="padding:20px 28px 8px;${atualizacoes.length ? 'border-top:1px solid #e5e7eb' : ''}">
-  <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">📋 Esta semana</div>
-  ${agenda.slice(0, 10).map(item => {
+<div style="padding:16px 24px;border-top:1px solid #e5e7eb">
+  <div style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">📋 Esta semana</div>
+  ${agenda.slice(0, 8).map(item => {
     const dataFmt = new Date(item.data + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' });
     const badge   = item.urgencia === 'urgente'
-      ? '<span style="font-size:10px;background:#fef2f2;color:#dc2626;padding:2px 7px;border-radius:4px;font-weight:700;margin-left:6px">URGENTE</span>'
+      ? ' <span style="font-size:10px;background:#fef2f2;color:#dc2626;padding:1px 6px;border-radius:4px;font-weight:700">URGENTE</span>'
       : '';
     const icon = tipoIcon[item.tipo] || '•';
-    return `<table width="100%" cellpadding="0" cellspacing="0" border="0" style="padding:8px 0;border-bottom:1px solid #f3f4f6"><tr>
-      <td width="72" style="font-size:11px;color:#9ca3af;vertical-align:top;padding-top:2px;white-space:nowrap">${dataFmt}</td>
-      <td style="font-size:13px;color:#111827;padding-left:10px">${icon} ${item.descricao}${badge}</td>
-    </tr></table>`;
+    return `<div style="display:flex;gap:12px;padding:6px 0;border-bottom:1px solid #f3f4f6">
+      <span style="font-size:11px;color:#9ca3af;white-space:nowrap;min-width:64px">${dataFmt}</span>
+      <span style="font-size:13px;color:#111827">${icon} ${item.descricao}${badge}</span>
+    </div>`;
   }).join('')}
 </div>` : '';
 
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
 <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
-  ${cabecalho('Resumo do dia')}
-  <div style="padding:20px 28px 8px;font-size:15px;color:#111827">Bom dia, <strong>${nome}</strong>! Atualizações de ${diaSemana}.</div>
+  ${cabecalho('Bom dia, ' + nome.split(' ')[0] + ' · ' + diaSemana)}
   ${blocoNovosProcessos}
   ${blocoAtualizacoes}
   ${blocoAgenda}
@@ -394,78 +356,42 @@ async function enviarDigestMorning(para, nome, agenda, atualizacoes, novosProces
 }
 
 async function enviarAlertaAfternoon(para, nome, atualizacoes, prazos, novosProcessos = []) {
-  const partes  = [];
-  if (novosProcessos.length) partes.push(`${novosProcessos.length} processo(s) novo(s) encontrado(s)`);
-  if (atualizacoes.length)   partes.push(`${atualizacoes.length} atualização(ões)`);
-  if (prazos.length)         partes.push(`prazo${prazos.length > 1 ? 's' : ''} vencendo amanhã`);
-  const assunto = `[Meu Processo] ${partes.join(' + ')}`;
+  const todos    = [...novosProcessos, ...atualizacoes];
+  const primeiro = todos[0];
+  const primMov  = primeiro?.novos?.[0]?.nome || '';
+
+  const assunto = prazos.length && !todos.length
+    ? `Prazo amanhã — ${truncar(prazos[0].descricao, 55)}`
+    : todos.length === 1
+      ? `${primMov ? truncar(primMov, 55) + ' — ' : ''}${truncar(primeiro.nome || primeiro.numero, 45)}`
+      : `${todos.length} atualizações — ${todos.slice(0, 2).map(i => truncar(i.nome || i.numero, 20)).join(', ')}${todos.length > 2 ? ` +${todos.length - 2}` : ''}`;
+
+  const blocoNovosProcessos = novosProcessos.length ? `
+<div style="padding:16px 24px;background:#fffbeb;border-bottom:1px solid #fde68a">
+  <div style="font-size:11px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">🔔 Novo processo identificado no seu nome</div>
+  ${novosProcessos.slice(0, 5).map(item => cardProcesso(item, true)).join('')}
+</div>` : '';
 
   const blocoAtualizacoes = atualizacoes.length ? `
-<div style="padding:20px 28px 8px">
-  <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">⚖️ Novidades desde esta manhã</div>
-  ${atualizacoes.map(item => {
-    const novos = (item.novos || []).slice(0, 3);
-    const detectadoEm = novos[0]?._detectadoEm;
-    const movDate     = (novos[0]?.data || '').slice(0, 10);
-    const atrasado    = detectadoEm && movDate && movDate < detectadoEm
-      ? `<div style="font-size:10px;color:#6366f1;margin-top:3px;margin-bottom:2px">📡 Identificado hoje no DataJud · pub. tribunal: ${formatarDataCurta(movDate + 'T12:00:00')}</div>`
-      : '';
-    return `
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:10px">
-    <tr>
-      <td width="72" valign="top" style="padding-right:10px;text-align:center">
-        <div style="background:#eef2ff;border-radius:6px;padding:6px 4px">
-          <div style="font-size:14px;font-weight:700;color:#1a2e6b;line-height:1">${item.ultimaVerificacao ? formatarHora(item.ultimaVerificacao) : '—'}</div>
-          <div style="font-size:10px;color:#6366f1;margin-top:2px">${item.ultimaVerificacao ? formatarDataCurta(item.ultimaVerificacao) : ''}</div>
-        </div>
-      </td>
-      <td valign="top">
-        <div style="background:#f8f9fa;border-left:3px solid #1a2e6b;border-radius:0 6px 6px 0;padding:8px 12px">
-          <div style="font-weight:700;color:#1a2e6b;font-size:13px">${item.nome}</div>
-          <div style="font-size:11px;color:#6b7280;margin-top:2px">
-            ${[item.cliente ? `👤 ${item.cliente}` : '', item.tribunal || '', item.numero || ''].filter(Boolean).join(' · ')}
-          </div>
-          ${atrasado}
-          <div style="margin-top:4px">
-            ${novos.map(m => `
-            <div style="font-size:11px;color:#374151;padding:2px 0;border-bottom:1px solid #e5e7eb">
-              <span style="color:#9ca3af">${formatarData(m.data)}</span> — ${m.nome}
-            </div>`).join('')}
-          </div>
-        </div>
-      </td>
-    </tr>
-  </table>`;
-  }).join('')}
+<div style="padding:16px 24px${novosProcessos.length ? ';border-top:1px solid #e5e7eb' : ''}">
+  ${atualizacoes.length > 1 ? `<div style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px">⚖️ ${atualizacoes.length} atualizações</div>` : ''}
+  ${atualizacoes.slice(0, 5).map(item => cardProcesso(item, false)).join('')}
 </div>` : '';
 
   const blocoPrazos = prazos.length ? `
-<div style="padding:20px 28px 8px;${atualizacoes.length || novosProcessos.length ? 'border-top:1px solid #e5e7eb' : ''}">
-  <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">⏰ Prazo amanhã</div>
+<div style="padding:16px 24px;border-top:1px solid #e5e7eb">
+  <div style="font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">⏰ Prazo amanhã</div>
   ${prazos.map(p => `
   <div style="background:#fffbeb;border-left:4px solid #d97706;border-radius:6px;padding:12px 14px;margin-bottom:8px">
-    <div style="font-size:13px;color:#92400e;font-weight:600">${p.descricao}</div>
+    <div style="font-size:14px;font-weight:700;color:#92400e">${p.descricao}</div>
     <div style="font-size:11px;color:#9ca3af;margin-top:4px">${formatarData(p.data_prazo)}</div>
-  </div>`).join('')}
-</div>` : '';
-
-  const blocoNovosProcessos = novosProcessos.length ? `
-<div style="padding:20px 28px 8px;border-top:3px solid #f59e0b;background:#fffbeb">
-  <div style="font-size:12px;font-weight:700;color:#92400e;margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em">🔔 Novo processo encontrado no seu nome</div>
-  <div style="font-size:12px;color:#78350f;margin-bottom:12px">Identificamos publicações no DJEN com a sua OAB referentes a processos que ainda não estavam na sua conta. Eles foram adicionados automaticamente.</div>
-  ${novosProcessos.slice(0, 5).map(item => `
-  <div style="background:#fff;border:1.5px solid #fcd34d;border-radius:8px;padding:10px 14px;margin-bottom:8px">
-    <div style="font-weight:700;color:#92400e;font-size:13px;font-family:monospace">${item.numero}</div>
-    <div style="font-size:11px;color:#6b7280;margin-top:3px">${[item.tribunal, item.novos?.[0]?.nome?.replace('DJEN — ','') || 'Publicação DJEN'].filter(Boolean).join(' · ')}</div>
-    <div style="font-size:11px;color:#d97706;margin-top:4px;font-weight:600">→ Acesse o dashboard para ver os detalhes e acompanhar este processo.</div>
   </div>`).join('')}
 </div>` : '';
 
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
 <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
-  ${cabecalho('Alerta do dia')}
-  <div style="padding:20px 28px 8px;font-size:15px;color:#111827">Olá, <strong>${nome}</strong>!</div>
+  ${cabecalho('Atualização · ' + nome.split(' ')[0])}
   ${blocoNovosProcessos}
   ${blocoAtualizacoes}
   ${blocoPrazos}
@@ -503,6 +429,39 @@ async function enviarAlertaEvening(para, nome, prazos, hoje) {
 </body></html>`;
 
   await enviarEmail(para, assunto, html);
+}
+
+// ── CARD PROCESSO ─────────────────────────────────────────────────────────────
+
+function cardProcesso(item, isNovo = false) {
+  const novos    = (item.novos || []).slice(0, 3);
+  const principal = novos[0];
+  const resto     = novos.slice(1);
+  const borda     = isNovo ? '#f59e0b' : '#1a2e6b';
+  const meta      = [item.tribunal, item.numero ? `Nº ${item.numero}` : ''].filter(Boolean).join(' · ');
+  const detectadoEm = principal?._detectadoEm;
+  const movDate     = (principal?.data || '').slice(0, 10);
+  const dataJudNote = detectadoEm && movDate && movDate < detectadoEm
+    ? `<div style="font-size:10px;color:#6366f1;margin-top:4px">📡 Identificado hoje — publicado no tribunal em ${formatarDataCurta(movDate + 'T12:00:00')}</div>`
+    : '';
+
+  return `
+<div style="border:1px solid #e5e7eb;border-left:4px solid ${borda};border-radius:8px;padding:14px 16px;margin-bottom:10px">
+  <div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${meta}${item.cliente ? ` · 👤 ${item.cliente}` : ''}</div>
+  <div style="font-size:15px;font-weight:700;color:#111827;margin-bottom:${principal ? '10px' : '0'}">${item.nome || item.numero}</div>
+  ${principal ? `
+  <div style="background:#f8faff;border-radius:6px;padding:10px 12px">
+    <div style="font-size:13px;font-weight:600;color:#1a2e6b;line-height:1.4">${principal.nome}</div>
+    <div style="font-size:11px;color:#9ca3af;margin-top:3px">${formatarData(principal.data)}</div>
+    ${dataJudNote}
+    ${resto.length ? `<div style="margin-top:8px;border-top:1px solid #e8edf5;padding-top:6px">${resto.map(m => `<div style="font-size:11px;color:#6b7280;padding:2px 0">${formatarDataCurta(m.data + 'T12:00:00')} — ${m.nome}</div>`).join('')}</div>` : ''}
+  </div>` : ''}
+</div>`;
+}
+
+function truncar(str, max) {
+  if (!str) return '';
+  return str.length > max ? str.slice(0, max - 1) + '…' : str;
 }
 
 async function enviarEmail(para, assunto, html) {
