@@ -27,6 +27,13 @@
     .maybeSingle();
   window._isAdmin = !!adminRow;
 
+  // Bloqueia acesso se conta ainda não aprovada (exceto admin e colaboradores)
+  const aprovado = session.user.user_metadata?.status === 'aprovado';
+  if (!aprovado && !window._isAdmin && !window._isColaborador) {
+    window.location.href = '/aguardando';
+    return;
+  }
+
   const aplicarUI = () => {
     const meta    = session.user.user_metadata || {};
     const nome    = meta.full_name || meta.nome || session.user.email.split('@')[0];

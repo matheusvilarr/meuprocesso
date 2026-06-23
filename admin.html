@@ -68,11 +68,37 @@
 
       <nav class="adm-tabs">
         <button class="adm-tab active" data-tab="advogados"><i class="ti ti-users"></i> Advogados</button>
+        <button class="adm-tab" data-tab="pendentes"><i class="ti ti-clock-pause"></i> Pendentes <span class="adm-badge-tab" id="badge-pendentes" style="display:none;background:#ef4444;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px;"></span></button>
         <button class="adm-tab" data-tab="sincronizacoes"><i class="ti ti-refresh"></i> Sincronizações</button>
         <button class="adm-tab" data-tab="emails"><i class="ti ti-mail"></i> E-mails</button>
         <button class="adm-tab" data-tab="codigos"><i class="ti ti-ticket"></i> Códigos de convite</button>
         <button class="adm-tab" data-tab="admins"><i class="ti ti-shield-lock"></i> Administradores</button>
       </nav>
+
+      <!-- PENDENTES -->
+      <section id="tab-pendentes" class="adm-panel" style="display:none;">
+        <div class="adm-panel-header">
+          <h2>Contas aguardando aprovação</h2>
+          <button class="adm-btn-secondary" onclick="carregarPendentes()"><i class="ti ti-refresh"></i> Atualizar</button>
+        </div>
+        <div class="adm-table-wrap">
+          <table class="adm-table">
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>E-mail</th>
+                <th>OAB</th>
+                <th>Via</th>
+                <th>Cadastro</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="pendentes-tbody">
+              <tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:24px">Carregando…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <!-- ADVOGADOS -->
       <section id="tab-advogados" class="adm-panel">

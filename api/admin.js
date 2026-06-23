@@ -588,6 +588,53 @@ export default async function handler(req, res) {
   if (acao === 'rodar-djen-scan')       return acaoRodarDjenScan(req, res);
   if (acao === 'rodar-emails')          return acaoRodarEmails(req, res);
   if (acao === 'emails' || req.query?.acao === 'emails') return acaoEmails(req, res, admin);
+  if (acao === 'aprovar-usuario')       return acaoAprovarUsuario(req, res, admin);
+  if (acao === 'rejeitar-usuario')      return acaoRejeitarUsuario(req, res, admin);
+  if (acao === 'pendentes')             return acaoPendentes(req, res, admin);
 
   return res.status(400).json({ erro: 'acao inválida.' });
+}
+
+async function acaoPendentes(req, res, admin) {
+  let page = 1;
+  const todos = [];
+  while (true) {
+    const { data, error } = await admin.auth.admin.listUsers({ perPage: 1000, page });
+    if (error) return res.status(500).json({ erro: error.message });
+    todos.push(...(data?.users || []));
+    if ((data?.users || []).length < 1000) break;
+    page++;
+  }
+  const pendentes = todos
+    .filter(u => u.user_metadata?.status !== 'aprovado')
+    .map(u => ({
+      id:         u.id,
+      email:      u.email,
+      nome:       u.user_metadata?.full_name || u.user_metadata?.nome || '',
+      oab:        u.user_metadata?.oab || '',
+      provider:   u.app_metadata?.provider || 'email',
+      created_at: u.created_at,
+    }))
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  return res.json({ ok: true, pendentes });
+}
+
+async function acaoAprovarUsuario(req, res, admin) {
+  const { userId } = req.body || {};
+  if (!userId) return res.status(400).json({ erro: 'userId obrigatório.' });
+  const { data: { user }, error: getErr } = await admin.auth.admin.getUserById(userId);
+  if (getErr || !user) return res.status(404).json({ erro: 'Usuário não encontrado.' });
+  const { error } = await admin.auth.admin.updateUserById(userId, {
+    user_metadata: { ...user.user_metadata, status: 'aprovado' },
+  });
+  if (error) return res.status(500).json({ erro: error.message });
+  return res.json({ ok: true });
+}
+
+async function acaoRejeitarUsuario(req, res, admin) {
+  const { userId } = req.body || {};
+  if (!userId) return res.status(400).json({ erro: 'userId obrigatório.' });
+  const { error } = await admin.auth.admin.deleteUser(userId);
+  if (error) return res.status(500).json({ erro: error.message });
+  return res.json({ ok: true });
 }

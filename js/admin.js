@@ -38,6 +38,7 @@ async function init() {
   setupTabs();
   renderCronSchedule();
   startCronClock();
+  carregarPendentes(); // carrega em background só para mostrar badge
 }
 
 // ── CRON SCHEDULE ──────────────────────────────────────────────────────────────
@@ -142,9 +143,87 @@ function setupTabs() {
       document.querySelectorAll('.adm-panel').forEach(p => p.style.display = 'none');
       btn.classList.add('active');
       document.getElementById('tab-' + btn.dataset.tab).style.display = 'block';
-      if (btn.dataset.tab === 'emails') carregarEmails();
+      if (btn.dataset.tab === 'emails')    carregarEmails();
+      if (btn.dataset.tab === 'pendentes') carregarPendentes();
     });
   });
+}
+
+async function carregarPendentes() {
+  const tbody = document.getElementById('pendentes-tbody');
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:24px">Carregando…</td></tr>';
+
+  const r = await fetch('/api/admin?acao=pendentes', {
+    headers: { 'Authorization': `Bearer ${_adminToken}` },
+  });
+  const data = await r.json();
+  if (!data.ok) { tbody.innerHTML = '<tr><td colspan="6" style="color:#ef4444;padding:16px">Erro ao carregar.</td></tr>'; return; }
+
+  const badge = document.getElementById('badge-pendentes');
+  if (data.pendentes.length) {
+    badge.textContent = data.pendentes.length;
+    badge.style.display = 'inline';
+  } else {
+    badge.style.display = 'none';
+  }
+
+  if (!data.pendentes.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#9ca3af;padding:32px">Nenhuma conta pendente.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = data.pendentes.map(u => `
+    <tr id="pendente-row-${u.id}">
+      <td>${u.nome || '<span style="color:#9ca3af">—</span>'}</td>
+      <td>${u.email}</td>
+      <td>${u.oab || '<span style="color:#9ca3af">—</span>'}</td>
+      <td><span style="font-size:11px;background:#f3f4f6;padding:2px 8px;border-radius:6px">${u.provider}</span></td>
+      <td style="color:#6b7280;font-size:12px">${new Date(u.created_at).toLocaleDateString('pt-BR')}</td>
+      <td>
+        <div style="display:flex;gap:8px">
+          <button class="adm-btn-primary" style="font-size:12px;padding:6px 14px" onclick="aprovarUsuario('${u.id}')">Aprovar</button>
+          <button class="adm-btn-secondary" style="font-size:12px;padding:6px 14px;color:#ef4444;border-color:#ef4444" onclick="rejeitarUsuario('${u.id}')">Rejeitar</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function aprovarUsuario(userId) {
+  const r = await fetch('/api/admin?acao=aprovar-usuario', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${_adminToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId }),
+  });
+  const data = await r.json();
+  if (data.ok) {
+    document.getElementById('pendente-row-' + userId)?.remove();
+    const badge = document.getElementById('badge-pendentes');
+    const n = parseInt(badge.textContent || '0') - 1;
+    if (n <= 0) badge.style.display = 'none';
+    else badge.textContent = n;
+  } else {
+    alert('Erro: ' + data.erro);
+  }
+}
+
+async function rejeitarUsuario(userId) {
+  if (!confirm('Rejeitar e excluir esta conta permanentemente?')) return;
+  const r = await fetch('/api/admin?acao=rejeitar-usuario', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${_adminToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId }),
+  });
+  const data = await r.json();
+  if (data.ok) {
+    document.getElementById('pendente-row-' + userId)?.remove();
+    const badge = document.getElementById('badge-pendentes');
+    const n = parseInt(badge.textContent || '0') - 1;
+    if (n <= 0) badge.style.display = 'none';
+    else badge.textContent = n;
+  } else {
+    alert('Erro: ' + data.erro);
+  }
 }
 
 let _emailsCarregados = false;
