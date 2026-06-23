@@ -238,6 +238,48 @@ html, body {
   text-underline-offset: 2px;
 }
 
+/* ── TABS ── */
+.auth-tabs {
+  display: flex;
+  background: var(--g100);
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 24px;
+  gap: 4px;
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 9px 0;
+  border: none;
+  border-radius: 7px;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  color: var(--g500);
+  transition: all .18s;
+}
+
+.auth-tab.active {
+  background: var(--white);
+  color: var(--navy);
+  box-shadow: 0 1px 4px rgba(0,0,0,.12);
+}
+
+/* ── SIGNUP SUCCESS ── */
+.signup-success {
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  color: #166534;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 14px;
+  text-align: center;
+  margin-top: 4px;
+}
+
 /* ── ERROR MSG ── */
 .error-msg {
   font-size: 12px;

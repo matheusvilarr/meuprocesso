@@ -23,30 +23,24 @@
     </div>
 
     <div class="card-body">
+
+    <!-- Tabs -->
+    <div class="auth-tabs">
+      <button class="auth-tab active" id="tabLogin" onclick="switchTab('login')">Entrar</button>
+      <button class="auth-tab" id="tabSignup" onclick="switchTab('signup')">Criar conta</button>
+    </div>
+
+    <!-- LOGIN -->
     <form class="form" id="loginForm" novalidate>
 
       <div class="field">
-        <input
-          type="email"
-          id="email"
-          name="email"
-          placeholder="Digite seu e-mail"
-          autocomplete="email"
-          required
-        >
+        <input type="email" id="email" name="email" placeholder="Digite seu e-mail" autocomplete="email" required>
         <div class="error-msg" id="emailError"></div>
       </div>
 
       <div class="field">
         <div style="position:relative">
-          <input
-            type="password"
-            id="password"
-            name="password"
-            placeholder="Digite sua senha"
-            autocomplete="current-password"
-            required
-          >
+          <input type="password" id="password" name="password" placeholder="Digite sua senha" autocomplete="current-password" required>
           <button type="button" class="toggle-pw" id="togglePw" aria-label="Mostrar senha">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
           </button>
@@ -62,10 +56,42 @@
 
     </form>
 
+    <!-- CADASTRO -->
+    <form class="form" id="signupForm" novalidate style="display:none">
+
+      <div class="field">
+        <input type="text" id="su-nome" placeholder="Nome completo" autocomplete="name" required>
+        <div class="error-msg" id="suNomeError"></div>
+      </div>
+
+      <div class="field">
+        <input type="email" id="su-email" placeholder="E-mail profissional" autocomplete="email" required>
+        <div class="error-msg" id="suEmailError"></div>
+      </div>
+
+      <div class="field">
+        <input type="text" id="su-oab" placeholder="OAB (ex: DF12345) — opcional" autocomplete="off" maxlength="20">
+      </div>
+
+      <div class="field">
+        <div style="position:relative">
+          <input type="password" id="su-password" placeholder="Crie uma senha (mín. 6 caracteres)" autocomplete="new-password" required>
+          <button type="button" class="toggle-pw" id="togglePwSu" aria-label="Mostrar senha">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+        <div class="error-msg" id="suPwError"></div>
+      </div>
+
+      <button type="submit" class="btn-submit" id="btnSignup">Criar conta gratuita</button>
+
+      <div id="signupSuccess" class="signup-success" style="display:none">
+        ✅ Conta criada! Verifique seu e-mail para confirmar o acesso.
+      </div>
+
+    </form>
+
     <div class="links">
-      <p class="register-line">
-        Não tem uma conta? <a href="/#lista-espera">Registre-se</a>
-      </p>
       <a href="mailto:contato@meuprocesso.app.br" class="support-link">
         Entre em contato com o suporte
       </a>
