@@ -325,7 +325,14 @@ async function enviarDigestMorning(para, nome, agenda, atualizacoes, novosProces
   const blocoAtualizacoes = atualizacoes.length ? `
 <div style="padding:20px 28px 8px">
   <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">⚖️ Atualizações nos processos</div>
-  ${atualizacoes.slice(0, 5).map(item => `
+  ${atualizacoes.slice(0, 5).map(item => {
+    const novos = (item.novos || []).slice(0, 3);
+    const detectadoEm = novos[0]?._detectadoEm;
+    const movDate     = (novos[0]?.data || '').slice(0, 10);
+    const atrasado    = detectadoEm && movDate && movDate < detectadoEm
+      ? `<div style="font-size:10px;color:#6366f1;margin-top:3px;margin-bottom:2px">📡 Identificado hoje no DataJud · pub. tribunal: ${formatarDataCurta(movDate + 'T12:00:00')}</div>`
+      : '';
+    return `
   <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:10px">
     <tr>
       <td width="72" valign="top" style="padding-right:10px;text-align:center">
@@ -340,8 +347,9 @@ async function enviarDigestMorning(para, nome, agenda, atualizacoes, novosProces
           <div style="font-size:11px;color:#6b7280;margin-top:2px">
             ${[item.cliente ? `👤 ${item.cliente}` : '', item.tribunal || '', item.numero || ''].filter(Boolean).join(' · ')}
           </div>
-          <div style="margin-top:6px">
-            ${(item.novos || []).slice(0, 3).map(m => `
+          ${atrasado}
+          <div style="margin-top:4px">
+            ${novos.map(m => `
             <div style="font-size:11px;color:#374151;padding:2px 0;border-bottom:1px solid #e5e7eb">
               <span style="color:#9ca3af">${formatarData(m.data)}</span> — ${m.nome}
             </div>`).join('')}
@@ -349,7 +357,8 @@ async function enviarDigestMorning(para, nome, agenda, atualizacoes, novosProces
         </div>
       </td>
     </tr>
-  </table>`).join('')}
+  </table>`;
+  }).join('')}
 </div>` : '';
 
   const blocoAgenda = agenda.length ? `
@@ -394,7 +403,14 @@ async function enviarAlertaAfternoon(para, nome, atualizacoes, prazos, novosProc
   const blocoAtualizacoes = atualizacoes.length ? `
 <div style="padding:20px 28px 8px">
   <div style="font-size:12px;font-weight:700;color:#374151;margin-bottom:12px;text-transform:uppercase;letter-spacing:.06em">⚖️ Novidades desde esta manhã</div>
-  ${atualizacoes.map(item => `
+  ${atualizacoes.map(item => {
+    const novos = (item.novos || []).slice(0, 3);
+    const detectadoEm = novos[0]?._detectadoEm;
+    const movDate     = (novos[0]?.data || '').slice(0, 10);
+    const atrasado    = detectadoEm && movDate && movDate < detectadoEm
+      ? `<div style="font-size:10px;color:#6366f1;margin-top:3px;margin-bottom:2px">📡 Identificado hoje no DataJud · pub. tribunal: ${formatarDataCurta(movDate + 'T12:00:00')}</div>`
+      : '';
+    return `
   <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:10px">
     <tr>
       <td width="72" valign="top" style="padding-right:10px;text-align:center">
@@ -409,8 +425,9 @@ async function enviarAlertaAfternoon(para, nome, atualizacoes, prazos, novosProc
           <div style="font-size:11px;color:#6b7280;margin-top:2px">
             ${[item.cliente ? `👤 ${item.cliente}` : '', item.tribunal || '', item.numero || ''].filter(Boolean).join(' · ')}
           </div>
-          <div style="margin-top:6px">
-            ${(item.novos || []).slice(0, 3).map(m => `
+          ${atrasado}
+          <div style="margin-top:4px">
+            ${novos.map(m => `
             <div style="font-size:11px;color:#374151;padding:2px 0;border-bottom:1px solid #e5e7eb">
               <span style="color:#9ca3af">${formatarData(m.data)}</span> — ${m.nome}
             </div>`).join('')}
@@ -418,7 +435,8 @@ async function enviarAlertaAfternoon(para, nome, atualizacoes, prazos, novosProc
         </div>
       </td>
     </tr>
-  </table>`).join('')}
+  </table>`;
+  }).join('')}
 </div>` : '';
 
   const blocoPrazos = prazos.length ? `

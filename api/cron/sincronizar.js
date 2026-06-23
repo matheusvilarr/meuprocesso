@@ -157,11 +157,14 @@ async function sincronizarDatajudUm(proc, admin, hoje) {
     }
 
     const importadoEm   = (proc.created_at || '').slice(0, 10);
-    const seteDias      = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+    const cincoDs       = new Date(Date.now() - 5 * 86400000).toISOString().slice(0, 10);
+    const detectadoEm   = new Date().toISOString().slice(0, 10);
     const todosNovos    = proc.movimentos_hash
       ? todosMovs.filter(m => !proc.movimentos_hash.includes(m.data + m.nome))
       : todosMovs.slice(0, 1);
-    const novosRecentes = todosNovos.filter(m => m.data && m.data >= seteDias && (!importadoEm || m.data >= importadoEm));
+    const novosRecentes = todosNovos
+      .filter(m => m.data && m.data >= cincoDs && (!importadoEm || m.data >= importadoEm))
+      .map(m => ({ ...m, _detectadoEm: detectadoEm }));
 
     // Preserva movimentos DJEN existentes — DataJud não deve apagá-los
     const djenExistentes = (proc.movimentos_recentes || []).filter(m => (m.nome || '').startsWith('DJEN'));
