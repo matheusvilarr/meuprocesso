@@ -573,8 +573,9 @@ export default async function handler(req, res) {
 
   const acao = req.method === 'GET' ? req.query?.acao : (req.body || {}).acao;
 
-  if (acao === 'dados')   return acaoDados(req, res, admin, adminUser);
-  if (acao === 'emails')  return acaoEmails(req, res, admin);
+  if (acao === 'dados')     return acaoDados(req, res, admin, adminUser);
+  if (acao === 'emails')    return acaoEmails(req, res, admin);
+  if (acao === 'pendentes') return acaoPendentes(req, res, admin);
 
   if (req.method !== 'POST') return res.status(405).end();
 
@@ -590,7 +591,6 @@ export default async function handler(req, res) {
   if (acao === 'emails' || req.query?.acao === 'emails') return acaoEmails(req, res, admin);
   if (acao === 'aprovar-usuario')       return acaoAprovarUsuario(req, res, admin);
   if (acao === 'rejeitar-usuario')      return acaoRejeitarUsuario(req, res, admin);
-  if (acao === 'pendentes')             return acaoPendentes(req, res, admin);
 
   return res.status(400).json({ erro: 'acao inválida.' });
 }
