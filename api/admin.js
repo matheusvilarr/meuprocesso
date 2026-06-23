@@ -502,6 +502,21 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
     }));
   }
 
+  // Dispara e-mails imediatamente se houve atualizações — sem esperar o próximo cron agendado
+  let emailsDisparados = 0;
+  if (atualizados > 0) {
+    const fakeReq = { headers: {}, query: {} }; // tipo auto-detectado pela hora atual
+    let emailResult = null;
+    const fakeRes = {
+      status(c) { return this; },
+      json(d)   { emailResult = d; return this; },
+    };
+    try {
+      await emailHandler(fakeReq, fakeRes);
+      emailsDisparados = emailResult?.emailsEnviados ?? 0;
+    } catch (_) {}
+  }
+
   return res.json({
     ok: true,
     reparados,
@@ -510,6 +525,7 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
     semMudanca,
     naoEncontrado,
     erros,
+    emailsDisparados,
     parou,
     elapsed: Math.round((Date.now() - startAt) / 1000) + 's',
   });

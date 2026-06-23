@@ -595,10 +595,11 @@ async function sincronizarTodos(userId) {
   const partes = [
     `<strong>${r.atualizados}</strong> processo(s) atualizados`,
     `<strong>${r.semMudanca}</strong> sem mudança`,
-    r.naoEncontrado ? `<strong>${r.naoEncontrado}</strong> não encontrado(s) no DataJud` : null,
-    r.erros         ? `<strong>${r.erros}</strong> erro(s) de API` : null,
+    r.naoEncontrado   ? `<strong>${r.naoEncontrado}</strong> não encontrado(s) no DataJud` : null,
+    r.erros           ? `<strong>${r.erros}</strong> erro(s) de API` : null,
     `Total verificado: <strong>${r.total}</strong>`,
-    r.reparados     ? `· <em>${r.reparados} índice(s) CNJ preenchido(s)</em>` : null,
+    r.reparados       ? `<em>${r.reparados} índice(s) CNJ preenchido(s)</em>` : null,
+    r.emailsDisparados > 0 ? `📧 <strong>${r.emailsDisparados}</strong> e-mail(s) disparado(s) agora` : null,
   ].filter(Boolean);
   result.innerHTML = partes.join(' · ');
 
