@@ -129,15 +129,17 @@ document.getElementById('signupForm').addEventListener('submit', async function 
   const email    = document.getElementById('su-email').value.trim();
   const uf       = document.getElementById('su-uf').value.trim().toUpperCase();
   const oabNum   = document.getElementById('su-oab-num').value.trim().replace(/\D/g, '');
+  const telefone = document.getElementById('su-telefone').value.trim().replace(/\D/g, '');
   const password = document.getElementById('su-password').value;
   const btn      = document.getElementById('btnSignup');
 
   const nomeErr  = document.getElementById('suNomeError');
   const emailErr = document.getElementById('suEmailError');
   const oabErr   = document.getElementById('suOabError');
+  const telErr   = document.getElementById('suTelError');
   const pwErr    = document.getElementById('suPwError');
 
-  [nomeErr, emailErr, oabErr, pwErr].forEach(el => el.classList.remove('show'));
+  [nomeErr, emailErr, oabErr, telErr, pwErr].forEach(el => el.classList.remove('show'));
   document.getElementById('su-uf').classList.remove('error');
 
   let ok = true;
@@ -162,6 +164,11 @@ document.getElementById('signupForm').addEventListener('submit', async function 
     oabErr.classList.add('show');
     ok = false;
   }
+  if (!telefone || telefone.length < 10) {
+    telErr.textContent = 'Digite um telefone válido com DDD.';
+    telErr.classList.add('show');
+    ok = false;
+  }
 
   const score = avaliarSenha(password);
   if (!password || score < 3) {
@@ -181,7 +188,7 @@ document.getElementById('signupForm').addEventListener('submit', async function 
     email,
     password,
     options: {
-      data: { full_name: nome, nome, oab },
+      data: { full_name: nome, nome, oab, telefone },
       emailRedirectTo: window.location.origin + '/dashboard',
     },
   });

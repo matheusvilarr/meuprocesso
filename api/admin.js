@@ -628,7 +628,66 @@ async function acaoAprovarUsuario(req, res, admin) {
     user_metadata: { ...user.user_metadata, status: 'aprovado' },
   });
   if (error) return res.status(500).json({ erro: error.message });
+
+  // Notifica o usuário por e-mail
+  const nome  = user.user_metadata?.full_name || user.user_metadata?.nome || '';
+  const email = user.email;
+  if (email) {
+    const resendKey = process.env.RESEND_API_KEY;
+    if (resendKey) {
+      fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: 'Meu Processo <contato@meuprocesso.app.br>',
+          to: email,
+          subject: 'Seu acesso foi liberado — Meu Processo',
+          html: emailAprovado(nome ? nome.split(' ')[0] : 'Advogado(a)'),
+        }),
+      }).catch(() => {});
+    }
+  }
+
   return res.json({ ok: true });
+}
+
+function emailAprovado(nome) {
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:'Helvetica Neue',Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;padding:40px 0">
+  <tr><td align="center">
+    <table width="580" cellpadding="0" cellspacing="0" border="0" style="max-width:580px;width:100%">
+      <tr><td style="background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 55%,#1d4ed8 100%);border-radius:16px 16px 0 0;padding:36px 40px;text-align:center">
+        <div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:-.5px">Meu Processo</div>
+        <div style="font-size:13px;color:rgba(255,255,255,.6);margin-top:4px">Gestão jurídica inteligente</div>
+      </td></tr>
+      <tr><td style="background:#fff;padding:40px 40px 32px;border-radius:0 0 16px 16px">
+        <div style="text-align:center;margin-bottom:28px">
+          <div style="font-size:48px">🎉</div>
+          <p style="font-size:20px;font-weight:700;color:#111827;margin:12px 0 8px">Seu acesso foi liberado!</p>
+          <p style="font-size:15px;color:#6b7280;margin:0">Bem-vindo(a) ao Meu Processo, ${nome}.</p>
+        </div>
+        <p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 28px;text-align:center">
+          Agora você tem acesso completo à plataforma — monitore seus processos, acompanhe prazos e receba alertas automáticos de movimentações.
+        </p>
+        <div style="text-align:center;margin-bottom:32px">
+          <a href="https://meuprocesso.app.br/login" style="display:inline-block;background:linear-gradient(135deg,#1e3a5f,#1d4ed8);color:#fff;text-decoration:none;font-size:16px;font-weight:700;padding:16px 40px;border-radius:12px">
+            Acessar minha conta →
+          </a>
+        </div>
+        <div style="border-top:1px solid #e5e7eb;padding-top:24px;text-align:center">
+          <p style="font-size:13px;color:#6b7280;margin:0">
+            Qualquer dúvida, responda este e-mail.<br>
+            <strong style="color:#111827">Matheus Vilar</strong> · Fundador, Meu Processo
+          </p>
+        </div>
+      </td></tr>
+      <tr><td style="padding:20px 0;text-align:center">
+        <p style="font-size:12px;color:#9ca3af;margin:0">Meu Processo · <a href="https://meuprocesso.app.br" style="color:#6b7280;text-decoration:none">meuprocesso.app.br</a></p>
+      </td></tr>
+    </table>
+  </td></tr>
+</table></body></html>`;
 }
 
 async function acaoRejeitarUsuario(req, res, admin) {

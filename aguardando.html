@@ -53,8 +53,19 @@
     return;
   }
 
-  const email = session.user.email || session.user.user_metadata?.email || '';
+  const email = session.user.email || '';
+  const nome  = session.user.user_metadata?.full_name || session.user.user_metadata?.nome || '';
   document.getElementById('aguardando-email').textContent = email;
+
+  // Envia e-mail de "cadastro recebido" apenas uma vez (flag no sessionStorage)
+  if (!sessionStorage.getItem('email-cadastro-enviado')) {
+    sessionStorage.setItem('email-cadastro-enviado', '1');
+    fetch('/api/email-transacional', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipo: 'cadastro', para: email, nome }),
+    }).catch(() => {});
+  }
 })();
 
 async function sair() {
