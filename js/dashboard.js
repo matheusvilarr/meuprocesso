@@ -2021,19 +2021,21 @@ async function verificarProcessoAgora(evt, id, datajudIndex, numero) {
 
     const d     = data.resultados[0];
     const movs  = d.movimentos || [];
-    const hash  = movs.map(m => m.data + m.nome).join('|');
+    const hash  = movs.slice(0, 6).map(m => m.data + m.nome).join('|');
 
-    const proc  = (window._processosDB || []).find(p => p.id === id);
+    const proc        = (window._processosDB || []).find(p => p.id === id);
+    const importadoEm = (proc?.created_at || '').slice(0, 10);
+    const existentes  = new Set((proc?.movimentos_recentes || []).map(m => m.data + m.nome));
     const novo  = hash !== proc?.movimentos_hash;
-    const novos = novo && proc?.movimentos_hash
-      ? movs.filter(m => !proc.movimentos_hash.includes(m.data + m.nome))
+    const novos = novo
+      ? movs.filter(m => !existentes.has(m.data + m.nome) && (!importadoEm || m.data >= importadoEm))
       : [];
 
     await _supabase.from('processos').update({
       movimentos_recentes:  movs,
       movimentos_hash:      hash,
       ultima_verificacao:   new Date().toISOString(),
-      notificacao_pendente: novo && novos.length > 0,
+      notificacao_pendente: novos.length > 0,
       novos_movimentos:     novos.length ? novos : null,
     }).eq('id', id);
 
@@ -3003,9 +3005,12 @@ async function sincronizarTodos() {
       const hash  = movs.slice(0, 6).map(m => m.data + m.nome).join('|');
       if (hash === p.movimentos_hash) continue;
 
-      // Compara contra movimentos_recentes (não contra o hash truncado)
-      const existentes = new Set((p.movimentos_recentes || []).map(m => m.data + m.nome));
-      const novos = movs.filter(m => !existentes.has(m.data + m.nome));
+      // Só notifica movimentos após a data de adição do processo ao sistema
+      const importadoEm = (p.created_at || '').slice(0, 10);
+      const existentes  = new Set((p.movimentos_recentes || []).map(m => m.data + m.nome));
+      const novos = movs.filter(m =>
+        !existentes.has(m.data + m.nome) && (!importadoEm || m.data >= importadoEm)
+      );
 
       await _supabase.from('processos').update({
         movimentos_recentes:  movs,
@@ -5240,9 +5245,11 @@ async function _importarComMerge(d) {
     // Mescla: atualiza dados do tribunal, preserva dados do advogado
     const novasMovs = movs.length ? movs : (existente.movimentos_recentes || []);
     const updates = {
-      movimentos_recentes: novasMovs,
-      movimentos_hash: novasMovs.length ? novasMovs.map(m => m.data + m.nome).join('|') : null,
-      ultima_verificacao:  new Date().toISOString(),
+      movimentos_recentes:  novasMovs,
+      movimentos_hash:      novasMovs.length ? novasMovs.slice(0, 6).map(m => m.data + m.nome).join('|') : null,
+      ultima_verificacao:   new Date().toISOString(),
+      notificacao_pendente: false, // merge manual nunca gera notificação
+      novos_movimentos:     null,
     };
     if (d.tribunal)        updates.tribunal        = d.tribunal;
     if (d.orgaoJulgador)   updates.orgao_julgador  = d.orgaoJulgador;
@@ -5271,8 +5278,9 @@ async function _importarComMerge(d) {
     classe:              d.classe             || null,
     orgao_julgador:      d.orgaoJulgador      || null,
     data_ajuizamento:    d.dataAjuizamento    || null,
-    movimentos_recentes: movs.length ? movs   : null,
-    movimentos_hash:     movs.length ? movs.map(m => m.data + m.nome).join('|') : null,
+    movimentos_recentes:  movs.length ? movs  : null,
+    movimentos_hash:      movs.length ? movs.slice(0, 6).map(m => m.data + m.nome).join('|') : null,
+    notificacao_pendente: false, // importação nunca gera notificação
     ultima_verificacao:  movs.length ? new Date().toISOString() : null,
   }, { onConflict: 'user_id,numero' });
   if (error) return { status: 'erro', error };
