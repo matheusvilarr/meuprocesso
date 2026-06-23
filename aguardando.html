@@ -16,6 +16,13 @@
   .aguardando-email { background: #f3f4f6; border-radius: 8px; padding: 10px 16px; font-size: 13px; color: #374151; margin-bottom: 28px; font-weight: 500; }
   .btn-sair { background: none; border: 1.5px solid #e5e7eb; border-radius: 8px; padding: 10px 28px; font-family: 'Inter', sans-serif; font-size: 14px; color: #6b7280; cursor: pointer; transition: border-color .15s, color .15s; }
   .btn-sair:hover { border-color: #1a2e6b; color: #1a2e6b; }
+
+  /* Completar perfil */
+  #tela-perfil { display: none; }
+  #tela-perfil .perfil-titulo { font-size: 20px; font-weight: 700; color: #1a2e6b; margin-bottom: 6px; }
+  #tela-perfil .perfil-sub { font-size: 14px; color: #6b7280; margin-bottom: 24px; line-height: 1.6; }
+  #tela-perfil .perfil-google { display: flex; align-items: center; gap: 10px; background: #f3f4f6; border-radius: 8px; padding: 10px 14px; margin-bottom: 24px; font-size: 13px; color: #374151; }
+  #tela-perfil .perfil-google img { width: 20px; height: 20px; border-radius: 50%; }
 </style>
 </head>
 <body>
@@ -26,7 +33,45 @@
         <img src="img/images/logo.png" alt="Meu Processo">
       </a>
     </div>
-    <div class="card-body aguardando-card">
+
+    <!-- Tela: completar perfil (Google OAuth sem OAB/telefone) -->
+    <div class="card-body" id="tela-perfil">
+      <div class="perfil-titulo">Só mais um passo 👋</div>
+      <p class="perfil-sub">Para liberar seu acesso, precisamos de mais algumas informações profissionais.</p>
+
+      <div class="perfil-google" id="perfil-google-info"></div>
+
+      <form class="form" id="perfilForm" novalidate>
+        <div class="field-row">
+          <div class="field field-uf">
+            <select id="pf-uf" required>
+              <option value="">UF</option>
+              <option>AC</option><option>AL</option><option>AP</option><option>AM</option>
+              <option>BA</option><option>CE</option><option>DF</option><option>ES</option>
+              <option>GO</option><option>MA</option><option>MT</option><option>MS</option>
+              <option>MG</option><option>PA</option><option>PB</option><option>PR</option>
+              <option>PE</option><option>PI</option><option>RJ</option><option>RN</option>
+              <option>RS</option><option>RO</option><option>RR</option><option>SC</option>
+              <option>SE</option><option>SP</option><option>TO</option>
+            </select>
+          </div>
+          <div class="field field-oab-num">
+            <input type="text" id="pf-oab-num" placeholder="Número da OAB" maxlength="10" inputmode="numeric" required>
+          </div>
+        </div>
+        <div class="error-msg" id="pfOabError"></div>
+
+        <div class="field">
+          <input type="tel" id="pf-telefone" placeholder="WhatsApp / Telefone (ex: 61999990000)" maxlength="15" inputmode="numeric" required>
+          <div class="error-msg" id="pfTelError"></div>
+        </div>
+
+        <button type="submit" class="btn-submit" id="btnPerfil">Continuar</button>
+      </form>
+    </div>
+
+    <!-- Tela: aguardando aprovação -->
+    <div class="card-body aguardando-card" id="tela-aguardando" style="display:none">
       <div class="aguardando-icon">⏳</div>
       <div class="aguardando-title">Conta em análise</div>
       <p class="aguardando-sub">
@@ -43,21 +88,41 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="js/supabase-client.js"></script>
 <script>
+let _session;
+
 (async () => {
   const { data: { session } } = await _supabase.auth.getSession();
   if (!session) { window.location.href = '/login'; return; }
+  _session = session;
 
-  // Se já foi aprovado, vai direto pro dashboard
   if (session.user.user_metadata?.status === 'aprovado') {
     window.location.href = '/dashboard';
     return;
   }
 
-  const email = session.user.email || '';
-  const nome  = session.user.user_metadata?.full_name || session.user.user_metadata?.nome || '';
-  document.getElementById('aguardando-email').textContent = email;
+  const meta     = session.user.user_metadata || {};
+  const temOab   = !!meta.oab;
+  const temTel   = !!meta.telefone;
+  const email    = session.user.email || '';
+  const nome     = meta.full_name || meta.nome || '';
+  const avatar   = meta.avatar_url || meta.picture || '';
 
-  // Envia e-mail de "cadastro recebido" apenas uma vez (flag no sessionStorage)
+  if (!temOab || !temTel) {
+    // Mostra formulário de completar perfil
+    document.getElementById('tela-perfil').style.display = 'block';
+    document.getElementById('perfil-google-info').innerHTML =
+      `${avatar ? `<img src="${avatar}" alt="">` : ''}
+       <span><strong>${nome || email}</strong> · ${email}</span>`;
+  } else {
+    mostrarAguardando(email, nome);
+  }
+})();
+
+function mostrarAguardando(email, nome) {
+  document.getElementById('tela-perfil').style.display    = 'none';
+  document.getElementById('tela-aguardando').style.display = 'block';
+  document.getElementById('aguardando-email').textContent  = email;
+
   if (!sessionStorage.getItem('email-cadastro-enviado')) {
     sessionStorage.setItem('email-cadastro-enviado', '1');
     fetch('/api/email-transacional', {
@@ -66,7 +131,54 @@
       body: JSON.stringify({ tipo: 'cadastro', para: email, nome }),
     }).catch(() => {});
   }
-})();
+}
+
+document.getElementById('perfilForm').addEventListener('submit', async function (e) {
+  e.preventDefault();
+  const uf     = document.getElementById('pf-uf').value.trim().toUpperCase();
+  const oabNum = document.getElementById('pf-oab-num').value.trim().replace(/\D/g, '');
+  const tel    = document.getElementById('pf-telefone').value.trim().replace(/\D/g, '');
+  const btn    = document.getElementById('btnPerfil');
+  const oabErr = document.getElementById('pfOabError');
+  const telErr = document.getElementById('pfTelError');
+
+  oabErr.classList.remove('show');
+  telErr.classList.remove('show');
+
+  let ok = true;
+  if (!uf || !oabNum || oabNum.length < 3) {
+    oabErr.textContent = 'Selecione o estado e informe o número da OAB.';
+    oabErr.classList.add('show');
+    ok = false;
+  }
+  if (!tel || tel.length < 10) {
+    telErr.textContent = 'Digite um telefone válido com DDD.';
+    telErr.classList.add('show');
+    ok = false;
+  }
+  if (!ok) return;
+
+  btn.disabled    = true;
+  btn.textContent = 'Salvando...';
+
+  const oab  = `${uf}${oabNum}`;
+  const meta = _session.user.user_metadata || {};
+  const { error } = await _supabase.auth.updateUser({
+    data: { ...meta, oab, telefone: tel },
+  });
+
+  if (error) {
+    telErr.textContent = 'Erro ao salvar. Tente novamente.';
+    telErr.classList.add('show');
+    btn.disabled    = false;
+    btn.textContent = 'Continuar';
+    return;
+  }
+
+  const email = _session.user.email || '';
+  const nome  = meta.full_name || meta.nome || '';
+  mostrarAguardando(email, nome);
+});
 
 async function sair() {
   await _supabase.auth.signOut();
