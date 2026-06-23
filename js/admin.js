@@ -592,7 +592,15 @@ async function sincronizarTodos(userId) {
   }
 
   result.style.cssText = 'display:block;padding:12px 16px;border-radius:8px;font-size:13px;background:#f0fdf4;color:#166534;border:1px solid #86efac;margin-bottom:16px;';
-  result.innerHTML = `<strong>${r.atualizados}</strong> processo(s) atualizados · <strong>${r.semMudanca}</strong> sem mudança · <strong>${r.erros}</strong> erro(s) · Total verificado: <strong>${r.total}</strong>`;
+  const partes = [
+    `<strong>${r.atualizados}</strong> processo(s) atualizados`,
+    `<strong>${r.semMudanca}</strong> sem mudança`,
+    r.naoEncontrado ? `<strong>${r.naoEncontrado}</strong> não encontrado(s) no DataJud` : null,
+    r.erros         ? `<strong>${r.erros}</strong> erro(s) de API` : null,
+    `Total verificado: <strong>${r.total}</strong>`,
+    r.reparados     ? `· <em>${r.reparados} índice(s) CNJ preenchido(s)</em>` : null,
+  ].filter(Boolean);
+  result.innerHTML = partes.join(' · ');
 
   // Recarrega os dados de sync sem reiniciar a página inteira
   await recarregarSyncStats();

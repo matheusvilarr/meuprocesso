@@ -468,7 +468,7 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
   if (error) return res.status(500).json({ erro: error.message });
 
   const hoje = new Date().toISOString().slice(0, 10);
-  let atualizados = 0, semMudanca = 0, erros = 0, parou = false;
+  let atualizados = 0, semMudanca = 0, naoEncontrado = 0, erros = 0, parou = false;
 
   for (let i = 0; i < processos.length; i += 10) {
     if (Date.now() - startAt > 75000) { parou = true; break; }
@@ -477,7 +477,8 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
     await Promise.all(lote.map(async proc => {
       if ((proc.created_at || '').slice(0, 10) === hoje) return;
       const hits = await _buscarDatajud(proc.datajud_index, proc.numero);
-      if (!hits?.length) { erros++; return; }
+      if (hits === null)  { erros++; return; }       // timeout ou erro de API
+      if (!hits.length)   { naoEncontrado++; return; } // 200 OK mas não existe no índice
 
       const movimentos = (hits[0]._source.movimentos || [])
         .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))
@@ -507,6 +508,7 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
     total: processos.length,
     atualizados,
     semMudanca,
+    naoEncontrado,
     erros,
     parou,
     elapsed: Math.round((Date.now() - startAt) / 1000) + 's',
