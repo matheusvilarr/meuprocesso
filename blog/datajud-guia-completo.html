@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DataJud: guia completo para consultar processos do CNJ | Meu Processo</title>
+<meta name="description" content="Tudo sobre o DataJud, o sistema do CNJ para consulta de processos judiciais de todos os tribunais do Brasil. Como pesquisar por número, OAB, nome e CPF.">
+<meta property="og:title" content="DataJud: guia completo para consultar qualquer processo do Brasil">
+<meta property="og:description" content="Como usar o DataJud do CNJ para consultar processos por número, OAB, nome das partes e CPF. Guia completo e atualizado.">
+<meta property="og:url" content="https://meuprocesso.app.br/blog/datajud-guia-completo.html">
+<link rel="canonical" href="https://meuprocesso.app.br/blog/datajud-guia-completo.html">
+<link rel="icon" type="image/png" href="/img/images/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/blog.css">
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3763757554812834" crossorigin="anonymous"></script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "DataJud: guia completo para consultar qualquer processo do Brasil",
+  "description": "Como usar o DataJud do CNJ para consultar processos por número, OAB, nome das partes e CPF.",
+  "author": { "@type": "Organization", "name": "Equipe Meu Processo" },
+  "publisher": { "@type": "Organization", "name": "Meu Processo", "url": "https://meuprocesso.app.br" },
+  "datePublished": "2026-06-24",
+  "url": "https://meuprocesso.app.br/blog/datajud-guia-completo.html"
+}
+</script>
+</head>
+<body>
+
+<nav class="blog-nav">
+  <a href="/" class="blog-nav-logo">
+    <img src="/img/images/logo.png" alt="Meu Processo">
+    Meu Processo <span>/ Blog</span>
+  </a>
+  <a href="/login?tab=signup" class="blog-nav-cta">Criar conta grátis</a>
+</nav>
+
+<div class="artigo-header">
+  <div class="blog-container">
+    <div class="breadcrumb"><a href="/blog/">Blog</a> › Tecnologia Jurídica</div>
+    <div class="artigo-tag">Tecnologia Jurídica</div>
+    <h1 class="artigo-titulo">DataJud: guia completo para consultar qualquer processo do Brasil</h1>
+    <div class="artigo-meta">
+      <span class="artigo-meta-autor">Equipe Meu Processo</span>
+      <span>·</span>
+      <span>24 de junho de 2026</span>
+      <span>·</span>
+      <span>7 min de leitura</span>
+    </div>
+  </div>
+</div>
+
+<div class="blog-container">
+  <div class="artigo-corpo">
+
+    <p>Criado pelo Conselho Nacional de Justiça em 2020, o <strong>DataJud</strong> é hoje a maior base de dados processuais do país. Reúne informações de mais de 90 tribunais brasileiros em um único sistema, acessível de forma gratuita, e poucos advogados exploram todo o seu potencial.</p>
+
+    <p>Neste guia você vai entender o que é o DataJud, o que é possível consultar, quais são suas limitações reais e como usar essa ferramenta no dia a dia do escritório.</p>
+
+    <h2>O que é o DataJud</h2>
+
+    <p>O DataJud (Base Nacional de Dados do Poder Judiciário) é uma iniciativa do CNJ para centralizar dados processuais de todos os ramos da Justiça brasileira: estadual, federal, trabalhista, militar, eleitoral e os tribunais superiores.</p>
+
+    <p>Os tribunais são obrigados a alimentar o sistema com dados dos processos em andamento, incluindo movimentações, classe processual, assunto, órgão julgador e datas. A atualização é diária, mas o intervalo real entre uma movimentação no tribunal e sua aparição no DataJud pode variar de algumas horas a alguns dias, dependendo do tribunal.</p>
+
+    <p>A consulta é feita via API pública, o que significa que qualquer sistema pode integrar com o DataJud para buscar informações processuais de forma automatizada. É exatamente o que plataformas de monitoramento processual fazem.</p>
+
+    <h2>O que você pode consultar</h2>
+
+    <p>A API pública do DataJud permite buscar processos por diferentes critérios:</p>
+
+    <ul>
+      <li><strong>Número CNJ:</strong> o número único do processo no formato NNNNNNN-DD.AAAA.J.TT.OOOO. É a forma mais precisa e direta de consulta.</li>
+      <li><strong>Número OAB:</strong> busca todos os processos em que um advogado com aquela inscrição aparece como representante de alguma das partes.</li>
+      <li><strong>Nome das partes:</strong> útil quando você não tem o número do processo, mas conhece o nome do autor ou réu.</li>
+      <li><strong>CPF/CNPJ:</strong> quando disponível, permite encontrar processos de uma pessoa física ou jurídica específica.</li>
+    </ul>
+
+    <p>Para cada processo encontrado, o DataJud retorna:</p>
+
+    <ul>
+      <li>Dados de identificação (número, classe, assunto, tribunal)</li>
+      <li>Órgão julgador responsável</li>
+      <li>Data de ajuizamento</li>
+      <li>Grau de jurisdição</li>
+      <li>Lista de movimentações com data e descrição</li>
+      <li>Dados das partes (com restrições de LGPD)</li>
+    </ul>
+
+    <h2>Entendendo o número CNJ</h2>
+
+    <p>O número CNJ é a chave do DataJud. Ao contrário dos números antigos de cada tribunal, o número CNJ segue um padrão nacional:</p>
+
+    <blockquote>
+      <strong>NNNNNNN-DD.AAAA.J.TT.OOOO</strong><br><br>
+      NNNNNNN = número do processo (7 dígitos)<br>
+      DD = dígitos verificadores<br>
+      AAAA = ano de distribuição<br>
+      J = segmento da justiça (1=Federal, 2=Trabalhista, 3=Eleitoral, 4=Militar, 5-9=Estadual)<br>
+      TT = código do tribunal<br>
+      OOOO = código do órgão
+    </blockquote>
+
+    <p>Se você tiver um número de processo antigo (pré-CNJ), é possível encontrar o número novo buscando pelo nome das partes ou pela OAB no DataJud. A maioria dos portais dos próprios tribunais já exibe o número CNJ atualmente.</p>
+
+    <h2>Cobertura: quais tribunais estão no DataJud</h2>
+
+    <p>O DataJud cobre os principais tribunais brasileiros, entre eles:</p>
+
+    <ul>
+      <li>Todos os Tribunais de Justiça estaduais (TJ)</li>
+      <li>Tribunais Regionais Federais (TRF 1 a 6)</li>
+      <li>Tribunais Regionais do Trabalho (TRT)</li>
+      <li>Tribunais Superiores: STJ, TST, TSE, STM</li>
+      <li>Supremo Tribunal Federal (STF)</li>
+    </ul>
+
+    <p>A cobertura não é 100% uniforme: alguns tribunais menores têm atrasos ou lacunas na alimentação do sistema. Mas para a grande maioria dos processos que tramitam no país, o DataJud é a fonte mais confiável disponível sem precisar fazer login em cada portal.</p>
+
+    <h2>Limitações que você precisa conhecer</h2>
+
+    <p>O DataJud é poderoso, mas tem limitações reais que todo advogado deve ter em mente:</p>
+
+    <h3>Atraso na atualização</h3>
+    <p>A movimentação aparece no tribunal hoje, mas pode levar de 1 a 5 dias para aparecer no DataJud, dependendo do tribunal. Para processos urgentes, a consulta direta ao portal do tribunal pode ser necessária.</p>
+
+    <h3>Restrições de LGPD</h3>
+    <p>Os dados das partes são protegidos pela Lei Geral de Proteção de Dados. O DataJud retorna informações básicas sobre as partes, mas CPF, CNPJ e outros dados sensíveis podem aparecer mascarados ou omitidos dependendo do tribunal e do tipo de processo.</p>
+
+    <h3>Processos em segredo de justiça</h3>
+    <p>Processos que tramitam em segredo de justiça não aparecem nas buscas públicas do DataJud. Para acessá-los, é necessário autenticação como advogado da causa.</p>
+
+    <h3>Dados históricos incompletos</h3>
+    <p>Processos muito antigos, distribuídos antes da implantação do DataJud em determinado tribunal, podem ter histórico incompleto ou não constar na base.</p>
+
+    <h2>Como usar o DataJud na prática</h2>
+
+    <p>O portal <strong>datajud.cnj.jus.br</strong> é o acesso mais direto e funciona sem cadastro. A busca por número CNJ é a mais rápida: cole o número no campo de pesquisa, selecione o tribunal correspondente no filtro lateral e você vê as movimentações em ordem cronológica.</p>
+
+    <p>Para busca por OAB, acesse a aba "Pesquisa Avançada" e selecione o campo "Representante". Digite o número da OAB com o estado no formato correto (ex: DF12345). O sistema retorna todos os processos em que aquela inscrição consta como representante, em qualquer tribunal coberto.</p>
+
+    <p>Um detalhe importante: o DataJud exibe as movimentações por ordem de data de atualização no sistema, não necessariamente por data de ocorrência no tribunal. Quando você estiver conferindo um prazo, sempre confira também a data original da decisão no portal do tribunal, pois a data de entrada no DataJud pode ser diferente.</p>
+
+    <p>Para acompanhamento contínuo, o portal não tem sistema de alerta. Você precisaria acessar manualmente toda vez que quiser verificar se houve movimentação. A alternativa é usar a API pública do DataJud integrada a um sistema de gestão, que automatiza essa verificação periódica e te avisa quando algo muda.</p>
+
+    <h2>Conclusão</h2>
+
+    <p>O DataJud representa uma mudança estrutural na forma como os dados processuais são acessados no Brasil. Pela primeira vez, é possível consultar processos de diferentes tribunais em uma única fonte, com um padrão uniforme de dados.</p>
+
+    <p>Para o advogado, isso significa não precisar conhecer e acessar o sistema de cada tribunal individualmente. Aprender a usar o DataJud diretamente é o primeiro passo. Integrá-lo com um sistema que verifique automaticamente e te avise por e-mail é o segundo.</p>
+
+    <div class="artigo-cta-final">
+      <p>O <a href="/login?tab=signup">Meu Processo</a> usa a API do DataJud para monitorar seus processos automaticamente e avisar por e-mail quando houver movimentação nova. Gratuito, sem limite de processos.</p>
+    </div>
+
+  </div>
+
+  <div class="autor-card">
+    <div class="autor-avatar">MP</div>
+    <div>
+      <div class="autor-nome">Equipe Meu Processo</div>
+      <div class="autor-cargo">Tecnologia jurídica</div>
+      <div class="autor-bio">Conteúdo produzido pela equipe do Meu Processo, sistema de gestão processual para advogados com integração direta ao DataJud do CNJ.</div>
+    </div>
+  </div>
+
+  <div class="escreva-artigo">
+    <h3>✍️ Tem experiência com DataJud para compartilhar?</h3>
+    <p>Se você é advogado e tem casos, dicas ou perspectivas sobre tecnologia jurídica para compartilhar, publicamos seu artigo aqui com crédito completo.</p>
+    <a href="mailto:contato@meuprocesso.app.br?subject=Quero publicar no blog" class="escreva-btn">Quero publicar →</a>
+  </div>
+
+</div>
+
+<footer class="blog-footer">
+  <p>© 2026 · <a href="/">Meu Processo</a> · <a href="/blog/">Blog</a> · <a href="mailto:contato@meuprocesso.app.br">contato@meuprocesso.app.br</a></p>
+</footer>
+
+</body>
+</html>
