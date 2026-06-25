@@ -454,7 +454,7 @@ function cardProcesso(item, isNovo = false) {
     <div style="font-size:13px;font-weight:600;color:#1a2e6b;line-height:1.4">${principal.nome}</div>
     <div style="font-size:11px;color:#9ca3af;margin-top:3px">${formatarData(principal.data)}</div>
     ${dataJudNote}
-    ${resto.length ? `<div style="margin-top:8px;border-top:1px solid #e8edf5;padding-top:6px">${resto.map(m => `<div style="font-size:11px;color:#6b7280;padding:2px 0">${formatarDataCurta(m.data + 'T12:00:00')} — ${m.nome}</div>`).join('')}</div>` : ''}
+    ${resto.length ? `<div style="margin-top:8px;border-top:1px solid #e8edf5;padding-top:6px">${resto.map(m => `<div style="font-size:11px;color:#6b7280;padding:2px 0">${m.data ? formatarDataCurta(m.data + 'T12:00:00') + ' — ' : ''}${m.nome}</div>`).join('')}</div>` : ''}
   </div>` : ''}
 </div>`;
 }
@@ -482,12 +482,6 @@ function formatarData(iso) {
   if (!iso) return '—';
   try { return new Date(iso + (iso.length === 10 ? 'T12:00:00' : '')).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }); }
   catch { return iso; }
-}
-
-function formatarHora(iso) {
-  if (!iso) return '—';
-  try { return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }); }
-  catch { return '—'; }
 }
 
 function formatarDataCurta(iso) {
