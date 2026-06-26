@@ -26,6 +26,7 @@ export default async function handler(req, res) {
   const tipo = tipoOverride || (horaUTC < 14 ? 'morning' : horaUTC < 18 ? 'afternoon' : 'evening');
 
   try {
+    if (tipo === 'instant')   return await rodarInstant(admin, res, hoje);
     if (tipo === 'morning')   return await rodarMorning(admin, res, hoje);
     if (tipo === 'afternoon') return await rodarAfternoon(admin, res, hoje);
     return await rodarEvening(admin, res, hoje);
@@ -39,6 +40,71 @@ async function logErro(admin, origem, mensagem, detalhes, userId) {
   try {
     await admin.from('error_log').insert({ origem, mensagem, detalhes: detalhes || null, user_id: userId || null });
   } catch (_) {}
+}
+
+// ── INSTANT ───────────────────────────────────────────────────────────────────
+// Chamado diretamente pelo sincronizar.js quando há movimentos novos.
+// Não usa jaNotificouHoje — dedup feito pelo ciclo notificacao_pendente.
+
+async function rodarInstant(admin, res, hoje) {
+  const { data: pendentes } = await admin
+    .from('processos')
+    .select('id, user_id, numero, nome, apelido, cliente, tribunal, datajud_index, ultima_verificacao, novos_movimentos')
+    .eq('notificacao_pendente', true)
+    .neq('status', 'Arquivado');
+
+  if (!pendentes?.length) {
+    return res.status(200).json({ ok: true, tipo: 'instant', emailsEnviados: 0, motivo: 'nada pendente' });
+  }
+
+  const porUsuario = {};
+  for (const p of pendentes) {
+    if (!porUsuario[p.user_id]) porUsuario[p.user_id] = { atualizacoes: [], novosProcessos: [] };
+    const novos         = (p.novos_movimentos || []).slice(0, 3);
+    const autoImportado = novos.some(m => m._auto_importado);
+    const item = {
+      processoId: p.id, numero: p.numero,
+      nome: p.apelido || p.nome, cliente: p.cliente || null,
+      tribunal: p.tribunal || extrairTribunal(p.datajud_index),
+      ultimaVerificacao: p.ultima_verificacao, novos,
+    };
+    if (autoImportado) porUsuario[p.user_id].novosProcessos.push(item);
+    else               porUsuario[p.user_id].atualizacoes.push(item);
+  }
+
+  let emailsEnviados = 0;
+  const processosNotificados = [];
+
+  for (const userId of Object.keys(porUsuario)) {
+    let email, nome;
+    try {
+      const { data: ud } = await admin.auth.admin.getUserById(userId);
+      email = ud?.user?.email;
+      if (!email) continue;
+      nome = ud.user.user_metadata?.full_name || ud.user.user_metadata?.nome || email.split('@')[0];
+    } catch (e) {
+      await logErro(admin, 'cron:email-instant', e.message, { userId }, userId);
+      continue;
+    }
+
+    const { atualizacoes, novosProcessos } = porUsuario[userId];
+    try {
+      await enviarDigestMorning(email, nome, [], atualizacoes, novosProcessos);
+      emailsEnviados++;
+      await logNotif(admin, userId, 'instant', hoje);
+      processosNotificados.push(...[...atualizacoes, ...novosProcessos].map(a => a.processoId));
+    } catch (e) {
+      await logErro(admin, 'cron:email-instant', e.message, { email }, userId);
+    }
+  }
+
+  if (processosNotificados.length) {
+    await admin.from('processos')
+      .update({ notificacao_pendente: false, ultima_notif_email: new Date().toISOString() })
+      .in('id', processosNotificados);
+  }
+
+  return res.status(200).json({ ok: true, tipo: 'instant', emailsEnviados, hoje });
 }
 
 // ── MORNING ───────────────────────────────────────────────────────────────────
@@ -434,28 +500,44 @@ async function enviarAlertaEvening(para, nome, prazos, hoje) {
 // ── CARD PROCESSO ─────────────────────────────────────────────────────────────
 
 function cardProcesso(item, isNovo = false) {
-  const novos    = (item.novos || []).slice(0, 3);
+  const novos     = (item.novos || []).slice(0, 3);
   const principal = novos[0];
   const resto     = novos.slice(1);
-  const borda     = isNovo ? '#f59e0b' : '#1a2e6b';
-  const meta      = [item.tribunal, item.numero ? `Nº ${item.numero}` : ''].filter(Boolean).join(' · ');
+  const accentColor = isNovo ? '#d97706' : '#3b5bdb';
+  const accentBg    = isNovo ? '#fffbeb' : '#edf2ff';
+  const accentText  = isNovo ? '#92400e' : '#1e3a8a';
+
   const detectadoEm = principal?._detectadoEm;
   const movDate     = (principal?.data || '').slice(0, 10);
   const dataJudNote = detectadoEm && movDate && movDate < detectadoEm
-    ? `<div style="font-size:10px;color:#6366f1;margin-top:4px">📡 Identificado hoje — publicado no tribunal em ${formatarDataCurta(movDate + 'T12:00:00')}</div>`
+    ? `<div style="font-size:10px;color:#6366f1;margin-top:5px">📡 Publicado em ${formatarDataCurta(movDate + 'T12:00:00')} · identificado hoje</div>`
+    : '';
+
+  const restoHtml = resto.length
+    ? `<div style="margin-top:8px">${resto.map(m =>
+        `<div style="font-size:11px;color:#6b7280;padding:3px 0;border-top:1px solid #f1f5f9">+ ${m.nome}${m.data ? ' · ' + formatarDataCurta(m.data.slice(0, 10) + 'T12:00:00') : ''}</div>`
+      ).join('')}</div>`
     : '';
 
   return `
-<div style="border:1px solid #e5e7eb;border-left:4px solid ${borda};border-radius:8px;padding:14px 16px;margin-bottom:10px">
-  <div style="font-size:11px;color:#9ca3af;margin-bottom:4px">${meta}${item.cliente ? ` · 👤 ${item.cliente}` : ''}</div>
-  <div style="font-size:15px;font-weight:700;color:#111827;margin-bottom:${principal ? '10px' : '0'}">${item.nome || item.numero}</div>
-  ${principal ? `
-  <div style="background:#f8faff;border-radius:6px;padding:10px 12px">
-    <div style="font-size:13px;font-weight:600;color:#1a2e6b;line-height:1.4">${principal.nome}</div>
-    <div style="font-size:11px;color:#9ca3af;margin-top:3px">${formatarData(principal.data)}</div>
-    ${dataJudNote}
-    ${resto.length ? `<div style="margin-top:8px;border-top:1px solid #e8edf5;padding-top:6px">${resto.map(m => `<div style="font-size:11px;color:#6b7280;padding:2px 0">${m.data ? formatarDataCurta(m.data.slice(0, 10) + 'T12:00:00') + ' — ' : ''}${m.nome}</div>`).join('')}</div>` : ''}
-  </div>` : ''}
+<div style="border:1px solid #e2e8f0;border-radius:10px;margin-bottom:12px;overflow:hidden">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#1a2e6b;border-collapse:collapse">
+    <tr>
+      <td style="padding:9px 14px;color:#93c5fd;font-size:11px;font-weight:700;letter-spacing:.4px">${item.tribunal || ''}</td>
+      <td style="padding:9px 14px;text-align:right;color:#7ea8d4;font-size:10px;font-family:monospace;white-space:nowrap">${item.numero || ''}</td>
+    </tr>
+  </table>
+  <div style="padding:12px 14px">
+    <div style="font-size:14px;font-weight:700;color:#111827;line-height:1.3;margin-bottom:${item.cliente ? '3px' : '10px'}">${item.nome || item.numero}</div>
+    ${item.cliente ? `<div style="font-size:11px;color:#6b7280;margin-bottom:10px">👤 ${item.cliente}</div>` : ''}
+    ${principal ? `
+    <div style="background:${accentBg};border-left:3px solid ${accentColor};border-radius:0 6px 6px 0;padding:9px 12px">
+      <div style="font-size:13px;font-weight:600;color:${accentText};line-height:1.4">${principal.nome}</div>
+      <div style="font-size:11px;color:#6b7280;margin-top:2px">${formatarData(principal.data)}</div>
+      ${dataJudNote}
+    </div>
+    ${restoHtml}` : ''}
+  </div>
 </div>`;
 }
 

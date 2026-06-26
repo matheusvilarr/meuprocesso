@@ -108,6 +108,16 @@ async function rodarDatajud(admin, res, hoje) {
 
   const atualizadosDJEN = await sincronizarDJEN(todosProcessosFresh || [], oabsPorUsuario, admin, hoje);
 
+  // Dispara email imediato se houve movimentos novos — não bloqueia o response em caso de erro
+  if (atualizadosDatajud > 0 || atualizadosDJEN > 0) {
+    try {
+      await fetch('https://meuprocesso.app.br/api/cron/verificar-atualizacoes?tipo=instant', {
+        headers: { 'Authorization': `Bearer ${CRON_SECRET || ''}` },
+        signal: AbortSignal.timeout(25000),
+      });
+    } catch (_) {}
+  }
+
   return res.status(200).json({
     ok: true, tipo: 'datajud', hoje,
     reparados,
@@ -115,6 +125,7 @@ async function rodarDatajud(admin, res, hoje) {
     todosParaDJEN: todosProcessos?.length || 0,
     datajud: atualizadosDatajud,
     djen: atualizadosDJEN,
+    emailInstant: atualizadosDatajud > 0 || atualizadosDJEN > 0,
     elapsed: Math.round((Date.now() - startAt) / 1000) + 's',
   });
 }
