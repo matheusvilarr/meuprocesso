@@ -222,7 +222,7 @@ async function _djenUsuario(uid, processos, oabsPorUsuario, numeroSet, admin, ho
       const dataPub = item.data_disponibilizacao || hoje;
       if (dataPub < ontem) continue;
 
-      const movDJEN = { nome: `DJEN — ${item.tipoComunicacao || 'Publicação'}`, data: dataPub + 'T00:00:00' };
+      const movDJEN = { nome: `DJEN — ${item.tipoComunicacao || 'Publicação'}`, data: dataPub };
       const PADRAO  = /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/g;
 
       // Número principal da publicação: auto-importar se ainda não cadastrado
