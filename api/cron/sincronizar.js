@@ -320,7 +320,7 @@ function _datajudIndexFromNumero(numero) {
     const ufsTre = ['','ac','al','ap','am','ba','ce','df','es','go','ma','mt','ms','mg','pa','pb','pr','pe','pi','rj','rn','rs','ro','rr','sc','se','sp','to'];
     const uf = ufsTre[trib];
     if (!uf) return null;
-    return `api_publica_tre_${uf}`;
+    return `api_publica_tre-${uf}`;
   }
   if (seg === '8') {
     const ufs = ['','ac','al','ap','am','ba','ce','dft','es','go','ma','mt','ms','mg','pa','pb','pr','pe','pi','rj','rn','rs','ro','rr','sc','se','sp','to'];
