@@ -2015,9 +2015,12 @@ async function verificarProcessoAgora(evt, id, datajudIndex, numero) {
   btn.disabled  = true;
 
   try {
-    const res  = await fetch(`/api/buscar-processo?tipo=numero&numero=${encodeURIComponent(numero)}`);
+    const params = new URLSearchParams({ tipo: 'numero', numero });
+    if (datajudIndex && datajudIndex !== 'null') params.set('tribunal', datajudIndex);
+    const res  = await fetch(`/api/buscar-processo?${params}`);
     const data = await res.json();
-    if (!res.ok || !data.resultados?.length) throw new Error('sem resultado');
+    if (!res.ok) throw new Error(data.erro || 'erro api');
+    if (!data.resultados?.length) throw new Error('não encontrado');
 
     const d     = data.resultados[0];
     const movs  = d.movimentos || [];
@@ -2041,8 +2044,11 @@ async function verificarProcessoAgora(evt, id, datajudIndex, numero) {
 
     showToast(novo && novos.length ? `${novos.length} nova(s) movimentação(ões)!` : 'Nenhuma novidade.');
     carregarProcessos();
-  } catch {
-    showToast('Erro ao verificar. Tente novamente.');
+  } catch (err) {
+    const msg = (err.message || '').includes('não encontrado')
+      ? 'Processo não encontrado no DataJud.'
+      : 'Erro ao consultar o DataJud. Tente novamente.';
+    showToast(msg);
   } finally {
     btn.innerHTML = '<i class="ti ti-refresh"></i> Atualizar agora';
     btn.disabled  = false;

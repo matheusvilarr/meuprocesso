@@ -382,7 +382,7 @@ async function oabScanUsuario(userId, oabs, meusNumeros, admin, hoje, startAt) {
       const lote = TODOS_TRIBUNAIS.slice(i, i + 20);
       const resultados = await Promise.allSettled(
         lote.flatMap(index => oabs.map(oab =>
-          buscarPorOabNoDatajud(index, oab).then(hits => ({ index, hits }))
+          buscarPorOabNoDatajud(index, oab).then(res => ({ index, hits: res.hits }))
         ))
       );
 
