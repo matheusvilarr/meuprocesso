@@ -26,9 +26,10 @@ export default async function handler(req, res) {
   const tipo = tipoOverride || (horaUTC < 14 ? 'morning' : horaUTC < 18 ? 'afternoon' : 'evening');
 
   try {
-    if (tipo === 'instant')   return await rodarInstant(admin, res, hoje);
-    if (tipo === 'morning')   return await rodarMorning(admin, res, hoje);
-    if (tipo === 'afternoon') return await rodarAfternoon(admin, res, hoje);
+    if (tipo === 'instant')     return await rodarInstant(admin, res, hoje);
+    if (tipo === 'morning')     return await rodarMorning(admin, res, hoje);
+    if (tipo === 'afternoon')   return await rodarAfternoon(admin, res, hoje);
+    if (tipo === 'prazo_fatal') return await rodarPrazoFatal(admin, res, hoje);
     return await rodarEvening(admin, res, hoje);
   } catch (e) {
     await logErro(admin, `cron:email-${tipo}`, e.message, { stack: e.stack });
@@ -305,6 +306,73 @@ async function rodarEvening(admin, res, hoje) {
   return res.status(200).json({ ok: true, tipo: 'evening', emailsEnviados, hoje });
 }
 
+// ── PRAZO FATAL ───────────────────────────────────────────────────────────────
+// Roda todo dia às 9h BRT (12h UTC), independente de notificacao_pendente —
+// diferente de morning/afternoon/evening, que só disparam a partir de
+// movimentação de processo. Mesmo critério de "fatal" do _prazoStatus
+// client-side (dashboard.js): prazo <= hoje+3d (inclui vencidas), coluna != concluida.
+
+async function rodarPrazoFatal(admin, res, hoje) {
+  const em3d = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+
+  const { data: tarefas } = await admin
+    .from('tarefas')
+    .select('id, user_id, titulo, prazo, processo_id, numero_processo_manual, cliente_manual')
+    .lte('prazo', em3d)
+    .not('prazo', 'is', null)
+    .neq('coluna', 'concluida')
+    .order('prazo', { ascending: true });
+
+  if (!tarefas?.length) {
+    return res.status(200).json({ ok: true, tipo: 'prazo_fatal', emailsEnviados: 0, hoje, motivo: 'nada fatal' });
+  }
+
+  // Resolve nome do processo vinculado (quando houver) pra dar contexto no e-mail
+  const procIds = [...new Set(tarefas.filter(t => t.processo_id).map(t => t.processo_id))];
+  const procMap = {};
+  if (procIds.length) {
+    const { data: procs } = await admin.from('processos').select('id, numero, nome, apelido, cliente').in('id', procIds);
+    for (const p of procs || []) procMap[p.id] = p;
+  }
+
+  const porUsuario = {};
+  for (const t of tarefas) {
+    if (!porUsuario[t.user_id]) porUsuario[t.user_id] = [];
+    const proc = t.processo_id ? procMap[t.processo_id] : null;
+    porUsuario[t.user_id].push({
+      titulo:   t.titulo,
+      prazo:    t.prazo,
+      processo: proc ? (proc.apelido || proc.nome) + (proc.numero ? ' · ' + proc.numero : '') : (t.cliente_manual || t.numero_processo_manual || null),
+    });
+  }
+
+  let emailsEnviados = 0;
+  for (const [userId, lista] of Object.entries(porUsuario)) {
+    if (await jaNotificouHoje(admin, userId, 'prazo_fatal', hoje)) continue;
+
+    let email, nome;
+    try {
+      const { data: ud } = await admin.auth.admin.getUserById(userId);
+      email = ud?.user?.email;
+      if (!email) continue;
+      nome = ud.user.user_metadata?.full_name || ud.user.user_metadata?.nome || email.split('@')[0];
+    } catch (e) {
+      await logErro(admin, 'cron:email-prazo_fatal', e.message, { userId }, userId);
+      continue;
+    }
+
+    try {
+      await enviarAlertaPrazoFatal(email, nome, lista, hoje);
+      emailsEnviados++;
+      await logNotif(admin, userId, 'prazo_fatal', hoje);
+    } catch (e) {
+      await logErro(admin, 'cron:email-prazo_fatal', e.message, { email }, userId);
+    }
+  }
+
+  return res.status(200).json({ ok: true, tipo: 'prazo_fatal', emailsEnviados, hoje });
+}
+
 // ── AGENDA ────────────────────────────────────────────────────────────────────
 
 async function buscarAgendaSemana(admin, userIds, hoje) {
@@ -490,6 +558,36 @@ async function enviarAlertaEvening(para, nome, prazos, hoje) {
     ${blocos}
   </div>
   ${btnDashboard('#dc2626')}
+  ${rodape()}
+</div>
+</body></html>`;
+
+  await enviarEmail(para, assunto, html);
+}
+
+async function enviarAlertaPrazoFatal(para, nome, tarefas, hoje) {
+  const assunto = tarefas.length === 1
+    ? `⏰ [Meu Processo] Prazo fatal — ${truncar(tarefas[0].titulo, 55)}`
+    : `⏰ [Meu Processo] ${tarefas.length} tarefas em prazo fatal`;
+
+  const blocos = tarefas.map(t => {
+    const dias   = Math.round((new Date(t.prazo + 'T12:00:00') - new Date(hoje + 'T12:00:00')) / 86400000);
+    const status = dias < 0 ? `🔴 VENCIDA HÁ ${Math.abs(dias)}D` : dias === 0 ? '🔴 VENCE HOJE' : `🟠 VENCE EM ${dias}D`;
+    return `<div style="background:#fef2f2;border-left:4px solid #be123c;border-radius:6px;padding:14px 16px;margin-bottom:10px">
+      <div style="font-size:13px;font-weight:700;color:#9f1239">${status} — ${t.titulo}</div>
+      <div style="font-size:11px;color:#9ca3af;margin-top:4px">${formatarData(t.prazo)}${t.processo ? ' · ' + t.processo : ''}</div>
+    </div>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+<div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
+  <div style="background:#be123c;padding:24px 28px"><div style="font-size:18px;font-weight:700;color:#fff">Meu Processo</div><div style="font-size:12px;color:rgba(255,255,255,.7);margin-top:2px">Prazo fatal</div></div>
+  <div style="padding:24px 28px">
+    <div style="font-size:15px;color:#111827;margin-bottom:16px"><strong>${nome}</strong>, você tem ${tarefas.length > 1 ? 'tarefas com prazo fatal' : 'uma tarefa com prazo fatal'}.</div>
+    ${blocos}
+  </div>
+  ${btnDashboard('#be123c')}
   ${rodape()}
 </div>
 </body></html>`;

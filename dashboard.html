@@ -553,10 +553,7 @@
             <span class="task-col-count" id="col-count-a_fazer">0</span>
           </div>
         </div>
-        <div class="task-col-body" id="col-a_fazer"
-          ondragover="kanbanDragOver(event)"
-          ondrop="kanbanDrop(event,'a_fazer')"
-          ondragleave="kanbanDragLeave(event)"></div>
+        <div class="task-col-body" id="col-a_fazer"></div>
         <button class="task-col-add-btn" onclick="abrirNovaTarefaColuna('a_fazer')">
           <i class="ti ti-plus"></i> Adicionar tarefa
         </button>
@@ -570,10 +567,7 @@
             <span class="task-col-count" id="col-count-em_andamento">0</span>
           </div>
         </div>
-        <div class="task-col-body" id="col-em_andamento"
-          ondragover="kanbanDragOver(event)"
-          ondrop="kanbanDrop(event,'em_andamento')"
-          ondragleave="kanbanDragLeave(event)"></div>
+        <div class="task-col-body" id="col-em_andamento"></div>
         <button class="task-col-add-btn" onclick="abrirNovaTarefaColuna('em_andamento')">
           <i class="ti ti-plus"></i> Adicionar tarefa
         </button>
@@ -587,10 +581,7 @@
             <span class="task-col-count" id="col-count-revisao">0</span>
           </div>
         </div>
-        <div class="task-col-body" id="col-revisao"
-          ondragover="kanbanDragOver(event)"
-          ondrop="kanbanDrop(event,'revisao')"
-          ondragleave="kanbanDragLeave(event)"></div>
+        <div class="task-col-body" id="col-revisao"></div>
         <button class="task-col-add-btn" onclick="abrirNovaTarefaColuna('revisao')">
           <i class="ti ti-plus"></i> Adicionar tarefa
         </button>
@@ -604,10 +595,7 @@
             <span class="task-col-count" id="col-count-concluida">0</span>
           </div>
         </div>
-        <div class="task-col-body" id="col-concluida"
-          ondragover="kanbanDragOver(event)"
-          ondrop="kanbanDrop(event,'concluida')"
-          ondragleave="kanbanDragLeave(event)"></div>
+        <div class="task-col-body" id="col-concluida"></div>
         <button class="task-col-add-btn" onclick="abrirNovaTarefaColuna('concluida')">
           <i class="ti ti-plus"></i> Adicionar tarefa
         </button>
@@ -623,7 +611,6 @@
       <div class="mtd-header">
         <textarea id="tp-titulo" class="tp-titulo-edit" rows="1"
           placeholder="Título da tarefa"
-          onblur="salvarCampoTarefa('titulo', this.value)"
           onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur();}"></textarea>
         <button class="tp-close" onclick="fecharDetalhe()"><i class="ti ti-x"></i></button>
       </div>
@@ -631,24 +618,48 @@
       <!-- Meta chips + processo -->
       <div class="mtd-meta">
         <div id="tp-meta"></div>
-        <div id="tp-proc" style="display:none">
+        <div id="tp-proc" style="display:none;align-items:center;gap:4px">
           <button class="tp-proc-btn" onclick="tdVerProcesso()">
             <i class="ti ti-briefcase"></i>
             <span id="tp-proc-label">Ver processo</span>
             <i class="ti ti-external-link" style="font-size:10px;opacity:.5"></i>
           </button>
+          <button class="tp-proc-btn tp-proc-unlink" onclick="tdDesvincularProcesso()" title="Remover vínculo com o processo">
+            <i class="ti ti-unlink"></i>
+          </button>
         </div>
       </div>
+      <div id="tp-datas" class="tp-datas"></div>
 
       <!-- Corpo rolável -->
       <div class="mtd-body" id="mtd-body">
+
+        <!-- Prazo fatal + processo/cliente manual -->
+        <div class="tp-block">
+          <div class="tp-block-row">
+            <div class="tp-block-col">
+              <div class="tp-block-label"><i class="ti ti-calendar-due"></i> Prazo fatal</div>
+              <input id="tp-prazo" type="date" class="form-input">
+              <div id="tp-prazo-alerta" class="tp-prazo-alerta" style="display:none"></div>
+            </div>
+            <div class="tp-block-col">
+              <div class="tp-block-label"><i class="ti ti-briefcase"></i> Nº do processo <span style="font-weight:400;text-transform:none;letter-spacing:0">(manual)</span></div>
+              <input id="tp-processo-manual" type="text" class="form-input" placeholder="Se não estiver cadastrado"
+                onblur="_checarNumeroProcessoManual('tp-processo-manual','tp-processo-manual-alerta')">
+              <div id="tp-processo-manual-alerta" class="tp-numero-alerta" style="display:none"></div>
+            </div>
+            <div class="tp-block-col">
+              <div class="tp-block-label"><i class="ti ti-user"></i> Cliente</div>
+              <input id="tp-cliente-manual" type="text" class="form-input" placeholder="Nome do cliente">
+            </div>
+          </div>
+        </div>
 
         <!-- Descrição com editor rico -->
         <div class="tp-block">
           <div class="tp-block-label"><i class="ti ti-align-left"></i> Descrição</div>
           <div id="tp-descricao" class="tp-descricao" contenteditable="true"
-            data-placeholder="Clique para adicionar uma descrição…"
-            onblur="salvarDescricaoRich()"></div>
+            data-placeholder="Clique para adicionar uma descrição…"></div>
         </div>
 
         <!-- Checklist estilo Trello -->
@@ -691,6 +702,11 @@
         </div>
 
       </div><!-- /mtd-body -->
+
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="fecharDetalhe()">Fechar</button>
+        <button class="btn-primary" id="btn-salvar-tarefa-detalhe" onclick="salvarTarefaDetalhe()"><i class="ti ti-check"></i> Salvar</button>
+      </div>
     </div><!-- /modal-td -->
   </div>
 
@@ -1919,6 +1935,22 @@
         <div id="tar-processo-hint" style="display:none;font-size:11px;color:#7c3aed;margin-top:6px;display:none;align-items:center;gap:4px">
           <i class="ti ti-handshake" style="font-size:11px"></i> Esta tarefa ficará visível para os parceiros deste processo
         </div>
+      </div>
+      <div class="form-field" style="display:flex;gap:10px">
+        <div style="flex:1">
+          <label class="form-label">Nº do processo <span style="font-size:11px;color:var(--gray-400);font-weight:400">(manual)</span></label>
+          <input id="tar-processo-manual" type="text" class="form-input" placeholder="Se não estiver cadastrado"
+            onblur="_checarNumeroProcessoManual('tar-processo-manual','tar-processo-manual-alerta')">
+          <div id="tar-processo-manual-alerta" class="tp-numero-alerta" style="display:none"></div>
+        </div>
+        <div style="flex:1">
+          <label class="form-label">Cliente</label>
+          <input id="tar-cliente-manual" type="text" class="form-input" placeholder="Nome do cliente">
+        </div>
+      </div>
+      <div class="form-field">
+        <label class="form-label">Prazo fatal <span style="font-size:11px;color:var(--gray-400);font-weight:400">(opcional)</span></label>
+        <input id="tar-prazo" type="date" class="form-input">
       </div>
       <div class="form-field">
         <label class="form-label">Coluna</label>

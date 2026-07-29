@@ -110,7 +110,10 @@ CREATE POLICY "tc_quadro_shared_insert" ON tarefa_comentarios FOR INSERT WITH CH
 );
 
 -- 5. RPC: buscar usuário por e-mail (SECURITY DEFINER acessa auth.users)
-CREATE OR REPLACE FUNCTION buscar_usuario_por_email(p_email text)
+-- Nome diferente de public.buscar_usuario_por_email (migration_compartilhamentos.sql)
+-- de propósito: mesmo nome + mesmo tipo de parâmetro (text) faria o CREATE OR REPLACE
+-- substituir a função antiga (usada em "compartilhar processo") e quebrar aquele fluxo.
+CREATE OR REPLACE FUNCTION buscar_usuario_quadro_por_email(p_email text)
 RETURNS TABLE (id uuid, nome text, email text)
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public
@@ -127,7 +130,7 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION buscar_usuario_por_email(text) TO authenticated;
+GRANT EXECUTE ON FUNCTION buscar_usuario_quadro_por_email(text) TO authenticated;
 
 -- 6. Recarrega schema
 NOTIFY pgrst, 'reload schema';

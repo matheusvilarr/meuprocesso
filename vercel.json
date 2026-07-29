@@ -58,6 +58,7 @@
     { "path": "/api/cron/sincronizar",                           "schedule": "0 14 * * 0,6" },
     { "path": "/api/cron/sincronizar",                           "schedule": "0 18 * * 0,6" },
     { "path": "/api/cron/verificar-atualizacoes?tipo=afternoon", "schedule": "30 18 * * 0,6" },
-    { "path": "/api/cron/sincronizar?tipo=oab",                  "schedule": "0 21 * * 0,6" }
+    { "path": "/api/cron/sincronizar?tipo=oab",                  "schedule": "0 21 * * 0,6" },
+    { "path": "/api/cron/verificar-atualizacoes?tipo=prazo_fatal", "schedule": "0 12 * * *" }
   ]
 }

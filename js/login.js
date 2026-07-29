@@ -1,3 +1,14 @@
+// ── Sessão já ativa → não mostra o login ────────────────────────────────────
+// pageshow (não só DOMContentLoaded) pra pegar também quando o navegador
+// restaura /login do cache ao voltar (o script não roda de novo nesse caso)
+window.addEventListener('pageshow', async () => {
+  const { data: { session } } = await _supabase.auth.getSession();
+  if (session) {
+    const params = new URLSearchParams(window.location.search);
+    window.location.replace(params.get('redirect') || '/dashboard');
+  }
+});
+
 // ── Tab switching ─────────────────────────────────────────────────────────────
 
 function switchTab(tab) {

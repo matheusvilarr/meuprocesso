@@ -1,6 +1,10 @@
 // Caches globais — declarados aqui para evitar TDZ em chamadas síncronas de inicialização
 let _clientesDB   = [];
 let _honorariosDB = [];
+// Tarefas com prazo, de QUALQUER quadro/pasta — _tarefasDB só tem as do
+// quadro aberto no Kanban, mas sino/calendário/prazos do processo/dashboard
+// precisam enxergar tudo, não só a pasta ativa.
+let _tarefasPrazoDB = [];
 
 // Navigation
 const pages = {
@@ -32,6 +36,12 @@ function closeSidebar() {
   document.body.style.overflow = '';
 }
 
+// Pilha de navegação do SPA — fonte da verdade pro botão voltar, em vez de
+// inspecionar o DOM (que pode não refletir a página certa se algo atrasar).
+// 'dashboard' (home) é a base: dela não dá pra voltar mais (nunca desloga).
+let _navStack           = ['dashboard'];
+let _navegandoPorHistorico = false; // true durante popstate, pra não empilhar de novo
+
 function showPage(id) {
   closeSidebar();
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -60,6 +70,11 @@ function showPage(id) {
   if (id === 'tjdft') { verificarBackendPython(); inicializarDatesDJe(); }
   if (id === 'clientes')      carregarClientes();
   if (id === 'honorarios') { carregarHonorarios(); _aplicarVisHonorarios(); }
+
+  if (!_navegandoPorHistorico && _navStack[_navStack.length - 1] !== id) {
+    _navStack.push(id);
+    history.pushState(null, '', '/dashboard');
+  }
 }
 
 function showProcessDetail() {
@@ -284,6 +299,15 @@ function buildMiniCal() {
       .map(e => new Date(e.data + 'T12:00:00').getDate())
   );
 
+  const tarefaDias = new Set(
+    (_tarefasPrazoDB || [])
+      .filter(t => {
+        const d = new Date(t.prazo + 'T12:00:00');
+        return d.getFullYear() === miniCalDate.getFullYear() && d.getMonth() === miniCalDate.getMonth();
+      })
+      .map(t => new Date(t.prazo + 'T12:00:00').getDate())
+  );
+
   // honorários com vencimento neste mês
   const honorDias = {};
   (_honorariosDB || []).forEach(h => {
@@ -304,10 +328,11 @@ function buildMiniCal() {
   const mes = miniCalDate.getMonth();
   for (let d = 1; d <= last.getDate(); d++) {
     const isToday  = ano === today.getFullYear() && mes === today.getMonth() && d === today.getDate();
-    const hasEvent = eventoDias.has(d);
+    const hasEvent  = eventoDias.has(d);
+    const hasTarefa = tarefaDias.has(d);
     const honStatus = honorDias[d];
     const moneyBadge = honStatus ? `<span class="cal-day-money${honStatus==='vencido'?' vencido':''}">$</span>` : '';
-    html += `<div class="cal-day ${isToday ? 'today' : ''} ${hasEvent ? 'has-event' : ''}" onclick="abrirDiaPopover(${ano},${mes},${d},this)">${d}${moneyBadge}</div>`;
+    html += `<div class="cal-day ${isToday ? 'today' : ''} ${hasEvent ? 'has-event' : ''} ${hasTarefa ? 'has-tarefa' : ''}" onclick="abrirDiaPopover(${ano},${mes},${d},this)">${d}${moneyBadge}</div>`;
   }
 
   grid.innerHTML = html;
@@ -343,20 +368,36 @@ function abrirDiaPopover(ano, mes, dia, celEl) {
   const tipoLabel = { prazo_processual:'Prazo', audiencia:'Audiência', lembrete:'Lembrete', reuniao:'Reunião' };
   const corTipo   = { prazo_processual:'#ef4444', audiencia:'#3b82f6', lembrete:'#f59e0b', reuniao:'#8b5cf6' };
   const eventos   = (_eventosDB || []).filter(e => e.data === isoDate);
+  const tarefas   = (_tarefasPrazoDB || []).filter(t => t.prazo === isoDate);
 
-  lista.innerHTML = eventos.length
-    ? eventos.map(e => {
-        const sh = e.processo_id ? window._sharedSet?.[e.processo_id] : null;
-        return `
-        <div style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:8px;background:var(--gray-50)">
-          <div style="width:3px;min-height:34px;border-radius:4px;background:${corTipo[e.tipo] || '#94a3b8'};flex-shrink:0;margin-top:2px"></div>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.titulo}</div>
-            <div style="font-size:11px;color:var(--gray-400);margin-top:1px">${tipoLabel[e.tipo] || e.tipo}${e.hora ? ' · ' + e.hora : ''}</div>
-            ${sh ? `<div style="font-size:10px;color:#7c3aed;margin-top:2px"><i class="ti ti-handshake" style="font-size:10px"></i> ${_esc(sh.owner_nome)}</div>` : ''}
-          </div>
-        </div>`;
-      }).join('')
+  const htmlEventos = eventos.map(e => {
+    const sh = e.processo_id ? window._sharedSet?.[e.processo_id] : null;
+    return `
+    <div style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:8px;background:var(--gray-50)">
+      <div style="width:3px;min-height:34px;border-radius:4px;background:${corTipo[e.tipo] || '#94a3b8'};flex-shrink:0;margin-top:2px"></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.titulo}</div>
+        <div style="font-size:11px;color:var(--gray-400);margin-top:1px">${tipoLabel[e.tipo] || e.tipo}${e.hora ? ' · ' + e.hora : ''}</div>
+        ${sh ? `<div style="font-size:10px;color:#7c3aed;margin-top:2px"><i class="ti ti-handshake" style="font-size:10px"></i> ${_esc(sh.owner_nome)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+
+  const htmlTarefas = tarefas.map(t => {
+    const st = _prazoStatus(t.prazo, t.coluna);
+    const cor = st?.nivel === 'fatal' ? '#be123c' : '#dc2626';
+    return `
+    <div onclick="abrirTarefaPorId('${t.id}','${t.quadro_id || ''}')" style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:8px;background:var(--gray-50);cursor:pointer">
+      <div style="width:3px;min-height:34px;border-radius:4px;background:${cor};flex-shrink:0;margin-top:2px"></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(t.titulo)}</div>
+        <div style="font-size:11px;color:var(--gray-400);margin-top:1px">Tarefa</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  lista.innerHTML = (eventos.length || tarefas.length)
+    ? htmlEventos + htmlTarefas
     : `<div style="text-align:center;padding:16px 0;color:var(--gray-300)">
          <i class="ti ti-calendar-off" style="font-size:24px;display:block;margin-bottom:6px"></i>
          <div style="font-size:12px">Nenhum compromisso</div>
@@ -708,6 +749,16 @@ function buildFullCal() {
     }
   }
 
+  const tarefasPorDia = {};
+  for (const t of (_tarefasPrazoDB || [])) {
+    const d = new Date(t.prazo + 'T12:00:00');
+    if (d.getFullYear() === fullCalDate.getFullYear() && d.getMonth() === fullCalDate.getMonth()) {
+      const day = d.getDate();
+      if (!tarefasPorDia[day]) tarefasPorDia[day] = [];
+      tarefasPorDia[day].push(t);
+    }
+  }
+
   for (let i = 0; i < first.getDay(); i++) {
     const d = new Date(first);
     d.setDate(d.getDate() - (first.getDay() - i));
@@ -725,7 +776,14 @@ function buildFullCal() {
             onclick="event.stopPropagation();excluirEvento('${e.id}')"
             title="${e.titulo}${sh ? ' · Compartilhado por ' + sh.owner_nome : ''} (clique para excluir)">${e.titulo}${shIcon}</div>`;
     }).join('');
-    html += `<div class="fcal-day ${isToday ? 'today' : ''}"><div class="fcal-day-num">${d}</div>${evHtml}</div>`;
+    const tarefasDia = tarefasPorDia[d] || [];
+    const tarHtml = tarefasDia.map(t => {
+      const st = _prazoStatus(t.prazo, t.coluna);
+      return `<div class="fcal-event event-tarefa event-tarefa-${st?.nivel || 'baixo'}"
+            onclick="event.stopPropagation();abrirTarefaPorId('${t.id}','${t.quadro_id || ''}')"
+            title="${t.titulo} (tarefa — clique para abrir)"><i class="ti ti-checklist" style="font-size:9px;margin-right:2px"></i>${t.titulo}</div>`;
+    }).join('');
+    html += `<div class="fcal-day ${isToday ? 'today' : ''}"><div class="fcal-day-num">${d}</div>${evHtml}${tarHtml}</div>`;
   }
 
   grid.innerHTML = html;
@@ -1657,7 +1715,11 @@ function atualizarPrazosDash() {
     .filter(h => { const d = new Date(h.data_vencimento + 'T12:00:00'); return d >= hoje && d <= em7; })
     .map(h => ({ tipoItem: 'honorario', data: h.data_vencimento, ordem: h.data_vencimento, raw: h }));
 
-  const todos = [...eventosSemana, ...honorariosSemana].sort((a, b) => a.ordem.localeCompare(b.ordem));
+  const tarefasSemana = (_tarefasPrazoDB || [])
+    .filter(t => { const d = new Date(t.prazo + 'T12:00:00'); return d >= hoje && d <= em7; })
+    .map(t => ({ tipoItem: 'tarefa', data: t.prazo, ordem: t.prazo, raw: t }));
+
+  const todos = [...eventosSemana, ...honorariosSemana, ...tarefasSemana].sort((a, b) => a.ordem.localeCompare(b.ordem));
 
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
   set('stat-prazos', String(todos.length));
@@ -1667,6 +1729,7 @@ function atualizarPrazosDash() {
     const partes = [];
     if (eventosSemana.length) partes.push(`${eventosSemana.length} compromisso${eventosSemana.length > 1 ? 's' : ''}`);
     if (honorariosSemana.length) partes.push(`${honorariosSemana.length} honorário${honorariosSemana.length > 1 ? 's' : ''}`);
+    if (tarefasSemana.length) partes.push(`${tarefasSemana.length} tarefa${tarefasSemana.length > 1 ? 's' : ''}`);
     set('stat-prazos-sub', partes.join(' · '));
   }
 
@@ -1705,6 +1768,20 @@ function atualizarPrazosDash() {
           <div class="prazo-info">
             <div class="prazo-name"><i class="ti ti-cash" style="font-size:11px;color:var(--gray-400);margin-right:3px"></i>${escHtml(h.cliente_nome || h.descricao)} — ${valorFmt}</div>
             <div class="prazo-type">${h.status === 'vencido' ? 'Honorário vencido' : 'Honorário a vencer'}</div>
+          </div>
+          <span class="dias-badge ${badgeCls}">${diasTxt}</span>
+        </div>`;
+    }
+
+    if (item.tipoItem === 'tarefa') {
+      const t = item.raw;
+      return `
+        <div class="prazo-item" onclick="abrirTarefaPorId('${t.id}','${t.quadro_id || ''}')">
+          <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
+          <div class="prazo-urgency ${badgeCls === 'dias-urgente' ? 'urgency-alta' : badgeCls === 'dias-aviso' ? 'urgency-media' : 'urgency-baixa'}"></div>
+          <div class="prazo-info">
+            <div class="prazo-name"><i class="ti ti-checklist" style="font-size:11px;color:var(--gray-400);margin-right:3px"></i>${escHtml(t.titulo)}</div>
+            <div class="prazo-type">Tarefa</div>
           </div>
           <span class="dias-badge ${badgeCls}">${diasTxt}</span>
         </div>`;
@@ -2814,7 +2891,6 @@ function atualizarBell() {
   const badge   = document.getElementById('notif-badge');
   const hoje    = new Date();
   const em7     = new Date(); em7.setDate(hoje.getDate() + 7);
-  const hojeStr = hoje.toISOString().slice(0, 10);
 
   let total = 0;
   if (_notifPrefs.processos)
@@ -2822,9 +2898,7 @@ function atualizarBell() {
   if (_notifPrefs.calendario)
     total += (_eventosDB || []).filter(e => { const d = new Date(e.data + 'T12:00:00'); return d >= hoje && d <= em7; }).length;
   if (_notifPrefs.tarefas)
-    total += (_tarefasDB || []).filter(t =>
-      t.coluna !== 'concluida' && (t.prioridade === 'urgente' || (t.prazo && t.prazo < hojeStr))
-    ).length;
+    total += _tarefasParaSino().length;
 
   // Ponto azul no sino do topbar
   const topbarBadge = document.getElementById('topbar-notif-badge');
@@ -2902,7 +2976,6 @@ function _renderNotifPanel() {
 
   const hoje    = new Date();
   const em7     = new Date(); em7.setDate(hoje.getDate() + 7);
-  const hojeStr = hoje.toISOString().slice(0, 10);
   const fmt     = iso => new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR', { day:'2-digit', month:'short' });
 
   const tipoEvento = { prazo_processual:'Prazo', audiencia:'Audiência', lembrete:'Lembrete', reuniao:'Reunião' };
@@ -2935,14 +3008,19 @@ function _renderNotifPanel() {
     {
       cat: 'tarefas', icon: 'ti-checklist', label: 'Tarefas',
       cor: 'var(--red)',
-      items: (_tarefasDB || []).filter(t => t.coluna !== 'concluida' && (t.prioridade === 'urgente' || (t.prazo && t.prazo < hojeStr))),
-      html: t => `<div onclick="showPage('tarefas');toggleNotifPanel()" style="padding:6px 16px 6px 36px;cursor:pointer;display:flex;align-items:center;gap:8px;border-radius:6px;margin:0 8px 2px;transition:background .12s" onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background='transparent'">
-        <i class="ti ti-point-filled" style="font-size:8px;color:var(--red);flex-shrink:0"></i>
+      items: _tarefasParaSino().sort((a, b) => (a.prazo || '9999').localeCompare(b.prazo || '9999')),
+      html: t => {
+        const st    = _prazoStatus(t.prazo, t.coluna);
+        const label = st ? st.label : 'Urgente';
+        const cor   = st?.nivel === 'fatal' ? '#be123c' : 'var(--red)';
+        return `<div onclick="abrirTarefaPorId('${t.id}','${t.quadro_id || ''}');toggleNotifPanel()" style="padding:6px 16px 6px 36px;cursor:pointer;display:flex;align-items:center;gap:8px;border-radius:6px;margin:0 8px 2px;transition:background .12s" onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background='transparent'">
+        <i class="ti ti-point-filled" style="font-size:8px;color:${cor};flex-shrink:0"></i>
         <div style="min-width:0;flex:1">
           <div style="font-size:12.5px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.titulo}</div>
-          <div style="font-size:11px;color:${t.prazo && t.prazo < hojeStr ? 'var(--red)' : 'var(--gray-400)'}">${t.prazo && t.prazo < hojeStr ? 'Vencida em ' + fmt(t.prazo) : 'Urgente'}</div>
+          <div style="font-size:11px;color:${cor}">${label}</div>
         </div>
-      </div>`,
+      </div>`;
+      },
     },
   ];
 
@@ -3046,10 +3124,20 @@ function iniciarSyncAutomatico() {
 // ── INIT: carrega dados ao abrir dashboard ────────────────────────────────
 
 window.addEventListener('DOMContentLoaded', () => {
-  // Impede botão voltar de sair do dashboard
-  history.pushState(null, '', '/dashboard');
+  // Marca a entrada atual como a base (home) sem empilhar uma nova —
+  // showPage() empilha a partir daqui a cada navegação real.
+  history.replaceState(null, '', '/dashboard');
   window.addEventListener('popstate', () => {
-    history.pushState(null, '', '/dashboard');
+    if (_navStack.length <= 1) {
+      // Já está na home — não deixa sair do dashboard (nunca desloga)
+      history.pushState(null, '', '/dashboard');
+      return;
+    }
+    _navStack.pop();
+    const alvo = _navStack[_navStack.length - 1];
+    _navegandoPorHistorico = true;
+    showPage(alvo);
+    _navegandoPorHistorico = false;
   });
 
   const aguardar = setInterval(() => {
@@ -3060,7 +3148,7 @@ window.addEventListener('DOMContentLoaded', () => {
           iniciarSyncAutomatico();
           sincronizarTodos();
         });
-        carregarEventosDashboard();
+        carregarTarefasPrazo().then(() => carregarEventosDashboard());
         carregarTarefas();
         carregarDescobertos();
         aplicarAvatarSidebar();
@@ -4342,7 +4430,14 @@ async function carregarPrazosProcesso(processoId) {
     .eq('processo_id', processoId)
     .order('data', { ascending: true });
 
-  if (error || !data || !data.length) {
+  const tarefasProc = (_tarefasPrazoDB || []).filter(t => t.processo_id === processoId);
+
+  const lista = [
+    ...(error || !data ? [] : data.map(e => ({ tipoItem: 'evento', data: e.data, raw: e }))),
+    ...tarefasProc.map(t => ({ tipoItem: 'tarefa', data: t.prazo, raw: t })),
+  ].sort((a, b) => a.data.localeCompare(b.data));
+
+  if (!lista.length) {
     wrap.innerHTML = `<div style="text-align:center;padding:24px 16px;color:var(--gray-400)">
       <i class="ti ti-calendar-off" style="font-size:24px;display:block;margin-bottom:8px;opacity:0.3"></i>
       <div style="font-size:12px;opacity:.7">Nenhum prazo vinculado.<br>Use o botão + para adicionar.</div>
@@ -4352,15 +4447,33 @@ async function carregarPrazosProcesso(processoId) {
 
   const urgCls    = { alta:'urgency-alta', media:'urgency-media', baixa:'urgency-baixa' };
   const tipoLabel = { prazo_processual:'Prazo Processual', audiencia:'Audiência', lembrete:'Lembrete', reuniao:'Reunião' };
+  const nivelUrg  = { fatal:'urgency-alta', urgente:'urgency-alta', medio:'urgency-media', baixo:'urgency-baixa' };
   const hoje      = new Date();
 
-  wrap.innerHTML = data.map(e => {
-    const dt   = new Date(e.data + 'T12:00:00');
+  wrap.innerHTML = lista.map(item => {
+    const dt   = new Date(item.data + 'T12:00:00');
     const dias = Math.ceil((dt - hoje) / 86400000);
     const dia  = dt.toLocaleDateString('pt-BR', { day:'2-digit' });
     const mes  = dt.toLocaleDateString('pt-BR', { month:'short' }).replace('.','');
     const badgeCls = dias < 0 ? 'dias-urgente' : dias <= 3 ? 'dias-urgente' : dias <= 7 ? 'dias-aviso' : 'dias-ok';
     const label    = dias < 0 ? `${Math.abs(dias)}d atrás` : dias === 0 ? 'Hoje' : `${dias}d`;
+
+    if (item.tipoItem === 'tarefa') {
+      const t  = item.raw;
+      const st = _prazoStatus(t.prazo, t.coluna);
+      return `
+        <div class="prazo-item" onclick="abrirTarefaPorId('${t.id}','${t.quadro_id || ''}')">
+          <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
+          <div class="prazo-urgency ${nivelUrg[st?.nivel] || 'urgency-baixa'}"></div>
+          <div class="prazo-info">
+            <div class="prazo-name"><i class="ti ti-checklist" style="font-size:11px;color:var(--gray-400);margin-right:3px"></i>${_esc(t.titulo)}</div>
+            <div class="prazo-type">Tarefa</div>
+          </div>
+          <span class="dias-badge ${badgeCls}">${label}</span>
+        </div>`;
+    }
+
+    const e = item.raw;
     return `
       <div class="prazo-item" onclick="irParaCalendarioMes(${dt.getFullYear()},${dt.getMonth()})">
         <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
@@ -4502,13 +4615,29 @@ function filtrarVincularTarefa() {
   }).join('');
 }
 
-async function vincularTarefaProcesso(processoId) {
-  if (!_vincularTaskId && processoId !== null) return;
-  const taskId  = _vincularTaskId;
+async function vincularTarefaProcesso(processoId, taskIdParam) {
+  const taskId = taskIdParam || _vincularTaskId;
+  if (!taskId) return;
+  const t = _tarefasDB.find(x => x.id === taskId);
   const meuNome = window._user?.user_metadata?.full_name || window._user?.email?.split('@')[0] || '';
-  const { error } = await _supabase.from('tarefas')
-    .update({ processo_id: processoId || null, updated_at: new Date().toISOString(), updated_by_nome: meuNome })
-    .eq('id', taskId);
+
+  const campos = { processo_id: processoId || null, updated_at: new Date().toISOString(), updated_by_nome: meuNome };
+
+  // Já tinha nº de processo/cliente preenchido manualmente? Pergunta antes
+  // de limpar — não some com o que o advogado digitou sem avisar.
+  if (processoId && t && (t.numero_processo_manual || t.cliente_manual)) {
+    const limpar = await _confirmar(
+      'Essa tarefa já tinha número de processo e/ou cliente preenchidos manualmente. Quer limpar esses campos agora que ela foi vinculada a um processo cadastrado?',
+      'Limpar dados manuais?',
+      { textoOk: 'Limpar', icone: '🧹' }
+    );
+    if (limpar) {
+      campos.numero_processo_manual = null;
+      campos.cliente_manual         = null;
+    }
+  }
+
+  const { error } = await _supabase.from('tarefas').update(campos).eq('id', taskId);
   if (error) { showToast('Erro ao vincular processo.', 'error'); return; }
   showToast(processoId ? 'Tarefa vinculada ao processo!' : 'Vínculo removido.', 'success');
   carregarTarefas();
@@ -4522,7 +4651,16 @@ let _quadrosDB   = [];
 let _detalheId   = null;   // tarefa aberta no painel
 let _procMapG    = {};     // procMap global para o painel
 let _isDragging  = false;  // bloqueia click durante drag
-let _dragTaskId = null;
+
+async function carregarTarefasPrazo() {
+  if (!window._user) return;
+  const { data } = await _supabase
+    .from('tarefas')
+    .select('id, titulo, prazo, coluna, prioridade, processo_id, quadro_id, numero_processo_manual, cliente_manual')
+    .not('prazo', 'is', null)
+    .neq('coluna', 'concluida');
+  _tarefasPrazoDB = data || [];
+}
 
 async function carregarTarefas() {
   if (!window._user) return;
@@ -4532,6 +4670,7 @@ async function carregarTarefas() {
 
   const { data, error } = await q;
   if (!error && data) _tarefasDB = data;
+  await carregarTarefasPrazo();
   atualizarBell();
 
   const total = _tarefasDB.length;
@@ -4583,11 +4722,86 @@ function renderizarKanban(tarefas, procMap, lastSeen, meuNome) {
   }
 }
 
+// Nível de urgência a partir do prazo fatal — dirige a cor do card inteiro:
+// 15+ dias = baixo · até 10 = médio · até 5 = urgente · até 3 = fatal (mais chamativo)
+// Tarefa concluída não precisa mais de alarme, mesmo com prazo vencido.
+function _prazoStatus(prazo, coluna) {
+  if (!prazo || coluna === 'concluida') return null;
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const data = new Date(prazo + 'T00:00:00');
+  const dias = Math.round((data - hoje) / 86400000);
+
+  let nivel;
+  if (dias <= 3)       nivel = 'fatal';
+  else if (dias <= 5)  nivel = 'urgente';
+  else if (dias <= 10) nivel = 'medio';
+  else                 nivel = 'baixo';
+
+  let label;
+  if (dias < 0)        label = 'Vencido em ' + data.toLocaleDateString('pt-BR');
+  else if (dias === 0) label = 'Vence hoje';
+  else                 label = `Vence em ${dias} dia${dias > 1 ? 's' : ''}`;
+
+  return { nivel, dias, label };
+}
+
+// Tarefas que merecem aparecer no sino: prioridade "urgente" manual (de
+// qualquer quadro, via _tarefasDB — só tem o quadro aberto) OU prazo em
+// nível fatal/urgente (via _tarefasPrazoDB — essa sim é cross-quadro).
+// Combina as duas fontes sem duplicar (Map por id).
+function _tarefasParaSino() {
+  const map = new Map();
+  for (const t of (_tarefasDB || [])) {
+    if (t.coluna !== 'concluida' && t.prioridade === 'urgente') map.set(t.id, t);
+  }
+  for (const t of (_tarefasPrazoDB || [])) {
+    const st = _prazoStatus(t.prazo, t.coluna);
+    if (st && (st.nivel === 'fatal' || st.nivel === 'urgente')) map.set(t.id, t);
+  }
+  return [...map.values()];
+}
+
+function _stripHtml(html) {
+  if (!html) return '';
+  const div = document.createElement('div');
+  div.innerHTML = html;
+  return (div.textContent || '').trim();
+}
+
+// Padrão CNJ: NNNNNNN-DD.AAAA.J.TR.OOOO — 20 dígitos no total.
+// Não bloqueia (o advogado pode manter um número fora do padrão), só avisa.
+function _validarNumeroProcessoCNJ(numero) {
+  if (!numero || !numero.trim()) return true;
+  return numero.replace(/\D/g, '').length === 20;
+}
+
+function _checarNumeroProcessoManual(inputId, alertaId) {
+  const input  = document.getElementById(inputId);
+  const alerta = document.getElementById(alertaId);
+  if (!input || !alerta) return;
+  const valido = _validarNumeroProcessoCNJ(input.value);
+  alerta.style.display = valido ? 'none' : 'flex';
+  if (!valido) {
+    alerta.innerHTML = '<i class="ti ti-alert-triangle"></i> Esse número não parece seguir o padrão CNJ (20 dígitos: NNNNNNN-DD.AAAA.J.TR.OOOO). Pode manter assim se estiver correto.';
+  }
+}
+
 function criarCardTarefa(t, procMap, lastSeen, meuNome) {
   const priLbl = { urgente: 'Urgente', media: 'Média', baixa: 'Baixa' };
   const lbl    = priLbl[t.prioridade] || 'Baixa';
 
-  const procNome = t.processo_id && procMap[t.processo_id] ? procMap[t.processo_id] : '';
+  const procNome   = t.processo_id && procMap[t.processo_id] ? procMap[t.processo_id] : '';
+  const procManual = !procNome && (t.numero_processo_manual || t.cliente_manual)
+    ? [t.numero_processo_manual, t.cliente_manual].filter(Boolean).join(' — ')
+    : '';
+
+  // Com prazo definido, a cor do card é ditada pela proximidade do prazo
+  // (mais urgente = mais chamativo); sem prazo, cai pra prioridade manual.
+  const prazoInfo = _prazoStatus(t.prazo, t.coluna);
+  const corClasse  = prazoInfo ? `tc-prazo-${prazoInfo.nivel}` : `tc-pri-${t.prioridade || 'baixa'}`;
+  const prazoBadge = prazoInfo
+    ? `<span class="tc-prazo-badge tc-prazo-${prazoInfo.nivel}"><i class="ti ti-calendar-due"></i> ${_esc(prazoInfo.label)}</span>`
+    : '';
 
   const checklist  = Array.isArray(t.checklist) ? t.checklist : [];
   const checkDone  = checklist.filter(x => x.done).length;
@@ -4598,17 +4812,20 @@ function criarCardTarefa(t, procMap, lastSeen, meuNome) {
        </span>`
     : '';
 
-  const hasDesc   = t.descricao && t.descricao.trim();
-  const descIcon  = hasDesc ? `<span class="tc-counter" title="Tem descrição"><i class="ti ti-align-left"></i></span>` : '';
-  const counters  = [descIcon, checkProg].filter(Boolean).join('');
+  const descTexto = _stripHtml(t.descricao);
+  const descPrev   = descTexto ? `<div class="tc-desc-preview">${_esc(descTexto)}</div>` : '';
+  const counters  = [checkProg].filter(Boolean).join('');
 
   const atividadeNova = t.updated_by_nome && t.updated_by_nome !== (meuNome || '') &&
                         t.updated_at && t.updated_at > (lastSeen || '0');
 
+  const foiEditada  = t.updated_at && t.created_at &&
+    Math.abs(new Date(t.updated_at) - new Date(t.created_at)) > 60000;
+  const editadaHint = foiEditada ? `<i class="ti ti-pencil"></i> editado ${_tempoRelativo(t.updated_at)}` : '';
+
   return `
-    <div class="task-card tc-pri-${t.prioridade || 'baixa'}" draggable="true"
-      ondragstart="_isDragging=true;kanbanDragStart(event,'${t.id}')"
-      ondragend="_isDragging=false;kanbanDragEnd(event)"
+    <div class="task-card ${corClasse}"
+      onpointerdown="kanbanPointerDown(event,'${t.id}')"
       onclick="if(!_isDragging)abrirDetalhe('${t.id}')">
 
       ${atividadeNova ? '<div class="tc-dot-novo"></div>' : ''}
@@ -4619,55 +4836,111 @@ function criarCardTarefa(t, procMap, lastSeen, meuNome) {
       </div>
 
       <div class="tc-title">${_esc(t.titulo)}</div>
+      ${descPrev}
 
-      ${procNome ? `<div class="tc-proc-tag"><i class="ti ti-briefcase"></i> ${_esc(procNome)}</div>` : ''}
+      ${procNome   ? `<div class="tc-proc-tag"><i class="ti ti-briefcase"></i> ${_esc(procNome)}</div>` : ''}
+      ${procManual ? `<div class="tc-proc-tag tc-proc-tag-manual"><i class="ti ti-edit"></i> ${_esc(procManual)}</div>` : ''}
+      ${prazoBadge ? `<div class="tc-prazo-row">${prazoBadge}</div>` : ''}
 
       <div class="tc-footer">
         <span class="tc-pri-badge tc-pri-${t.prioridade || 'baixa'}">${lbl}</span>
         ${counters ? `<div class="tc-counters">${counters}</div>` : ''}
       </div>
+      ${editadaHint ? `<div class="tc-editada">${editadaHint}</div>` : ''}
     </div>`;
 }
 
-function kanbanDragStart(e, taskId) {
-  _dragTaskId = taskId;
-  e.currentTarget.style.opacity = '0.5';
-  e.dataTransfer.effectAllowed  = 'move';
+// ── DRAG-AND-DROP DO KANBAN (Pointer Events) ──────────────────────────────
+// Trocado de HTML5 drag nativo pra Pointer Events: nativo tinha área de
+// drop pequena/instável (cards por cima da coluna) e não funciona em touch.
+// Com Pointer Events a gente controla o hit-test (elementFromPoint) e o
+// feedback visual por conta própria — solta em qualquer lugar da coluna,
+// em mouse, trackpad ou touch.
+let _dragState = null;
+
+function kanbanPointerDown(e, taskId) {
+  if (e.button !== undefined && e.button !== 0) return; // só clique esquerdo
+  if (e.target.closest('.tc-hover-actions')) return;     // não intercepta os botões do card
+
+  const card = e.currentTarget;
+  const rect = card.getBoundingClientRect();
+  _dragState = {
+    taskId, card,
+    startX: e.clientX, startY: e.clientY,
+    offsetX: e.clientX - rect.left, offsetY: e.clientY - rect.top,
+    width: rect.width,
+    dragging: false,
+    ghost: null,
+  };
+  document.addEventListener('pointermove', _kanbanPointerMove);
+  document.addEventListener('pointerup', _kanbanPointerUp);
+  document.addEventListener('pointercancel', _kanbanPointerUp);
 }
 
-function kanbanDragEnd(e) {
-  e.currentTarget.style.opacity = '';
-  document.querySelectorAll('.task-col-body').forEach(el => el.classList.remove('drag-over'));
+function _kanbanPointerMove(e) {
+  const d = _dragState;
+  if (!d) return;
+
+  if (!d.dragging) {
+    if (Math.hypot(e.clientX - d.startX, e.clientY - d.startY) < 6) return; // limiar anti-clique
+    d.dragging  = true;
+    _isDragging = true;
+    document.body.classList.add('kanban-dragging');
+    d.card.style.opacity = '0.35';
+
+    d.ghost = d.card.cloneNode(true);
+    d.ghost.classList.add('tc-ghost');
+    d.ghost.style.width = d.width + 'px';
+    d.ghost.removeAttribute('onpointerdown');
+    d.ghost.removeAttribute('onclick');
+    document.body.appendChild(d.ghost);
+  }
+
+  d.ghost.style.left = (e.clientX - d.offsetX) + 'px';
+  d.ghost.style.top  = (e.clientY - d.offsetY) + 'px';
+
+  const alvo = document.elementFromPoint(e.clientX, e.clientY)?.closest('.task-col-body');
+  document.querySelectorAll('.task-col-body.drag-over').forEach(el => { if (el !== alvo) el.classList.remove('drag-over'); });
+  if (alvo) alvo.classList.add('drag-over');
 }
 
-function kanbanDragOver(e) {
-  e.preventDefault();
-  e.currentTarget.classList.add('drag-over');
-}
+async function _kanbanPointerUp(e) {
+  const d = _dragState;
+  document.removeEventListener('pointermove', _kanbanPointerMove);
+  document.removeEventListener('pointerup', _kanbanPointerUp);
+  document.removeEventListener('pointercancel', _kanbanPointerUp);
+  _dragState = null;
+  if (!d) return;
 
-function kanbanDragLeave(e) {
-  e.currentTarget.classList.remove('drag-over');
-}
+  if (!d.dragging) return; // foi só um clique — deixa o onclick do card cuidar
 
-async function kanbanDrop(e, coluna) {
-  e.preventDefault();
-  e.currentTarget.classList.remove('drag-over');
-  if (!_dragTaskId) return;
+  const alvo = document.elementFromPoint(e.clientX, e.clientY)?.closest('.task-col-body');
+  document.querySelectorAll('.task-col-body.drag-over').forEach(el => el.classList.remove('drag-over'));
+  d.ghost?.remove();
+  d.card.style.opacity = '';
+  document.body.classList.remove('kanban-dragging');
+  setTimeout(() => { _isDragging = false; }, 0); // depois do click sintético do mouseup
+
+  if (!alvo) return;
+  const coluna = alvo.id.replace('col-', '');
 
   const meuNome = window._user?.user_metadata?.full_name || window._user?.email?.split('@')[0] || '';
   const { error } = await _supabase
     .from('tarefas')
     .update({ coluna, updated_at: new Date().toISOString(), updated_by_nome: meuNome })
-    .eq('id', _dragTaskId);
+    .eq('id', d.taskId);
 
-  _dragTaskId = null;
   if (error) { showToast('Erro ao mover tarefa.'); return; }
   carregarTarefas();
 }
 
 async function salvarTarefa() {
-  const titulo     = document.getElementById('tar-titulo')?.value.trim()   || '';
-  const processo   = document.getElementById('tar-processo')?.value        || '';
+  const titulo         = document.getElementById('tar-titulo')?.value.trim()          || '';
+  const processo       = document.getElementById('tar-processo')?.value               || '';
+  const processoManual = document.getElementById('tar-processo-manual')?.value.trim() || '';
+  const clienteManual  = document.getElementById('tar-cliente-manual')?.value.trim()  || '';
+  const prazo          = document.getElementById('tar-prazo')?.value                  || '';
+  _checarNumeroProcessoManual('tar-processo-manual', 'tar-processo-manual-alerta');
   const coluna     = document.getElementById('tar-coluna')?.value          || 'a_fazer';
   const prioridade = document.getElementById('tar-prioridade')?.value      || 'baixa';
 
@@ -4678,9 +4951,12 @@ async function salvarTarefa() {
 
   const meuNome = window._user?.user_metadata?.full_name || window._user?.email?.split('@')[0] || '';
   const { error } = await _supabase.from('tarefas').insert({
-    user_id:          window._escritorioId,
+    user_id:                 window._escritorioId,
     titulo,
-    processo_id:      processo || null,
+    processo_id:             processo || null,
+    numero_processo_manual:  processoManual || null,
+    cliente_manual:          clienteManual || null,
+    prazo:                   prazo || null,
     coluna,
     prioridade,
     updated_by_nome:  meuNome,
@@ -4698,14 +4974,18 @@ async function salvarTarefa() {
 
   closeModal('modal-tarefa');
   document.getElementById('tar-titulo').value = '';
+  document.getElementById('tar-processo-manual').value = '';
+  document.getElementById('tar-cliente-manual').value = '';
+  document.getElementById('tar-prazo').value = '';
   showToast('Tarefa criada!');
   carregarTarefas();
 }
 
 async function excluirTarefa(id) {
   if (!await _confirmar('A tarefa será excluída permanentemente do quadro.', 'Excluir tarefa?', { textoOk: 'Excluir', perigo: true, icone: '✅' })) return;
-  const { error } = await _supabase.from('tarefas').delete().eq('id', id);
+  const { data, error } = await _supabase.from('tarefas').delete().eq('id', id).select('id');
   if (error) { showToast('Erro ao excluir tarefa.'); return; }
+  if (!data?.length) { showToast('Você não tem permissão para excluir esta tarefa.'); return; }
   showToast('Tarefa excluída.');
   carregarTarefas();
 }
@@ -4810,7 +5090,7 @@ async function abrirCompartilharQuadro() {
     ? ja.map(c => `
         <div class="share-member">
           <i class="ti ti-user-circle" style="font-size:18px;color:var(--blue)"></i>
-          <span style="flex:1">${_esc(c.dono_nome || '—')}</span>
+          <span style="flex:1">${_esc(c.membro_nome || '—')}</span>
           <span class="share-badge share-badge-${c.status}">${c.status === 'aceito' ? 'Ativo' : c.status === 'pendente' ? 'Aguardando' : 'Recusado'}</span>
           <button onclick="revogarAcessoQuadro('${c.id}')" title="Remover" style="background:none;border:none;cursor:pointer;color:var(--gray-300);font-size:14px;padding:0 2px;transition:color .15s" onmouseover="this.style.color='#dc2626'" onmouseout="this.style.color='var(--gray-300)'"><i class="ti ti-x"></i></button>
         </div>`)
@@ -4827,7 +5107,7 @@ async function buscarUsuarioParaCompartilhar() {
 
   result.innerHTML = `<div style="color:var(--gray-400);font-size:13px"><i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Buscando…</div>`;
 
-  const { data, error } = await _supabase.rpc('buscar_usuario_por_email', { p_email: email });
+  const { data, error } = await _supabase.rpc('buscar_usuario_quadro_por_email', { p_email: email });
 
   if (error) {
     result.innerHTML = `<div style="color:#dc2626;font-size:13px"><i class="ti ti-alert-circle"></i> Erro na busca: ${_esc(error.message)}.</div>`;
@@ -4862,11 +5142,12 @@ async function enviarConviteQuadro(membroId, membroNome) {
   const meuNome = window._user?.user_metadata?.full_name || window._user?.email?.split('@')[0] || 'Advogado';
 
   const { error } = await _supabase.from('quadro_compartilhamentos').insert({
-    quadro_id:  _quadroAtivo,
-    dono_id:    window._user.id,
-    dono_nome:  meuNome,
-    membro_id:  membroId,
-    status:     'pendente',
+    quadro_id:   _quadroAtivo,
+    dono_id:     window._user.id,
+    dono_nome:   meuNome,
+    membro_id:   membroId,
+    membro_nome: membroNome,
+    status:      'pendente',
   });
 
   if (error) {
@@ -4979,18 +5260,6 @@ function execFormatCmd(cmd) {
   document.execCommand(cmd, false, null);
 }
 
-async function salvarDescricaoRich() {
-  const el = document.getElementById('tp-descricao');
-  if (!el || !_detalheId) return;
-  const html  = el.innerHTML.trim();
-  const vazio = !el.textContent.trim();
-  const valor = vazio ? '' : html;
-  const t = _tarefasDB.find(x => x.id === _detalheId);
-  if (t && t.descricao === valor) return;
-  const ok = await salvarCampoTarefa('descricao', valor);
-  if (ok && !vazio) showToast('Descrição salva ✓');
-}
-
 // Barra flutuante de formatação — aparece ao selecionar texto no editor
 document.addEventListener('selectionchange', function () {
   const toolbar = document.getElementById('tp-float-toolbar');
@@ -5032,6 +5301,21 @@ function cancelarAddItem() {
   if (input) input.value = '';
 }
 
+// Abre uma tarefa específica vinda de fora do Kanban (sino, calendário, aba
+// Prazos do processo, dashboard) — troca de quadro se a tarefa não estiver
+// no quadro atualmente aberto, porque abrirDetalhe só acha em _tarefasDB
+// (que é escopado ao _quadroAtivo).
+async function abrirTarefaPorId(taskId, quadroId) {
+  showPage('tarefas');
+  const alvo = quadroId || null;
+  if (_quadroAtivo !== alvo) {
+    _quadroAtivo = alvo;
+    _renderTabsQuadros();
+    await carregarTarefas();
+  }
+  abrirDetalhe(taskId);
+}
+
 function abrirDetalhe(id) {
   const t = _tarefasDB.find(x => x.id === id);
   if (!t) return;
@@ -5048,17 +5332,26 @@ function abrirDetalhe(id) {
   const partes  = [];
   if (t.prioridade) partes.push(priLbl[t.prioridade] || t.prioridade);
   if (t.coluna)     partes.push(colLbl[t.coluna] || t.coluna);
-  if (t.prazo)      partes.push('📅 ' + new Date(t.prazo + 'T12:00:00').toLocaleDateString('pt-BR'));
   document.getElementById('tp-meta').innerHTML = partes.map(p => `<span class="tp-meta-chip">${p}</span>`).join('');
 
   // Processo
   const procDiv = document.getElementById('tp-proc');
   if (t.processo_id && _procMapG[t.processo_id]) {
     document.getElementById('tp-proc-label').textContent = _procMapG[t.processo_id];
-    procDiv.style.display = 'block';
+    procDiv.style.display = 'flex';
   } else {
     procDiv.style.display = 'none';
   }
+
+  // Prazo fatal + processo/cliente manual
+  const prazoEl = document.getElementById('tp-prazo');
+  if (prazoEl) prazoEl.value = t.prazo || '';
+  const procManualEl = document.getElementById('tp-processo-manual');
+  if (procManualEl) procManualEl.value = t.numero_processo_manual || '';
+  const clienteManualEl = document.getElementById('tp-cliente-manual');
+  if (clienteManualEl) clienteManualEl.value = t.cliente_manual || '';
+  _atualizarPrazoAlerta(t.prazo, t.coluna);
+  _atualizarDatasPainel(t);
 
   // Descrição (contenteditable)
   const descEl = document.getElementById('tp-descricao');
@@ -5084,17 +5377,96 @@ function abrirDetalhe(id) {
   });
 }
 
-async function salvarCampoTarefa(campo, valor) {
+// Título, descrição, prazo e processo/cliente manual só gravam quando o
+// usuário clica em Salvar — checklist e comentários continuam instantâneos
+// (são ações de lista, não campos de texto que se editam e confirmam).
+// Lê os campos editáveis por Salvar (título/descrição/prazo/processo-cliente
+// manual) direto do DOM do painel — usado tanto pra salvar quanto pra
+// detectar alterações não salvas ao fechar.
+function _lerCamposTarefaDetalhe() {
+  const descEl = document.getElementById('tp-descricao');
+  const vazia  = descEl && !descEl.textContent.trim();
+  return {
+    titulo:    document.getElementById('tp-titulo')?.value.trim() || '',
+    descricao: descEl ? (vazia ? '' : descEl.innerHTML.trim()) : '',
+    prazo:     document.getElementById('tp-prazo')?.value || null,
+    numero_processo_manual: document.getElementById('tp-processo-manual')?.value.trim() || null,
+    cliente_manual:         document.getElementById('tp-cliente-manual')?.value.trim()  || null,
+  };
+}
+
+function _temAlteracoesTarefaDetalhe() {
+  const t = _tarefasDB.find(x => x.id === _detalheId);
+  if (!t) return false;
+  const atual = _lerCamposTarefaDetalhe();
+  return Object.keys(atual).some(k => atual[k] !== (t[k] ?? (k === 'titulo' || k === 'descricao' ? '' : null)));
+}
+
+async function salvarTarefaDetalhe() {
   const id = _detalheId;
-  if (!id) return false;
-  const { error } = await _supabase.from('tarefas').update({ [campo]: valor }).eq('id', id);
-  if (error) { console.error('salvarCampoTarefa:', campo, error); showToast('Erro ao salvar.'); return false; }
+  if (!id) return;
+
+  const { titulo, descricao, prazo, numero_processo_manual: numeroProcManual, cliente_manual: clienteManual } = _lerCamposTarefaDetalhe();
+  if (!titulo) { showToast('O título não pode ficar vazio.'); return; }
+  _checarNumeroProcessoManual('tp-processo-manual', 'tp-processo-manual-alerta');
+
+  const btn = document.getElementById('btn-salvar-tarefa-detalhe');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Salvando...'; }
+
+  const meuNome = window._user?.user_metadata?.full_name || window._user?.email?.split('@')[0] || '';
+  const agora   = new Date().toISOString();
+  const campos  = {
+    titulo, descricao, prazo,
+    numero_processo_manual: numeroProcManual,
+    cliente_manual:         clienteManual,
+    updated_at:      agora,
+    updated_by_nome: meuNome,
+  };
+  const { error } = await _supabase.from('tarefas').update(campos).eq('id', id);
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-check"></i> Salvar'; }
+  if (error) { console.error('salvarTarefaDetalhe:', error); showToast('Erro ao salvar.'); return; }
+
   const t = _tarefasDB.find(x => x.id === id);
   if (t) {
-    t[campo] = valor;
-    if (campo === 'titulo') renderizarKanban(_tarefasDB, _procMapG, localStorage.getItem('kanban_last_seen') || '0', '');
+    Object.assign(t, campos);
+    renderizarKanban(_tarefasDB, _procMapG, localStorage.getItem('kanban_last_seen') || '0', '');
+    _atualizarPrazoAlerta(prazo, t.coluna);
+    _atualizarDatasPainel(t);
   }
-  return true;
+  showToast('Tarefa salva!');
+}
+
+function _fmtDataHora(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  return d.toLocaleDateString('pt-BR') + ' às ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Mostra quando a tarefa foi criada e, se já foi editada depois (diferença
+// maior que 1 min pra não repetir a mesma hora da criação), por quem e quando.
+function _atualizarDatasPainel(t) {
+  const el = document.getElementById('tp-datas');
+  if (!el) return;
+  const partes = [];
+  if (t.created_at) partes.push(`Criada em ${_fmtDataHora(t.created_at)}`);
+  const editada = t.updated_at && t.created_at &&
+    Math.abs(new Date(t.updated_at) - new Date(t.created_at)) > 60000;
+  if (editada) {
+    partes.push(`Editada ${_tempoRelativo(t.updated_at)}${t.updated_by_nome ? ' por ' + t.updated_by_nome : ''} — ${_fmtDataHora(t.updated_at)}`);
+  }
+  el.innerHTML = partes.map(p => `<div>${_esc(p)}</div>`).join('');
+}
+
+function _atualizarPrazoAlerta(prazo, coluna) {
+  const el = document.getElementById('tp-prazo-alerta');
+  if (!el) return;
+  const info = _prazoStatus(prazo, coluna);
+  if (!info || (info.nivel !== 'urgente' && info.nivel !== 'fatal')) { el.style.display = 'none'; return; }
+  el.textContent   = info.label;
+  el.className     = 'tp-prazo-alerta ' + info.nivel;
+  el.style.display = 'inline-block';
 }
 
 function _renderChecklist() {
@@ -5127,11 +5499,18 @@ function _renderChecklist() {
 
 async function _salvarChecklist() {
   if (!_detalheId) return;
+  const meuNome = window._user?.user_metadata?.full_name || window._user?.email?.split('@')[0] || '';
+  const agora   = new Date().toISOString();
   const { error } = await _supabase.from('tarefas')
-    .update({ checklist: _checklistAtual }).eq('id', _detalheId);
+    .update({ checklist: _checklistAtual, updated_at: agora, updated_by_nome: meuNome }).eq('id', _detalheId);
   if (!error) {
     const t = _tarefasDB.find(x => x.id === _detalheId);
-    if (t) t.checklist = JSON.parse(JSON.stringify(_checklistAtual));
+    if (t) {
+      t.checklist        = JSON.parse(JSON.stringify(_checklistAtual));
+      t.updated_at        = agora;
+      t.updated_by_nome   = meuNome;
+      _atualizarDatasPainel(t);
+    }
     renderizarKanban(_tarefasDB, _procMapG, localStorage.getItem('kanban_last_seen') || '0', '');
   }
 }
@@ -5162,31 +5541,39 @@ async function removerItemChecklist(itemId) {
   await _salvarChecklist();
 }
 
-function fecharDetalhe() {
-  const id = _detalheId;
-  if (id) {
-    const descEl = document.getElementById('tp-descricao');
-    if (descEl) {
-      const html  = descEl.innerHTML.trim();
-      const vazio = !descEl.textContent.trim();
-      const valor = vazio ? '' : html;
-      const t = _tarefasDB.find(x => x.id === id);
-      if (!(t && t.descricao === valor)) {
-        _supabase.from('tarefas').update({ descricao: valor }).eq('id', id)
-          .then(({ error }) => { if (!error && t) t.descricao = valor; });
-      }
-    }
+async function fecharDetalhe() {
+  if (_detalheId && _temAlteracoesTarefaDetalhe()) {
+    const ok = await _confirmar(
+      'Você tem alterações não salvas nesta tarefa. Fechar mesmo assim?',
+      'Descartar alterações?',
+      { textoOk: 'Descartar', perigo: true, icone: '⚠️' }
+    );
+    if (!ok) return;
   }
   _detalheId = null;
   closeModal('modal-tarefa-detalhe');
 }
 
-function tdVerProcesso() {
+async function tdVerProcesso() {
   const t = _tarefasDB.find(x => x.id === _detalheId);
   if (!t?.processo_id) return;
-  fecharDetalhe();
+  await fecharDetalhe();
+  if (_detalheId) return; // usuário cancelou o fechamento (alterações não salvas)
   const proc = (window._processosDB || []).find(p => p.id === t.processo_id);
   if (proc) popularDetalhe(proc);
+}
+
+async function tdDesvincularProcesso() {
+  if (!_detalheId) return;
+  const ok = await _confirmar(
+    'A tarefa vai deixar de aparecer nos prazos e no calendário deste processo. Continuar?',
+    'Remover vínculo?',
+    { textoOk: 'Remover', perigo: true, icone: '⚠️' }
+  );
+  if (!ok) return;
+  await vincularTarefaProcesso(null, _detalheId);
+  const procDiv = document.getElementById('tp-proc');
+  if (procDiv) procDiv.style.display = 'none';
 }
 
 async function carregarComentarios(tarefaId) {

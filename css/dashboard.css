@@ -466,11 +466,22 @@ body {
 .cal-day.today { background: var(--navy); color: var(--white); font-weight: 600; }
 .cal-day.has-event::after {
   content: '';
-  position: absolute; bottom: 2px;
+  position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);
   width: 4px; height: 4px; border-radius: 50%;
   background: var(--gold);
 }
 .cal-day.today.has-event::after { background: var(--gold-light); }
+
+.cal-day.has-tarefa::before {
+  content: '';
+  position: absolute; bottom: 2px; left: 50%; transform: translateX(-50%);
+  width: 4px; height: 4px; border-radius: 50%;
+  background: #dc2626;
+}
+.cal-day.today.has-tarefa::before { background: #fca5a5; }
+/* Quando os dois coexistem, afasta um dot do outro pra não sobrepor */
+.cal-day.has-event.has-tarefa::after  { left: calc(50% - 4px); }
+.cal-day.has-event.has-tarefa::before { left: calc(50% + 4px); }
 .cal-day.selecionado { background: #dbeafe; color: #1d4ed8; font-weight: 600; border-radius: 6px; }
 
 /* ── PROCESSOS ── */
@@ -685,6 +696,13 @@ body {
 .event-lembrete { background: var(--gold-pale);   color: var(--amber); }
 .event-reuniao  { background: var(--green-light); color: var(--green); }
 
+/* Pílula de tarefa no calendário — cor pelo mesmo nível de _prazoStatus do
+   Kanban (tc-prazo-*), pra manter consistência visual entre as telas. */
+.event-tarefa-baixo   { background: var(--gray-100); color: var(--gray-500); }
+.event-tarefa-medio   { background: #fef3c7; color: #d97706; }
+.event-tarefa-urgente { background: #fee2e2; color: #dc2626; }
+.event-tarefa-fatal   { background: #be123c; color: #fff; }
+
 /* ── CALENDÁRIO EXPANDIDO ──────────────────────────────────────────────────── */
 
 /* Modal override para o calendário */
@@ -853,6 +871,7 @@ body {
 .task-col {
   background: var(--gray-50); border-radius: var(--radius-lg);
   padding: 14px; min-height: 200px;
+  display: flex; flex-direction: column;
 }
 
 .task-col-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
@@ -867,17 +886,40 @@ body {
 /* ── KANBAN CARD ── */
 .task-card {
   background: #fff; border: 1px solid var(--gray-100);
-  border-left: 3px solid transparent;
-  border-radius: 10px; padding: 12px 14px; margin-bottom: 8px;
-  cursor: pointer; position: relative; overflow: hidden;
+  border-left: 4px solid transparent;
+  border-radius: 12px; padding: 20px 22px; margin-bottom: 14px;
+  cursor: grab; position: relative; overflow: hidden;
+  touch-action: none; /* deixa o pointer-events cuidar do drag em touch, sem rolar a página */
   transition: box-shadow .15s, transform .12s;
 }
-.task-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); transform: translateY(-1px); }
-.task-card:active { transform: translateY(0); }
+.task-card:hover  { box-shadow: 0 4px 16px rgba(0,0,0,0.08); transform: translateY(-1px); }
+.task-card:active { cursor: grabbing; transform: translateY(0); }
+
+/* Clone que segue o cursor durante o drag (Pointer Events) */
+.tc-ghost {
+  position: fixed; top: 0; left: 0; z-index: 9999; pointer-events: none;
+  box-shadow: 0 16px 36px rgba(0,0,0,0.22); transform: rotate(-1.5deg);
+  cursor: grabbing; opacity: 0.95;
+}
 
 .tc-pri-urgente { border-left-color: #dc2626; }
 .tc-pri-media   { border-left-color: #d97706; }
 .tc-pri-baixa   { border-left-color: #6b7280; }
+
+/* Cor do card pelo prazo fatal — sobrepõe a cor de prioridade quando há prazo.
+   baixo (15+ dias) → médio (até 10) → urgente (até 5) → fatal (até 3, o mais chamativo)
+   Só borda + tag coloridas, sem fundo tingido — mais limpo. */
+.tc-prazo-baixo   { border-left-color: #6b7280; }
+.tc-prazo-medio   { border-left-color: #d97706; }
+.tc-prazo-urgente { border-left-color: #dc2626; }
+.tc-prazo-fatal {
+  border-left-color: #be123c;
+  animation: tcFatalPulse 1.6s ease-in-out infinite;
+}
+@keyframes tcFatalPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(190,18,60,.38); }
+  50%      { box-shadow: 0 0 0 6px rgba(190,18,60,0); }
+}
 
 .tc-dot-novo {
   position: absolute; top: 10px; right: 10px;
@@ -900,9 +942,15 @@ body {
 .tc-action-del:hover       { background: #fee2e2; color: #dc2626; border-color: #fca5a5; }
 
 .tc-title {
-  font-size: 13px; font-weight: 500; color: var(--navy);
-  line-height: 1.45; margin-bottom: 7px; word-break: break-word;
+  font-size: 15px; font-weight: 600; color: var(--navy);
+  line-height: 1.45; margin-bottom: 8px; word-break: break-word;
   padding-right: 32px; /* espaço para os botões hover */
+}
+.tc-desc-preview {
+  font-size: 13px; color: var(--gray-500); line-height: 1.6;
+  margin-bottom: 12px; word-break: break-word;
+  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .tc-proc-tag {
   display: inline-flex; align-items: center; gap: 4px;
@@ -910,6 +958,18 @@ body {
   padding: 2px 7px; border-radius: 6px; margin-bottom: 8px;
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.tc-proc-tag-manual { color: var(--gray-600); background: var(--gray-100); }
+
+.tc-prazo-row { margin-bottom: 8px; }
+.tc-prazo-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 6px;
+  background: var(--gray-100); color: var(--gray-500);
+}
+.tc-prazo-badge.tc-prazo-baixo   { background: var(--gray-100); color: var(--gray-500); }
+.tc-prazo-badge.tc-prazo-medio   { background: #fef3c7; color: #d97706; }
+.tc-prazo-badge.tc-prazo-urgente { background: #fee2e2; color: #dc2626; }
+.tc-prazo-badge.tc-prazo-fatal   { background: #be123c; color: #fff; }
 .tc-footer {
   display: flex; align-items: center; justify-content: space-between; gap: 6px;
 }
@@ -924,10 +984,24 @@ body {
 .tc-counter  { display: flex; align-items: center; gap: 3px; font-size: 11px; color: var(--gray-300); }
 .tc-counter-done { color: var(--green); }
 
+.tc-editada {
+  margin-top: 8px; font-size: 10.5px; color: var(--gray-300);
+  display: flex; align-items: center; gap: 4px;
+}
+
 .task-cols { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
 
-.task-col-body { min-height: 120px; padding: 4px 0; transition: background 0.15s, outline 0.15s; border-radius: var(--radius); }
+.task-col-body {
+  min-height: 120px; padding: 4px 0; flex: 1 1 auto;
+  transition: background 0.15s, outline 0.15s; border-radius: var(--radius);
+}
 .task-col-body.drag-over { outline: 2px dashed var(--navy); background: rgba(26,46,107,0.04); }
+
+/* Assim que o drag começa, sinaliza TODAS as colunas como soltáveis —
+   a que está sob o cursor ganha destaque mais forte via .drag-over */
+body.kanban-dragging .task-col-body {
+  outline: 2px dashed var(--gray-200); background: rgba(0,0,0,0.012);
+}
 
 .task-col-add-btn {
   width: 100%; margin-top: 6px; padding: 7px; border-radius: var(--radius);
@@ -1682,8 +1756,8 @@ body {
 
 /* ── MODAL DETALHE TAREFA ─────────────────────────────────────────── */
 .modal-td {
-  width: 660px; max-width: 96vw;
-  max-height: 88vh; display: flex; flex-direction: column;
+  width: 760px; max-width: 96vw;
+  height: 94vh; max-height: 94vh; display: flex; flex-direction: column;
   padding: 0; overflow: hidden;
 }
 
@@ -1719,6 +1793,11 @@ body {
   font-size: 11px; padding: 3px 10px; border-radius: 12px;
   background: var(--gray-100); color: var(--gray-600); font-weight: 500;
 }
+.tp-datas {
+  padding: 8px 24px; font-size: 11px; color: var(--gray-400);
+  border-bottom: 1px solid var(--gray-100); line-height: 1.6;
+}
+
 .tp-proc-btn {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: 12px; color: var(--blue); background: #eff6ff;
@@ -1726,6 +1805,11 @@ body {
   font-weight: 500; transition: background .15s; margin-left: 4px;
 }
 .tp-proc-btn:hover { background: #dbeafe; }
+
+.tp-proc-unlink {
+  color: var(--gray-400); background: var(--gray-100); padding: 4px 8px; margin-left: 0;
+}
+.tp-proc-unlink:hover { color: #dc2626; background: #fee2e2; }
 
 /* Corpo rolável */
 .mtd-body { flex: 1; overflow-y: auto; display: flex; flex-direction: column; min-height: 0; }
@@ -1738,6 +1822,20 @@ body {
   font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em;
   color: var(--gray-400); margin-bottom: 8px;
   display: flex; align-items: center; gap: 5px;
+}
+
+.tp-block-row { display: flex; gap: 14px; flex-wrap: wrap; }
+.tp-block-col { flex: 1; min-width: 160px; }
+.tp-prazo-alerta {
+  margin-top: 6px; font-size: 11px; font-weight: 600; padding: 3px 9px;
+  border-radius: 8px; display: inline-block;
+}
+.tp-prazo-alerta.urgente { background: #fee2e2; color: #dc2626; }
+.tp-prazo-alerta.fatal   { background: #be123c; color: #fff; animation: tcFatalPulse 1.6s ease-in-out infinite; }
+
+.tp-numero-alerta {
+  margin-top: 6px; font-size: 11px; color: #d97706; background: #fef3c7;
+  padding: 5px 9px; border-radius: 8px; align-items: center; gap: 5px; line-height: 1.4;
 }
 
 
