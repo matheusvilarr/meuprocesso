@@ -184,6 +184,7 @@ body {
   font-weight: 600;
   cursor: pointer;
 }
+.adm-btn-secondary.active { background: #c0392b; color: #fff; }
 
 .adm-btn-small {
   background: var(--gray-100);

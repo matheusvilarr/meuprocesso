@@ -135,7 +135,10 @@ async function sincronizarDatajud(processos, admin, hoje, startAt = Date.now()) 
   const com_datajud = processos.filter(p => p.datajud_index);
 
   for (let i = 0; i < com_datajud.length; i += 12) {
-    if (Date.now() - startAt > 45000) break; // para em 45s
+    // 35s (não 45s) — o timeout por chamada subiu de 12s pra 28s, então um
+    // lote em andamento pode demorar mais até terminar; dá mais folga antes
+    // do DJEN e do disparo de e-mail rodarem, dentro do maxDuration de 120s.
+    if (Date.now() - startAt > 35000) break;
 
     const lote = com_datajud.slice(i, i + 12);
     const resultados = await Promise.allSettled(
@@ -425,7 +428,7 @@ async function buscarPorOabNoDatajud(index, oab) {
     const r = await fetch(`https://api-publica.datajud.cnj.jus.br/${index}/_search`, {
       method: 'POST',
       headers: { 'Authorization': `ApiKey ${DATAJUD_KEY}`, 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(20000),
       body: JSON.stringify(body),
     });
     if (!r.ok) return { hits: [] };
@@ -515,18 +518,24 @@ async function buscarOabsUsuarios(admin, userIds) {
   return result;
 }
 
+// IMPORTANTE: propositalmente NÃO engole erro aqui (nem timeout, nem status
+// != 200) — se engolisse e devolvesse null/[], sincronizarDatajudUm() trataria
+// isso como "consultei e não achou nada" e marcaria ultima_verificacao como
+// agora, escondendo a falha e adiando a próxima tentativa real em 20h. Deixa
+// a exceção subir pro catch de sincronizarDatajudUm(), que loga em error_log
+// e NÃO atualiza ultima_verificacao — o processo continua na fila pra
+// próxima execução do cron.
 async function buscarNoDatajud(index, numero) {
   const numeroLimpo = numero.replace(/[.\-\/ ]/g, '');
-  try {
-    const r = await fetch(`https://api-publica.datajud.cnj.jus.br/${index}/_search`, {
-      method: 'POST',
-      headers: { 'Authorization': `ApiKey ${DATAJUD_KEY}`, 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(12000),
-      body: JSON.stringify({ size: 1, query: { match: { numeroProcesso: numeroLimpo } } }),
-    });
-    if (!r.ok) return null;
-    return JSON.parse(decodificarBuffer(await r.arrayBuffer())).hits?.hits || null;
-  } catch { return null; }
+  const r = await fetch(`https://api-publica.datajud.cnj.jus.br/${index}/_search`, {
+    method: 'POST',
+    headers: { 'Authorization': `ApiKey ${DATAJUD_KEY}`, 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(28000),
+    body: JSON.stringify({ size: 1, query: { match: { numeroProcesso: numeroLimpo } } }),
+  });
+  if (!r.ok) throw new Error(`DataJud respondeu ${r.status} (${index})`);
+  const json = JSON.parse(decodificarBuffer(await r.arrayBuffer()));
+  return json.hits?.hits || [];
 }
 
 function decodificarBuffer(buffer) {

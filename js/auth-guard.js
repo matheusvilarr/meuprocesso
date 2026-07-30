@@ -27,10 +27,22 @@
     .maybeSingle();
   window._isAdmin = !!adminRow;
 
-  // Bloqueia acesso se conta ainda não aprovada (exceto admin e colaboradores)
-  const aprovado = session.user.user_metadata?.status === 'aprovado';
-  if (!aprovado && !window._isAdmin && !window._isColaborador) {
-    window.location.href = '/aguardando';
+  // Assinatura do escritório (trial ou plano pago) — sempre por escritorio_id,
+  // nunca por session.user.id direto, pra colaborador herdar do titular.
+  const { data: assinatura } = await _supabase
+    .from('assinaturas')
+    .select('plano, status, data_expiracao')
+    .eq('escritorio_id', window._escritorioId)
+    .maybeSingle();
+  window._assinatura = assinatura;
+
+  const assinaturaValida = !!assinatura && assinatura.status === 'ativo' &&
+    new Date(assinatura.data_expiracao) > new Date();
+
+  if (!window._isAdmin && !assinaturaValida) {
+    // Sem nenhuma linha de assinatura (caso raro) → fluxo antigo de aprovação.
+    // Com assinatura mas vencida (trial ou plano expirado) → tela de cobrança.
+    window.location.href = assinatura ? '/assinatura-vencida' : '/aguardando';
     return;
   }
 
@@ -72,6 +84,21 @@
     if (window._isAdmin) {
       const navAdmin = document.getElementById('nav-item-admin');
       if (navAdmin) navAdmin.style.display = 'flex';
+    }
+
+    // Badge de trial/vencimento próximo — só aparece quando é trial ou
+    // está perto de vencer, pra não poluir a sidebar quando está tudo bem.
+    if (assinatura) {
+      const diasRestantes = Math.ceil((new Date(assinatura.data_expiracao) - new Date()) / 86400000);
+      const badge = document.getElementById('sidebar-assinatura-badge');
+      if (badge && (assinatura.plano === 'trial' || diasRestantes <= 10)) {
+        badge.textContent = assinatura.plano === 'trial'
+          ? `Trial · ${Math.max(diasRestantes, 0)}d restantes`
+          : `Plano vence em ${diasRestantes}d`;
+        badge.className   = 'sidebar-assinatura-badge' + (diasRestantes <= 3 ? ' urgente' : '');
+        badge.style.display = 'block';
+        badge.onclick = (e) => { e.stopPropagation(); if (typeof showPage === 'function') showPage('assinatura'); };
+      }
     }
   };
 

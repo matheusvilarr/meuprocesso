@@ -133,6 +133,39 @@ document.getElementById('su-password').addEventListener('input', function () {
   label.style.color     = cores[score - 1] || '#ef4444';
 });
 
+// Impede que a mesma OAB (mesmo advogado) crie várias contas pra ganhar
+// vários trials — checa contra as contas já cadastradas.
+let _oabDuplicadaSu   = false;
+let _oabUltimaCheckSu = '';
+let _oabTimerSu       = null;
+
+document.getElementById('su-uf').addEventListener('change', agendarCheckOabSu);
+document.getElementById('su-oab-num').addEventListener('input', agendarCheckOabSu);
+
+function agendarCheckOabSu() {
+  clearTimeout(_oabTimerSu);
+  const uf  = document.getElementById('su-uf').value.trim().toUpperCase();
+  const num = document.getElementById('su-oab-num').value.trim().replace(/\D/g, '');
+  if (!uf || num.length < 3) return;
+  _oabTimerSu = setTimeout(() => checarOabSu(`${uf}${num}`), 600);
+}
+
+async function checarOabSu(oab) {
+  try {
+    const r = await fetch('/api/verificar-oab?oab=' + encodeURIComponent(oab));
+    const { existe } = await r.json();
+    _oabDuplicadaSu   = !!existe;
+    _oabUltimaCheckSu = oab;
+    const err = document.getElementById('suOabError');
+    if (_oabDuplicadaSu) {
+      err.textContent = 'Esse número de OAB já tem uma conta cadastrada. Já tem conta? Faça login.';
+      err.classList.add('show');
+    } else {
+      err.classList.remove('show');
+    }
+  } catch (_) {}
+}
+
 document.getElementById('signupForm').addEventListener('submit', async function (e) {
   e.preventDefault();
 
@@ -192,6 +225,18 @@ document.getElementById('signupForm').addEventListener('submit', async function 
 
   const oab = `${uf}${oabNum}`;
 
+  // Recheca a OAB se o campo mudou desde a última verificação.
+  if (oab !== _oabUltimaCheckSu) {
+    btn.classList.add('loading');
+    btn.textContent = 'Verificando OAB...';
+    await checarOabSu(oab);
+  }
+  if (_oabDuplicadaSu) {
+    btn.classList.remove('loading');
+    btn.textContent = 'Criar conta';
+    return;
+  }
+
   btn.classList.add('loading');
   btn.textContent = 'Criando conta...';
 
@@ -211,7 +256,7 @@ document.getElementById('signupForm').addEventListener('submit', async function 
       ? 'Este e-mail já tem uma conta. Faça login.'
       : 'Erro ao criar conta: ' + error.message;
     pwErr.classList.add('show');
-    btn.textContent = 'Criar conta gratuita';
+    btn.textContent = 'Criar conta';
     return;
   }
 

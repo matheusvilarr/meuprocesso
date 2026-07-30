@@ -16,6 +16,7 @@ const pages = {
   'clientes': 'Clientes',
   'honorarios': 'Honorários',
   'colaboradores': 'Colaboradores',
+  'assinatura': 'Minha Assinatura',
   'configuracoes': 'Configurações',
   'arquivados': 'Arquivados & Encerrados',
   'ajuda': 'Ajuda',
@@ -70,6 +71,7 @@ function showPage(id) {
   if (id === 'tjdft') { verificarBackendPython(); inicializarDatesDJe(); }
   if (id === 'clientes')      carregarClientes();
   if (id === 'honorarios') { carregarHonorarios(); _aplicarVisHonorarios(); }
+  if (id === 'assinatura')   carregarAssinatura();
 
   if (!_navegandoPorHistorico && _navStack[_navStack.length - 1] !== id) {
     _navStack.push(id);
@@ -1407,7 +1409,7 @@ async function adicionarProcesso(i) {
   setTimeout(() => {
     document.getElementById('np-numero').value           = d.numero          || '';
     document.getElementById('np-nome').value             = d.classe          || '';
-    document.getElementById('np-tribunal').value         = d.tribunal        || '';
+    document.getElementById('np-tribunal').value         = d.tribunal || _extrairTribunalDeIndex(d._datajudIndex) || '';
     document.getElementById('np-datajud-index').value    = d._datajudIndex   || '';
     document.getElementById('np-classe').value           = d.classe          || '';
     document.getElementById('np-orgao-julgador').value   = d.orgaoJulgador   || '';
@@ -1459,6 +1461,7 @@ async function salvarProcesso() {
     classe:              document.getElementById('np-classe').value || null,
     orgao_julgador:      document.getElementById('np-orgao-julgador').value || null,
     data_ajuizamento:    document.getElementById('np-data-ajuizamento').value || null,
+    valor_causa:         _parseValorMoeda(document.getElementById('np-valor').value),
     movimentos_recentes: window._importMovimentos?.length ? window._importMovimentos : null,
     movimentos_hash:     window._importMovimentos?.length
       ? window._importMovimentos.map(m => m.data + m.nome).join('|') : null,
@@ -2820,6 +2823,55 @@ async function salvarApelido() {
   await logHistorico('apelido_change', novo ? `Alterou o apelido para "${novo}"` : 'Removeu o apelido do processo');
 }
 
+// Campos que o DataJud às vezes não retorna (comum em segredo de justiça) —
+// o advogado completa manualmente aqui. Não inclui "numero" de propósito:
+// é a chave usada pra casar o processo na sincronização/merge, editar
+// quebraria isso.
+function abrirEditarProcesso() {
+  if (!_processoAtual) return;
+  document.getElementById('ep-classe').value           = _processoAtual.classe || '';
+  document.getElementById('ep-tribunal').value         = _processoAtual.tribunal || '';
+  document.getElementById('ep-orgao-julgador').value   = _processoAtual.orgao_julgador || '';
+  document.getElementById('ep-vara').value             = _processoAtual.vara || '';
+  document.getElementById('ep-data-ajuizamento').value = _processoAtual.data_ajuizamento || '';
+  document.getElementById('ep-valor').value            = _processoAtual.valor_causa ? _fmtValor(_processoAtual.valor_causa) : '';
+  document.getElementById('ep-parte-contraria').value  = _processoAtual.parte_contraria || '';
+  openModal('modal-editar-processo');
+}
+
+async function salvarEdicaoProcesso() {
+  if (!_processoAtual) return;
+  const btn = document.getElementById('btn-salvar-edicao-processo');
+
+  const payload = {
+    classe:           document.getElementById('ep-classe').value.trim() || null,
+    tribunal:         document.getElementById('ep-tribunal').value.trim() || null,
+    orgao_julgador:   document.getElementById('ep-orgao-julgador').value.trim() || null,
+    vara:             document.getElementById('ep-vara').value.trim() || null,
+    data_ajuizamento: document.getElementById('ep-data-ajuizamento').value || null,
+    valor_causa:      _parseValorMoeda(document.getElementById('ep-valor').value),
+    parte_contraria:  document.getElementById('ep-parte-contraria').value.trim() || null,
+  };
+
+  btn.disabled = true;
+  btn.textContent = 'Salvando...';
+  const { error } = await _supabase.from('processos').update(payload).eq('id', _processoAtual.id);
+  btn.disabled = false;
+  btn.innerHTML = '<i class="ti ti-check"></i> Salvar';
+
+  if (error) {
+    showToast('Erro ao salvar: ' + error.message);
+    return;
+  }
+
+  Object.assign(_processoAtual, payload);
+  closeModal('modal-editar-processo');
+  showToast('Dados do processo atualizados.');
+  await logHistorico('dados_editados', 'Completou/corrigiu dados do processo manualmente');
+  popularDetalhe(_processoAtual);
+  carregarProcessos();
+}
+
 function editarApelidoCard(event, processoId) {
   event.stopPropagation();
   const proc = (window._processosDB || []).find(p => p.id === processoId);
@@ -3970,6 +4022,59 @@ function _oabRemoverChip(idx) {
   _oabRenderChips();
   const alertaOAB = document.getElementById('config-oab-alerta');
   if (alertaOAB) alertaOAB.style.display = atual.length ? 'none' : 'flex';
+}
+
+async function carregarAssinatura() {
+  const wrap = document.getElementById('assinatura-conteudo');
+  if (!wrap) return;
+
+  wrap.innerHTML = `<div style="text-align:center;padding:30px;color:var(--gray-400)"><i class="ti ti-loader-2" style="animation:spin .8s linear infinite;font-size:20px"></i></div>`;
+
+  // auth-guard.js já carregou uma vez em window._assinatura no boot — reusa
+  // se tiver, senão busca de novo (ex: depois de admin editar).
+  const { data: assinatura } = await _supabase
+    .from('assinaturas')
+    .select('plano, status, data_inicio, data_expiracao, valor_pago, forma_pagamento')
+    .eq('escritorio_id', window._escritorioId)
+    .maybeSingle();
+  window._assinatura = assinatura;
+
+  if (!assinatura) {
+    wrap.innerHTML = `<div class="fin-empty">Nenhuma assinatura encontrada. Entre em contato pelo suporte.</div>`;
+    return;
+  }
+
+  const planoLabel = { trial: 'Teste grátis', mensal: 'Mensal', semestral: 'Semestral', anual: 'Anual', legado: 'Plano legado' };
+  const dias    = Math.ceil((new Date(assinatura.data_expiracao) - new Date()) / 86400000);
+  const vencida = assinatura.status !== 'ativo' || dias < 0;
+  const nivel   = vencida ? 'fatal' : dias <= 5 ? 'urgente' : dias <= 10 ? 'medio' : 'baixo';
+  const diasTxt = vencida ? 'Vencida' : dias === 0 ? 'Vence hoje' : `Vence em ${dias} dia${dias > 1 ? 's' : ''}`;
+  const fmtData = iso => iso ? new Date(iso).toLocaleDateString('pt-BR') : '—';
+
+  const notaColaborador = window._isColaborador
+    ? `<div style="margin-top:16px;font-size:12px;color:var(--gray-400)"><i class="ti ti-info-circle"></i> Esta é a assinatura do escritório — só o titular pode alterá-la.</div>`
+    : '';
+
+  const ctaRenovar = window._isColaborador ? '' : `
+    <a href="/precos" target="_blank" class="btn-primary" style="margin-top:20px;display:inline-flex;text-decoration:none">
+      <i class="ti ti-external-link"></i> Ver planos e preços
+    </a>`;
+
+  wrap.innerHTML = `
+    <div style="background:#fff;border:1px solid var(--gray-200);border-radius:14px;padding:28px;max-width:480px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+        <div style="font-size:18px;font-weight:700;color:var(--navy)">${planoLabel[assinatura.plano] || assinatura.plano}</div>
+        <span class="tc-prazo-badge tc-prazo-${nivel}"><i class="ti ti-calendar-due"></i> ${diasTxt}</span>
+      </div>
+      <div style="font-size:13px;color:var(--gray-500);line-height:1.8">
+        <div>Início: <strong style="color:var(--gray-700)">${fmtData(assinatura.data_inicio)}</strong></div>
+        <div>Validade até: <strong style="color:var(--gray-700)">${fmtData(assinatura.data_expiracao)}</strong></div>
+        ${assinatura.valor_pago ? `<div>Valor pago: <strong style="color:var(--gray-700)">R$ ${Number(assinatura.valor_pago).toFixed(2).replace('.', ',')}</strong></div>` : ''}
+        ${assinatura.forma_pagamento ? `<div>Forma de pagamento: <strong style="color:var(--gray-700)">${assinatura.forma_pagamento === 'pix' ? 'Pix' : 'Cartão'}</strong></div>` : ''}
+      </div>
+      ${ctaRenovar}
+      ${notaColaborador}
+    </div>`;
 }
 
 function carregarConfiguracoes() {
@@ -5625,13 +5730,22 @@ async function enviarComentario() {
 
 // ── IMPORTAÇÃO COM MERGE INTELIGENTE ─────────────────────────────────────
 
+// Deriva o nome do tribunal a partir do índice de busca do DataJud (ex:
+// "api_publica_tjdft" -> "TJDFT") quando a resposta não trouxe o campo
+// "tribunal" — pra sempre tentar preencher esse dado, mesmo que faltando.
+function _extrairTribunalDeIndex(datajudIndex) {
+  if (!datajudIndex) return null;
+  const m = datajudIndex.match(/api_publica_(.+)$/);
+  return m ? m[1].toUpperCase().replace(/-/g, '') : null;
+}
+
 async function _importarComMerge(d) {
   const movs = d.movimentos || [];
 
   // Verifica se processo já existe
   const { data: existente } = await _supabase
     .from('processos')
-    .select('id,apelido,cliente,notas_manuais,movimentos_recentes,movimentos_hash')
+    .select('id,apelido,cliente,notas_manuais,movimentos_recentes,movimentos_hash,tribunal')
     .eq('user_id', window._escritorioId)
     .eq('numero', d.numero)
     .maybeSingle();
@@ -5646,11 +5760,16 @@ async function _importarComMerge(d) {
       notificacao_pendente: false, // merge manual nunca gera notificação
       novos_movimentos:     null,
     };
-    if (d.tribunal)        updates.tribunal        = d.tribunal;
+    const tribunalDerivado = d.tribunal || _extrairTribunalDeIndex(d._datajudIndex);
+    // Só sobrescreve um tribunal já preenchido manualmente se o novo veio
+    // direto da resposta do DataJud (não o fallback derivado do índice).
+    if (tribunalDerivado && (d.tribunal || !existente.tribunal)) updates.tribunal = tribunalDerivado;
     if (d.orgaoJulgador)   updates.orgao_julgador  = d.orgaoJulgador;
     if (d.classe)          updates.classe           = d.classe;
     if (d.dataAjuizamento) updates.data_ajuizamento = d.dataAjuizamento;
     if (d._datajudIndex)   updates.datajud_index   = d._datajudIndex;
+    if (d.grau)            updates.grau            = d.grau;
+    if (d.nivelSigilo != null) updates.nivel_sigilo = d.nivelSigilo;
 
     const { error } = await _supabase.from('processos').update(updates).eq('id', existente.id);
     if (error) return { status: 'erro', error };
@@ -5667,12 +5786,14 @@ async function _importarComMerge(d) {
     nome:                d.classe             || d.numero || '',
     cliente:             clientePart?.nome    || '',
     area:                'Cível',
-    tribunal:            d.tribunal           || '',
+    tribunal:            d.tribunal || _extrairTribunalDeIndex(d._datajudIndex) || '',
     parte_contraria:     '',
     datajud_index:       d._datajudIndex      || null,
     classe:              d.classe             || null,
     orgao_julgador:      d.orgaoJulgador      || null,
     data_ajuizamento:    d.dataAjuizamento    || null,
+    grau:                d.grau               || null,
+    nivel_sigilo:        d.nivelSigilo ?? null,
     movimentos_recentes:  movs.length ? movs  : null,
     movimentos_hash:      movs.length ? movs.slice(0, 6).map(m => m.data + m.nome).join('|') : null,
     notificacao_pendente: false, // importação nunca gera notificação
@@ -6832,6 +6953,13 @@ function _statusLabel(s) {
 
 function _fmtValor(v) {
   return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits:2, maximumFractionDigits:2 });
+}
+
+function _parseValorMoeda(str) {
+  if (!str) return null;
+  const limpo = String(str).replace(/[^\d,.-]/g, '').replace(/\.(?=\d{3}(,|$))/g, '').replace(',', '.');
+  const n = parseFloat(limpo);
+  return isNaN(n) ? null : n;
 }
 
 function _fmtData(d) {

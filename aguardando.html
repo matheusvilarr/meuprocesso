@@ -160,10 +160,26 @@ document.getElementById('perfilForm').addEventListener('submit', async function 
   }
   if (!ok) return;
 
+  const oab = `${uf}${oabNum}`;
+
+  // Impede que a mesma OAB crie várias contas (aqui, via Google) pra ganhar
+  // vários trials — checa contra as contas já cadastradas.
   btn.disabled    = true;
+  btn.textContent = 'Verificando OAB...';
+  try {
+    const rOab = await fetch('/api/verificar-oab?oab=' + encodeURIComponent(oab));
+    const { existe } = await rOab.json();
+    if (existe) {
+      oabErr.textContent = 'Esse número de OAB já tem uma conta cadastrada. Já tem conta? Faça login.';
+      oabErr.classList.add('show');
+      btn.disabled    = false;
+      btn.textContent = 'Continuar';
+      return;
+    }
+  } catch (_) {}
+
   btn.textContent = 'Salvando...';
 
-  const oab  = `${uf}${oabNum}`;
   const meta = _session.user.user_metadata || {};
   const { error } = await _supabase.auth.updateUser({
     data: { ...meta, oab, telefone: tel },

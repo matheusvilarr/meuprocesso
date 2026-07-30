@@ -51,6 +51,11 @@
           <div class="adm-stat-value" id="stat-sem-confirmar">—</div>
           <div class="adm-stat-label">E-mail não confirmado</div>
         </div>
+        <div class="adm-stat-card adm-stat-red">
+          <i class="ti ti-copy-warning adm-stat-icon"></i>
+          <div class="adm-stat-value" id="stat-oab-duplicada">—</div>
+          <div class="adm-stat-label">Contas com OAB duplicada</div>
+        </div>
       </div>
 
       <!-- CRON SCHEDULE -->
@@ -106,6 +111,7 @@
           <h2>Advogados cadastrados</h2>
           <div style="display:flex;align-items:center;gap:12px;">
             <span id="adv-total" class="adm-count"></span>
+            <button class="adm-btn-secondary" id="btn-filtro-oab-dup" onclick="toggleFiltroOabDuplicada()"><i class="ti ti-alert-triangle"></i> Ver só OAB duplicada</button>
             <button class="adm-btn-primary" onclick="abrirConvidarAdvogado()"><i class="ti ti-mail-forward"></i> Convidar advogado</button>
           </div>
         </div>
@@ -122,6 +128,7 @@
                 <th>Tarefas</th>
                 <th>Colab.</th>
                 <th>Status</th>
+                <th>Assinatura</th>
                 <th></th>
               </tr>
             </thead>
@@ -150,6 +157,8 @@
 
         <!-- Gráfico de barras CSS -->
         <div class="sync-chart" id="sync-chart"></div>
+
+        <div id="sync-erros-wrap" style="margin-top:24px;"></div>
       </section>
 
       <!-- E-MAILS -->
@@ -250,6 +259,45 @@
       <div class="adm-modal-actions">
         <button class="adm-btn-secondary" onclick="fecharConvidarAdvogado()">Cancelar</button>
         <button class="adm-btn-primary" id="conv-btn" onclick="convidarAdvogado()"><i class="ti ti-send"></i> Enviar convite</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal editar assinatura -->
+  <div id="modal-assinatura" class="adm-modal-overlay" style="display:none;" onclick="if(event.target===this)fecharAssinatura()">
+    <div class="adm-modal">
+      <h3>Editar assinatura</h3>
+      <div id="assin-quem" style="font-size:12px;color:#9f9f98;margin-bottom:10px;"></div>
+      <label>Plano</label>
+      <select id="assin-plano">
+        <option value="trial">Teste grátis</option>
+        <option value="mensal">Mensal</option>
+        <option value="semestral">Semestral</option>
+        <option value="anual">Anual</option>
+        <option value="legado">Legado</option>
+      </select>
+      <label>Status</label>
+      <select id="assin-status">
+        <option value="ativo">Ativo</option>
+        <option value="vencido">Vencido</option>
+        <option value="cancelado">Cancelado</option>
+      </select>
+      <label>Válido até</label>
+      <input type="date" id="assin-expiracao">
+      <label>Valor pago (opcional)</label>
+      <input type="number" id="assin-valor" step="0.01" min="0" placeholder="Ex: 97.00">
+      <label>Forma de pagamento (opcional)</label>
+      <select id="assin-forma">
+        <option value="">—</option>
+        <option value="pix">Pix</option>
+        <option value="cartao">Cartão</option>
+      </select>
+      <label>Observações (opcional)</label>
+      <input type="text" id="assin-obs" placeholder="Ex: pago via Pix, comprovante por e-mail">
+      <div id="assin-erro" style="display:none;color:#c0392b;font-size:12px;margin-top:10px;"></div>
+      <div class="adm-modal-actions">
+        <button class="adm-btn-secondary" onclick="fecharAssinatura()">Cancelar</button>
+        <button class="adm-btn-primary" id="assin-btn" onclick="salvarAssinatura()"><i class="ti ti-check"></i> Salvar</button>
       </div>
     </div>
   </div>

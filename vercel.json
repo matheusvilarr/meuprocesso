@@ -35,7 +35,7 @@
     }
   ],
   "functions": {
-    "api/buscar-processo.js":             { "maxDuration": 20 },
+    "api/buscar-processo.js":             { "maxDuration": 30 },
     "api/cron/sincronizar.js":            { "maxDuration": 120 },
     "api/cron/verificar-atualizacoes.js": { "maxDuration": 30 },
     "api/admin.js":                        { "maxDuration": 90 }

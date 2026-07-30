@@ -78,6 +78,10 @@
     </div>
 
     <div class="nav-section">Conta</div>
+    <div class="nav-item" onclick="showPage('assinatura')">
+      <i class="ti ti-credit-card"></i>
+      Minha Assinatura
+    </div>
     <div class="nav-item" onclick="showPage('configuracoes')">
       <i class="ti ti-settings"></i>
       Configurações
@@ -100,6 +104,7 @@
         <div class="user-name" id="sidebar-user-name">Carregando...</div>
         <div class="user-role" id="sidebar-user-email"></div>
         <div id="sidebar-colab-badge" style="display:none;font-size:10px;color:#e8b400;font-weight:600;letter-spacing:.04em;margin-top:1px"></div>
+        <div id="sidebar-assinatura-badge" class="sidebar-assinatura-badge" style="display:none"></div>
       </div>
     </div>
   </div>
@@ -317,6 +322,9 @@
           <button class="btn-secondary" style="font-size:11px;padding:5px 12px;display:none" id="detalhe-btn-sync"
             onclick="sincronizarDetalhe()">
             <i class="ti ti-refresh"></i> Sincronizar
+          </button>
+          <button class="btn-secondary" style="font-size:11px;padding:5px 12px" onclick="abrirEditarProcesso()">
+            <i class="ti ti-pencil"></i> Editar dados
           </button>
         </div>
       </div>
@@ -906,6 +914,17 @@
         </button>
       </div>
     </div>
+  </div>
+
+  <!-- ── MINHA ASSINATURA ── -->
+  <div id="page-assinatura" class="page">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Minha Assinatura</div>
+        <div class="page-sub">Plano atual, validade e forma de pagamento</div>
+      </div>
+    </div>
+    <div id="assinatura-conteudo"></div>
   </div>
 
   <!-- ── CONFIGURAÇÕES ── -->
@@ -1774,6 +1793,56 @@
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeModal('modal-novo-processo')">Cancelar</button>
       <button class="btn-primary" id="btn-criar-processo" onclick="salvarProcesso()"><i class="ti ti-check"></i> Criar Processo</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-editar-processo" onclick="closeModalOutside(event,'modal-editar-processo')">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Editar dados do processo</span>
+      <span class="modal-close" onclick="closeModal('modal-editar-processo')"><i class="ti ti-x"></i></span>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12px;color:var(--gray-400);margin:-4px 0 14px">Use pra completar informações que o tribunal não retornou (comum em segredo de justiça) ou corrigir dados errados.</p>
+      <div class="form-row">
+        <div class="form-field">
+          <label class="form-label">Classe</label>
+          <input type="text" id="ep-classe" class="form-input" placeholder="Ex: Procedimento Comum Cível">
+        </div>
+        <div class="form-field">
+          <label class="form-label">Tribunal</label>
+          <input type="text" id="ep-tribunal" class="form-input" placeholder="Ex: TJDFT">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label class="form-label">Órgão Julgador</label>
+          <input type="text" id="ep-orgao-julgador" class="form-input" placeholder="Ex: 1ª Vara Cível de Brasília">
+        </div>
+        <div class="form-field">
+          <label class="form-label">Vara</label>
+          <input type="text" id="ep-vara" class="form-input" placeholder="Ex: 1ª Vara Cível">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-field">
+          <label class="form-label">Distribuído em</label>
+          <input type="date" id="ep-data-ajuizamento" class="form-input">
+        </div>
+        <div class="form-field">
+          <label class="form-label">Valor da Causa</label>
+          <input type="text" id="ep-valor" class="form-input" placeholder="R$ 0,00">
+        </div>
+      </div>
+      <div class="form-field">
+        <label class="form-label">Parte Contrária</label>
+        <input type="text" id="ep-parte-contraria" class="form-input" placeholder="Nome da parte contrária">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-editar-processo')">Cancelar</button>
+      <button class="btn-primary" id="btn-salvar-edicao-processo" onclick="salvarEdicaoProcesso()"><i class="ti ti-check"></i> Salvar</button>
     </div>
   </div>
 </div>

@@ -19,6 +19,18 @@
     <priority>0.6</priority>
   </url>
   <url>
+    <loc>https://meuprocesso.app.br/precos</loc>
+    <lastmod>2026-07-29</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://meuprocesso.app.br/termos</loc>
+    <lastmod>2026-07-29</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+  <url>
     <loc>https://meuprocesso.app.br/blog/</loc>
     <lastmod>2026-06-28</lastmod>
     <changefreq>weekly</changefreq>

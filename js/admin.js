@@ -134,6 +134,7 @@ function renderStats() {
   document.getElementById('stat-convites').textContent      = s.convitesPendentes ?? '—';
   document.getElementById('stat-bloqueados').textContent     = s.totalBloqueados ?? '—';
   document.getElementById('stat-sem-confirmar').textContent  = s.totalSemConfirmar ?? '—';
+  document.getElementById('stat-oab-duplicada').textContent  = s.totalOabDuplicada ?? '—';
 }
 
 function setupTabs() {
@@ -387,26 +388,57 @@ function fmtData(iso) {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+const PLANO_LABEL = { trial: 'Teste grátis', mensal: 'Mensal', semestral: 'Semestral', anual: 'Anual', legado: 'Legado' };
+
+function celulaAssinatura(a) {
+  if (!a.plano) return '<span style="color:#9f9f98;font-size:11px;">— sem assinatura —</span>';
+  const dias    = a.dataExpiracao ? Math.ceil((new Date(a.dataExpiracao) - new Date()) / 86400000) : null;
+  const vencida = a.statusAssinatura !== 'ativo' || (dias !== null && dias < 0);
+  const cor     = vencida ? '#c0392b' : (dias !== null && dias <= 5) ? '#d97706' : '#6b8f5e';
+  const diasTxt = dias === null ? '' : vencida ? 'vencida' : dias === 0 ? 'vence hoje' : `${dias}d restantes`;
+  return `<div style="font-size:11px;font-weight:600;">${esc(PLANO_LABEL[a.plano] || a.plano)}</div>
+          <div style="font-size:10px;color:${cor}">${fmtData(a.dataExpiracao)}${diasTxt ? ' · ' + diasTxt : ''}</div>`;
+}
+
+let _filtroOabDuplicada = false;
+
+function toggleFiltroOabDuplicada() {
+  _filtroOabDuplicada = !_filtroOabDuplicada;
+  document.getElementById('btn-filtro-oab-dup').classList.toggle('active', _filtroOabDuplicada);
+  renderAdvogados();
+}
+
 function renderAdvogados() {
-  document.getElementById('adv-total').textContent = `${_adminData.advogados.length} cadastrado(s)`;
-  document.getElementById('adv-tbody').innerHTML = _adminData.advogados.map(a => `
+  const lista = _filtroOabDuplicada
+    ? _adminData.advogados.filter(a => a.oabDuplicado)
+    : _adminData.advogados;
+
+  document.getElementById('adv-total').textContent = _filtroOabDuplicada
+    ? `${lista.length} com OAB duplicada`
+    : `${_adminData.advogados.length} cadastrado(s)`;
+
+  document.getElementById('adv-tbody').innerHTML = lista.map(a => `
     <tr>
       <td>${esc(a.nome)}${a.nivelAdmin ? ' <span class="adm-badge" style="font-size:9px;vertical-align:middle;">' + esc(a.nivelAdmin.toUpperCase()) + '</span>' : ''}</td>
       <td>${esc(a.email)}${a.emailConfirmado ? '' : ' <span class="adm-status-pill adm-status-pendente" style="font-size:9px;">não confirmado</span>'}</td>
-      <td>${esc(a.oab)}</td>
+      <td>${esc(a.oab)}${a.oabDuplicado ? ' <span class="adm-status-pill adm-status-bloqueado" title="Outra conta usa a mesma OAB" style="font-size:9px;"><i class="ti ti-alert-triangle"></i> duplicada</span>' : ''}</td>
       <td>${fmtData(a.criadoEm)}</td>
       <td>${a.ultimoLogin ? fmtData(a.ultimoLogin) : 'Nunca'}</td>
       <td>${a.numProcessos}</td>
       <td>${a.numTarefas}</td>
       <td>${a.numColaboradores}</td>
       <td><span class="adm-status-pill ${a.bloqueado ? 'adm-status-bloqueado' : 'adm-status-ativo'}">${a.bloqueado ? 'Bloqueado' : 'Ativo'}</span></td>
+      <td>${celulaAssinatura(a)}</td>
       <td>
         <button class="adm-btn-small ${a.bloqueado ? 'ok' : 'danger'}" onclick="toggleStatus('${a.id}', ${!a.bloqueado})">
           ${a.bloqueado ? 'Desbloquear' : 'Bloquear'}
         </button>
+        <button class="adm-btn-small" onclick="abrirAssinatura('${a.id}')">
+          Assinatura
+        </button>
       </td>
     </tr>
-  `).join('') || '<tr><td colspan="10" style="text-align:center;color:#9f9f98;">Nenhum advogado cadastrado.</td></tr>';
+  `).join('') || `<tr><td colspan="11" style="text-align:center;color:#9f9f98;">${_filtroOabDuplicada ? 'Nenhuma OAB duplicada encontrada.' : 'Nenhum advogado cadastrado.'}</td></tr>`;
 }
 
 function renderCodigos() {
@@ -449,6 +481,7 @@ function renderSincronizacoes() {
     <div class="sync-stat sync-stat-blue"><span class="sync-stat-val">${s.totalSincronizados ?? 0}</span><span class="sync-stat-lbl">Sincronizados (CNJ)</span></div>
     <div class="sync-stat sync-stat-orange"><span class="sync-stat-val">${s.totalNotificacoes ?? 0}</span><span class="sync-stat-lbl">Notificações pendentes</span></div>
     <div class="sync-stat"><span class="sync-stat-val">${pctSync}%</span><span class="sync-stat-lbl">Taxa de sincronização</span></div>
+    <div class="sync-stat ${(s.totalErrosCronSemana ?? 0) > 0 ? 'sync-stat-orange' : ''}"><span class="sync-stat-val">${s.totalErrosCronSemana ?? 0}</span><span class="sync-stat-lbl">Erros de sincronização (7d)</span></div>
   `;
 
   if (!advs.length) {
@@ -502,6 +535,41 @@ function renderSincronizacoes() {
         </div>
       `;
     }).join('')}
+  `;
+
+  renderSyncErros(_adminData.cronErros || []);
+}
+
+function renderSyncErros(erros) {
+  const wrap = document.getElementById('sync-erros-wrap');
+  if (!wrap) return;
+  if (!erros.length) { wrap.innerHTML = ''; return; }
+
+  wrap.innerHTML = `
+    <h3 style="font-size:14px;font-weight:600;color:#991b1b;margin:0 0 12px;display:flex;align-items:center;gap:6px;">
+      <i class="ti ti-alert-triangle"></i> Log de erros de sincronização — DataJud/DJEN/OAB (14 dias)
+    </h3>
+    <div class="adm-table-wrap">
+      <table class="adm-table">
+        <thead>
+          <tr><th>Data/hora</th><th>Origem</th><th>Mensagem</th><th>Usuário</th></tr>
+        </thead>
+        <tbody>
+          ${erros.slice(0, 30).map(e => {
+            const adv = (_adminData.advogados || []).find(a => a.id === e.user_id);
+            const dt  = e.created_at
+              ? new Date(e.created_at).toLocaleString('pt-BR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
+              : '—';
+            return `<tr>
+              <td style="white-space:nowrap;font-size:12px;">${dt}</td>
+              <td><code style="font-size:11px;background:#fef2f2;color:#991b1b;padding:2px 6px;border-radius:4px;">${esc(e.origem)}</code></td>
+              <td style="font-size:12px;color:#374151;max-width:300px;">${esc(e.mensagem)}</td>
+              <td style="font-size:12px;">${adv ? esc(adv.nome) : (e.user_id ? e.user_id.slice(0,8)+'…' : '—')}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
   `;
 }
 
@@ -595,6 +663,68 @@ async function convidarAdvogado() {
   fecharConvidarAdvogado();
   await init();
   if (r.avisoEmail) alert(r.avisoEmail);
+}
+
+let _assinaturaEscritorioId = null;
+
+function abrirAssinatura(id) {
+  const a = (_adminData.advogados || []).find(x => x.id === id);
+  if (!a) return;
+  _assinaturaEscritorioId = id;
+
+  document.getElementById('assin-quem').textContent = `${a.nome} · ${a.email}`;
+  document.getElementById('assin-plano').value  = a.plano || 'mensal';
+  document.getElementById('assin-status').value = a.statusAssinatura || 'ativo';
+  document.getElementById('assin-expiracao').value = a.dataExpiracao ? a.dataExpiracao.slice(0, 10) : '';
+  document.getElementById('assin-valor').value = a.valorPago ?? '';
+  document.getElementById('assin-forma').value = a.formaPagamento || '';
+  document.getElementById('assin-obs').value   = a.obsAssinatura || '';
+  document.getElementById('assin-erro').style.display = 'none';
+  document.getElementById('modal-assinatura').style.display = 'flex';
+}
+function fecharAssinatura() {
+  document.getElementById('modal-assinatura').style.display = 'none';
+  _assinaturaEscritorioId = null;
+}
+
+async function salvarAssinatura() {
+  if (!_assinaturaEscritorioId) return;
+  const plano          = document.getElementById('assin-plano').value;
+  const status          = document.getElementById('assin-status').value;
+  const dataExpiracao   = document.getElementById('assin-expiracao').value;
+  const valorPagoStr    = document.getElementById('assin-valor').value.trim();
+  const formaPagamento  = document.getElementById('assin-forma').value;
+  const observacoes     = document.getElementById('assin-obs').value.trim();
+  const erroEl = document.getElementById('assin-erro');
+  const btn    = document.getElementById('assin-btn');
+  erroEl.style.display = 'none';
+
+  if (!dataExpiracao) {
+    erroEl.textContent = 'Informe a validade.';
+    erroEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Salvando...';
+  const r = await chamarAdmin('atualizar-assinatura', {
+    escritorioId: _assinaturaEscritorioId,
+    plano, status,
+    dataExpiracao: new Date(dataExpiracao + 'T23:59:59').toISOString(),
+    valorPago: valorPagoStr ? Number(valorPagoStr) : null,
+    formaPagamento: formaPagamento || null,
+    observacoes: observacoes || null,
+  });
+  btn.disabled = false;
+  btn.innerHTML = '<i class="ti ti-check"></i> Salvar';
+
+  if (r.erro) {
+    erroEl.textContent = r.erro;
+    erroEl.style.display = 'block';
+    return;
+  }
+  fecharAssinatura();
+  await init();
 }
 
 async function enviarEmailsAgora() {

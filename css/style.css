@@ -153,6 +153,32 @@ section{padding:96px 6%}
 .nota-item{display:flex;align-items:center;gap:5px;font-size:13px;color:rgba(255,255,255,.45)}
 .nota-check{color:#4ade80}
 
+/* PRICING */
+.pricing{background:var(--g50)}
+.price-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;max-width:1080px;margin:0 auto}
+.price-card{background:var(--white);border:1.5px solid var(--g200);border-radius:16px;padding:36px 28px;display:flex;flex-direction:column;position:relative;transition:all .2s}
+.price-card:hover{transform:translateY(-3px);box-shadow:0 12px 32px rgba(0,0,0,.06)}
+.price-card.destaque{border-color:var(--bluedark);box-shadow:0 8px 32px rgba(29,78,216,.12)}
+.price-badge{position:absolute;top:-13px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:6px 16px;border-radius:99px;white-space:nowrap}
+.price-name{font-size:15px;font-weight:700;color:var(--g900);margin-bottom:4px}
+.price-desc{font-size:13px;color:var(--g500);margin-bottom:20px;min-height:36px}
+.price-value-row{display:flex;align-items:baseline;gap:4px;margin-bottom:2px;flex-wrap:wrap}
+.price-currency{font-size:18px;font-weight:600;color:var(--g900)}
+.price-value{font-family:'TanJambore','Georgia',serif;font-size:44px;color:var(--g900);line-height:1}
+.price-anchor{font-size:16px;color:var(--g400);text-decoration:line-through;margin-right:4px;flex-basis:100%}
+.price-period{font-size:13px;color:var(--g400);margin-top:6px}
+.price-per-day{font-size:12.5px;color:var(--bluedark);font-weight:600;margin:6px 0 24px}
+.price-per-day-save{color:var(--green)}
+.price-features{list-style:none;padding:0;margin:0 0 28px;display:flex;flex-direction:column;gap:10px;flex:1}
+.price-features li{font-size:13.5px;color:var(--g600);display:flex;align-items:flex-start;gap:8px;line-height:1.5}
+.price-cta{display:flex;align-items:center;justify-content:center;gap:8px;background:var(--g100);color:var(--g900);padding:13px 20px;border-radius:10px;font-size:14px;font-weight:700;text-decoration:none;transition:all .18s;border:1.5px solid var(--g200)}
+.price-cta:hover{background:var(--g900);color:#fff;border-color:var(--g900)}
+.price-card.destaque .price-cta{background:linear-gradient(135deg,#0f172a,#1d4ed8);color:#fff;border:none;box-shadow:0 4px 16px rgba(29,78,216,.25)}
+.price-card.destaque .price-cta:hover{transform:translateY(-1px);box-shadow:0 8px 24px rgba(29,78,216,.35)}
+.price-nudge{font-size:11.5px;color:var(--g500);margin-top:14px;line-height:1.5;background:var(--g50);border-radius:8px;padding:8px 10px}
+.price-nudge strong{color:var(--g900)}
+.pricing-notes{display:flex;align-items:center;justify-content:center;gap:24px;flex-wrap:wrap;margin-top:40px}
+
 /* FAQ */
 .faq{background:var(--white)}
 .faq-header{text-align:center;margin-bottom:52px}

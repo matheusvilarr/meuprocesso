@@ -30,6 +30,38 @@ document.getElementById('reg-codigo').addEventListener('input', function () {
   _codigoTimer = setTimeout(() => validarCodigo(codigo), 600);
 });
 
+// Impede que a mesma OAB (mesmo advogado) crie várias contas pra ganhar
+// vários trials — checa contra as contas já cadastradas.
+let _oabDuplicada   = false;
+let _oabUltimaCheck = '';
+let _oabTimer       = null;
+
+document.getElementById('reg-oab-uf').addEventListener('change', agendarCheckOab);
+document.getElementById('reg-oab-num').addEventListener('input', agendarCheckOab);
+
+function agendarCheckOab() {
+  clearTimeout(_oabTimer);
+  const uf  = document.getElementById('reg-oab-uf').value;
+  const num = document.getElementById('reg-oab-num').value.trim();
+  if (!uf || num.length < 3) return;
+  _oabTimer = setTimeout(() => checarOab(`${uf} ${num}`), 600);
+}
+
+async function checarOab(oab) {
+  try {
+    const r = await fetch('/api/verificar-oab?oab=' + encodeURIComponent(oab));
+    const { existe } = await r.json();
+    _oabDuplicada   = !!existe;
+    _oabUltimaCheck = oab;
+    const err = document.getElementById('oabError');
+    if (_oabDuplicada) {
+      mostrarErro('oabError', 'Esse número de OAB já tem uma conta cadastrada. Já tem conta? Faça login.');
+    } else {
+      err.classList.remove('show');
+    }
+  } catch (_) {}
+}
+
 async function validarCodigo(codigo) {
   try {
     const r = await fetch('/api/codigo-acesso?acao=validar', {
@@ -103,6 +135,19 @@ document.getElementById('registroForm').addEventListener('submit', async functio
   }
 
   if (!ok) return;
+
+  // Recheca a OAB se o campo mudou desde a última verificação (evita
+  // criar conta com OAB já cadastrada mesmo se o usuário digitar rápido).
+  if (oab && oab !== _oabUltimaCheck) {
+    btn.classList.add('loading');
+    btn.textContent = 'Verificando OAB...';
+    await checarOab(oab);
+  }
+  if (_oabDuplicada) {
+    btn.classList.remove('loading');
+    btn.textContent = 'Criar conta';
+    return;
+  }
 
   btn.classList.add('loading');
   btn.textContent = 'Criando conta...';

@@ -155,7 +155,7 @@ async function chamarDatajud(index, body, key) {
           'Authorization': `ApiKey ${key}`,
           'Content-Type':  'application/json'
         },
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(28000),
         body: JSON.stringify(body)
       }
     );
@@ -189,6 +189,7 @@ function normalizarProcesso(p, index) {
     orgaoJulgador:   p.orgaoJulgador?.nome || null,
     dataAjuizamento: parsarData(p.dataAjuizamento),
     grau:            p.grau                || null,
+    nivelSigilo:     p.nivelSigilo ?? null,
     partes:          (p.partes || []).map(parte => ({
       nome:  parte.nome,
       tipo:  parte.tipoParte?.descricao || parte.tipoParte?.nome || parte.tipo || '',

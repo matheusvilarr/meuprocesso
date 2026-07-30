@@ -3,3 +3,8 @@
 node_modules
 .vercel
 .DS_Store
+
+# Página de preços/pagamento — ainda não liberada em produção, só local
+precos.completo.local.html
+js/precos.completo.local.js
+js/precos.js

@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Assinatura — Meu Processo</title>
+<link rel="icon" type="image/png" href="img/images/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/login.css">
+<style>
+  .venc-card { text-align: center; padding: 48px 40px; }
+  .venc-icon { font-size: 48px; margin-bottom: 16px; }
+  .venc-title { font-size: 22px; font-weight: 700; color: #1a2e6b; margin-bottom: 10px; }
+  .venc-sub { font-size: 14px; color: #6b7280; line-height: 1.7; margin-bottom: 28px; }
+  .venc-email { background: #f3f4f6; border-radius: 8px; padding: 10px 16px; font-size: 13px; color: #374151; margin-bottom: 28px; font-weight: 500; }
+  .btn-planos { display: inline-flex; align-items: center; gap: 8px; background: linear-gradient(135deg,#0f172a 0%,#1e3a5f 55%,#1d4ed8 100%); color: #fff; padding: 13px 32px; border-radius: 9px; font-size: 15px; font-weight: 700; text-decoration: none; font-family: 'Inter', sans-serif; margin-bottom: 16px; }
+  .btn-sair { display: block; margin: 0 auto; background: none; border: 1.5px solid #e5e7eb; border-radius: 8px; padding: 10px 28px; font-family: 'Inter', sans-serif; font-size: 14px; color: #6b7280; cursor: pointer; transition: border-color .15s, color .15s; }
+  .btn-sair:hover { border-color: #1a2e6b; color: #1a2e6b; }
+</style>
+</head>
+<body>
+<div class="page">
+  <div class="card">
+    <div class="card-top">
+      <a href="/" class="logo">
+        <img src="img/images/logo.png" alt="Meu Processo">
+      </a>
+    </div>
+
+    <div class="card-body venc-card">
+      <div class="venc-icon" id="venc-icon">⏰</div>
+      <div class="venc-title" id="venc-title">Seu período de teste acabou</div>
+      <p class="venc-sub" id="venc-sub">
+        Esperamos que você tenha gostado do Meu Processo! Pra continuar usando, escolha um dos nossos planos — sem cobrança automática, você paga só o período que quiser.
+      </p>
+      <div class="venc-email" id="venc-email">—</div>
+      <a href="/precos" class="btn-planos">Ver planos e preços <span>→</span></a>
+      <button class="btn-sair" onclick="sair()">Sair</button>
+    </div>
+  </div>
+  <p class="footer-copy">© 2026 · Meu Processo</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="js/supabase-client.js"></script>
+<script>
+(async () => {
+  const { data: { session } } = await _supabase.auth.getSession();
+  if (!session) { window.location.href = '/login'; return; }
+
+  document.getElementById('venc-email').textContent = session.user.email || '';
+
+  const { data: assinatura } = await _supabase
+    .from('assinaturas')
+    .select('plano, status, data_expiracao')
+    .eq('escritorio_id', session.user.id)
+    .maybeSingle();
+
+  // Se por algum motivo a assinatura já foi renovada (admin editou, etc.),
+  // não trava o usuário aqui — manda de volta pro dashboard.
+  const valida = assinatura && assinatura.status === 'ativo' && new Date(assinatura.data_expiracao) > new Date();
+  if (valida) { window.location.href = '/dashboard'; return; }
+
+  if (assinatura && assinatura.plano !== 'trial') {
+    document.getElementById('venc-icon').textContent  = '🔒';
+    document.getElementById('venc-title').textContent = 'Seu plano venceu';
+    document.getElementById('venc-sub').textContent    = 'Seu acesso ao Meu Processo expirou. Escolha um plano pra continuar de onde parou — sem cobrança automática, você paga só o período que quiser.';
+  }
+})();
+
+async function sair() {
+  await _supabase.auth.signOut();
+  window.location.href = '/login';
+}
+</script>
+</body>
+</html>

@@ -41,6 +41,8 @@ async function acaoDados(req, res, admin, adminUser) {
     { data: colaboradoresRows },
     { data: adminsRows },
     { data: codigos },
+    { data: assinaturasRows },
+    { data: cronErros },
   ] = await Promise.all([
     admin.from('processos').select('user_id, datajud_index, ultima_verificacao, notificacao_pendente').neq('status', 'Arquivado'),
     admin.from('tarefas').select('user_id').neq('coluna', 'concluida'),
@@ -49,6 +51,15 @@ async function acaoDados(req, res, admin, adminUser) {
     admin.from('codigos_acesso')
       .select('id, codigo, descricao, ativo, usos_max, usos_atual, email_convidado, enviado_em, usado_em, created_at')
       .order('created_at', { ascending: false }),
+    admin.from('assinaturas').select('escritorio_id, plano, status, data_expiracao, valor_pago, forma_pagamento, observacoes'),
+    // Erros de sincronização (DataJud/DJEN/OAB scan) — cron:email tem tela própria na aba E-mails
+    admin.from('error_log')
+      .select('id, origem, mensagem, user_id, created_at')
+      .ilike('origem', 'cron:%')
+      .not('origem', 'ilike', 'cron:email%')
+      .gte('created_at', new Date(Date.now() - 14 * 86400000).toISOString())
+      .order('created_at', { ascending: false })
+      .limit(100),
   ]);
 
   const contagemProcessos = {};
@@ -75,39 +86,64 @@ async function acaoDados(req, res, admin, adminUser) {
   const adminMap = {};
   for (const a of adminsRows || []) adminMap[a.user_id] = a.nivel;
 
+  const assinaturaMap = {};
+  for (const s of assinaturasRows || []) assinaturaMap[s.escritorio_id] = s;
+
+  // Conta quantas contas usam cada OAB (normalizada) — pra sinalizar
+  // duplicidade no painel (advogado tentando ter vários trials).
+  const normalizarOab = oab => String(oab || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const contagemOab = {};
+  for (const u of users) {
+    const oabNorm = normalizarOab(u.user_metadata?.oab);
+    if (oabNorm) contagemOab[oabNorm] = (contagemOab[oabNorm] || 0) + 1;
+  }
+
   const advogados = users
-    .map(u => ({
-      id:             u.id,
-      nome:           u.user_metadata?.full_name || u.user_metadata?.nome || '—',
-      email:          u.email,
-      oab:            u.user_metadata?.oab || '—',
-      criadoEm:       u.created_at,
-      ultimoLogin:    u.last_sign_in_at || null,
-      emailConfirmado: !!u.email_confirmed_at,
-      bloqueado:      !!(u.banned_until && new Date(u.banned_until) > new Date()),
-      numProcessos:     contagemProcessos[u.id] || 0,
-      numSincronizados: syncStats[u.id]?.sincronizados || 0,
-      numNotificacoes:  syncStats[u.id]?.comNotificacao || 0,
-      ultimaSync:       syncStats[u.id]?.ultimaSync || null,
-      numTarefas:       contagemTarefas[u.id] || 0,
-      numColaboradores: colaboradoresPorTitular[u.id] || 0,
-      nivelAdmin:       adminMap[u.id] || null,
-    }))
+    .map(u => {
+      const oabNorm = normalizarOab(u.user_metadata?.oab);
+      return {
+        id:             u.id,
+        nome:           u.user_metadata?.full_name || u.user_metadata?.nome || '—',
+        email:          u.email,
+        oab:            u.user_metadata?.oab || '—',
+        oabDuplicado:   oabNorm ? contagemOab[oabNorm] > 1 : false,
+        criadoEm:       u.created_at,
+        ultimoLogin:    u.last_sign_in_at || null,
+        emailConfirmado: !!u.email_confirmed_at,
+        bloqueado:      !!(u.banned_until && new Date(u.banned_until) > new Date()),
+        numProcessos:     contagemProcessos[u.id] || 0,
+        numSincronizados: syncStats[u.id]?.sincronizados || 0,
+        numNotificacoes:  syncStats[u.id]?.comNotificacao || 0,
+        ultimaSync:       syncStats[u.id]?.ultimaSync || null,
+        numTarefas:       contagemTarefas[u.id] || 0,
+        numColaboradores: colaboradoresPorTitular[u.id] || 0,
+        nivelAdmin:       adminMap[u.id] || null,
+        plano:            assinaturaMap[u.id]?.plano || null,
+        statusAssinatura: assinaturaMap[u.id]?.status || null,
+        dataExpiracao:    assinaturaMap[u.id]?.data_expiracao || null,
+        valorPago:        assinaturaMap[u.id]?.valor_pago ?? null,
+        formaPagamento:   assinaturaMap[u.id]?.forma_pagamento || null,
+        obsAssinatura:    assinaturaMap[u.id]?.observacoes || null,
+      };
+    })
     .sort((a, b) => new Date(b.criadoEm) - new Date(a.criadoEm));
 
   const totalSincronizados = (processosRows || []).filter(p => p.datajud_index).length;
   const totalNotificacoes  = (processosRows || []).filter(p => p.notificacao_pendente).length;
+  const semAntes7d = new Date(Date.now() - 7 * 86400000).toISOString();
   const stats = {
     totalAdvogados:     advogados.length,
     totalBloqueados:    advogados.filter(a => a.bloqueado).length,
     totalSemConfirmar:  advogados.filter(a => !a.emailConfirmado).length,
+    totalOabDuplicada:  advogados.filter(a => a.oabDuplicado).length,
     totalProcessos:     processosRows?.length || 0,
     totalSincronizados,
     totalNotificacoes,
+    totalErrosCronSemana: (cronErros || []).filter(e => e.created_at >= semAntes7d).length,
     convitesPendentes:  (codigos || []).filter(c => c.email_convidado && !c.usado_em).length,
   };
 
-  return res.json({ ok: true, advogados, codigos: codigos || [], stats, meuNivel: adminUser.nivel });
+  return res.json({ ok: true, advogados, codigos: codigos || [], stats, cronErros: cronErros || [], meuNivel: adminUser.nivel });
 }
 
 async function acaoGerarCodigo(req, res, admin, adminUser) {
@@ -152,6 +188,31 @@ async function acaoGerenciarAdmin(req, res, admin, adminUser) {
     return res.status(400).json({ erro: 'tipo inválido.' });
   }
 
+  return res.json({ ok: true });
+}
+
+const PLANOS_VALIDOS  = ['trial', 'mensal', 'semestral', 'anual', 'legado'];
+const STATUS_VALIDOS  = ['ativo', 'vencido', 'cancelado'];
+
+async function acaoAtualizarAssinatura(req, res, admin, adminUser) {
+  const { escritorioId, plano, status, dataExpiracao, valorPago, formaPagamento, observacoes } = req.body || {};
+  if (!escritorioId) return res.status(400).json({ erro: 'escritorioId é obrigatório.' });
+  if (plano && !PLANOS_VALIDOS.includes(plano)) return res.status(400).json({ erro: 'plano inválido.' });
+  if (status && !STATUS_VALIDOS.includes(status)) return res.status(400).json({ erro: 'status inválido.' });
+  if (!dataExpiracao) return res.status(400).json({ erro: 'dataExpiracao é obrigatória.' });
+
+  const { error } = await admin.from('assinaturas').upsert({
+    escritorio_id:   escritorioId,
+    plano:            plano || 'mensal',
+    status:            status || 'ativo',
+    data_expiracao:    dataExpiracao,
+    valor_pago:        valorPago ?? null,
+    forma_pagamento:   formaPagamento || null,
+    observacoes:       observacoes || null,
+    atualizado_por:    adminUser.user.id,
+  }, { onConflict: 'escritorio_id' });
+
+  if (error) return res.status(500).json({ erro: error.message });
   return res.json({ ok: true });
 }
 
@@ -591,6 +652,7 @@ export default async function handler(req, res) {
   if (acao === 'emails' || req.query?.acao === 'emails') return acaoEmails(req, res, admin);
   if (acao === 'aprovar-usuario')       return acaoAprovarUsuario(req, res, admin);
   if (acao === 'rejeitar-usuario')      return acaoRejeitarUsuario(req, res, admin);
+  if (acao === 'atualizar-assinatura')  return acaoAtualizarAssinatura(req, res, admin, adminUser);
 
   return res.status(400).json({ erro: 'acao inválida.' });
 }
