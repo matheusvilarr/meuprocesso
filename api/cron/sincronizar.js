@@ -225,10 +225,16 @@ async function _djenUsuario(uid, processos, oabsPorUsuario, numeroSet, admin, ho
 
   let atualizados = 0;
   try {
+    // Cada OAB é isolada: uma falha não pode derrubar o Promise.all e cancelar
+    // a checagem das outras OABs do mesmo usuário. Mas antes engolia o erro sem
+    // registrar nada — ficava invisível até no error_log. Agora loga e segue.
     const reqs = oabs.map(oab =>
-      fetch(`${DJEN_API}?${new URLSearchParams({ numeroOab: oab.num, ufOab: oab.uf, dataDisponibilizacaoInicio: ontem, dataDisponibilizacaoFim: hoje, pagina: 1, tamanhoPagina: 100 })}`, { signal: AbortSignal.timeout(15000) })
-        .then(r => r.ok ? r.json() : { items: [] })
-        .catch(() => ({ items: [] }))
+      fetch(`${DJEN_API}?${new URLSearchParams({ numeroOab: oab.num, ufOab: oab.uf, dataDisponibilizacaoInicio: ontem, dataDisponibilizacaoFim: hoje, pagina: 1, tamanhoPagina: 100 })}`, { signal: AbortSignal.timeout(20000) })
+        .then(r => r.ok ? r.json() : Promise.reject(new Error(`DJEN respondeu ${r.status}`)))
+        .catch(async e => {
+          await logErro(admin, 'cron:djen', e.message, { oab: `${oab.uf}${oab.num}` }, uid);
+          return { items: [] };
+        })
     );
     const items = (await Promise.all(reqs)).flatMap(r => r.items || []);
 
