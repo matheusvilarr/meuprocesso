@@ -502,7 +502,7 @@ async function _buscarDatajud(index, numero) {
     const r = await fetch(`https://api-publica.datajud.cnj.jus.br/${index}/_search`, {
       method: 'POST',
       headers: { 'Authorization': `ApiKey ${key}`, 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(28000),
       body: JSON.stringify({ size: 1, query: { match: { numeroProcesso: numeroLimpo } } }),
     });
     if (!r.ok) return null;
@@ -532,7 +532,10 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
   let atualizados = 0, semMudanca = 0, naoEncontrado = 0, erros = 0, parou = false;
 
   for (let i = 0; i < processos.length; i += 10) {
-    if (Date.now() - startAt > 75000) { parou = true; break; }
+    // 90s (não 75s) — o timeout por chamada subiu de 15s pra 28s, então um lote em
+    // andamento pode demorar mais; maxDuration deste endpoint subiu junto (vercel.json)
+    // pra sobrar espaço pro disparo de e-mail depois do loop.
+    if (Date.now() - startAt > 90000) { parou = true; break; }
 
     const lote = processos.slice(i, i + 10);
     await Promise.all(lote.map(async proc => {
