@@ -211,12 +211,21 @@ async function sincronizarDJEN(processos, oabsPorUsuario, admin, hoje) {
   // Inclui todos com OAB, mesmo sem processos — auto-import cria os processos faltantes
   const userIds   = [...new Set([...processos.map(p => p.user_id), ...Object.keys(oabsPorUsuario)])];
 
-  // Todos os usuários em paralelo — elimina gargalo sequencial
-  const resultados = await Promise.allSettled(
-    userIds.map(uid => _djenUsuario(uid, processos, oabsPorUsuario, numeroSet, admin, hoje, ontem))
-  );
+  // Descoberto ao vivo: disparar todos os usuários (e todas as OABs de cada um)
+  // de uma vez batia rajada demais no comunicaapi.pje.jus.br e a API bloqueava
+  // TUDO com 403 — 6 OABs diferentes, tribunais diferentes, falharam no mesmo
+  // milissegundo. Lotes pequenos com respiro entre eles evitam a rajada.
+  let atualizados = 0;
+  for (let i = 0; i < userIds.length; i += 4) {
+    const lote = userIds.slice(i, i + 4);
+    const resultados = await Promise.allSettled(
+      lote.map(uid => _djenUsuario(uid, processos, oabsPorUsuario, numeroSet, admin, hoje, ontem))
+    );
+    atualizados += resultados.reduce((acc, r) => acc + (r.status === 'fulfilled' ? r.value : 0), 0);
+    if (i + 4 < userIds.length) await new Promise(r => setTimeout(r, 400));
+  }
 
-  return resultados.reduce((acc, r) => acc + (r.status === 'fulfilled' ? r.value : 0), 0);
+  return atualizados;
 }
 
 async function _djenUsuario(uid, processos, oabsPorUsuario, numeroSet, admin, hoje, ontem) {
