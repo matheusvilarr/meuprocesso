@@ -1,10 +1,9 @@
 // Sincronização de processos e OAB scan.
-// ?tipo=datajud (padrão) — atualiza movimentos de todos os processos no DataJud + DJEN
+// ?tipo=datajud (padrão) — atualiza movimentos de todos os processos no DataJud
 // ?tipo=oab     — varre todos os tribunais pela OAB do advogado buscando processos novos
 //
 // DataJud: filtro de 20h (browser cobre usuários ativos). Time guard 45s.
-// DJEN: roda em TODOS os processos ativos a cada execução, sem filtro de inatividade.
-//       Usa OABs do titular + todos os colaboradores ativos do escritório.
+// DJEN: migrado pro cron dedicado api/cron/djen-cadernos.js (ver esse arquivo).
 
 import { createClient } from '@supabase/supabase-js';
 
@@ -13,7 +12,6 @@ const SUPA_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const DATAJUD_KEY      = process.env.DATAJUD_API_KEY
   || 'cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==';
 const CRON_SECRET      = process.env.CRON_SECRET;
-const DJEN_API         = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
 
 const ESTADOS_SIGLAS = ['ac','al','ap','am','ba','ce','df','es','go','ma','mt','ms','mg','pa','pb','pr','pe','pi','rj','rn','rs','ro','rr','sc','se','sp','to'];
 const TODOS_TRIBUNAIS = [
@@ -86,30 +84,14 @@ async function rodarDatajud(admin, res, hoje) {
 
   if (error) return res.status(500).json({ erro: error.message });
 
-  // OABs buscadas antes — uma chamada listUsers no lugar de N getUserById sequenciais
-  const { data: todosProcessos } = await admin
-    .from('processos')
-    .select('id, user_id, numero, movimentos_recentes, created_at')
-    .not('numero', 'is', null)
-    .neq('status', 'Arquivado');
-
-  const djenUserIds    = [...new Set((todosProcessos || []).map(p => p.user_id))];
-  const oabsPorUsuario = await buscarOabsUsuarios(admin, djenUserIds);
-
-  // DataJud primeiro, DJEN depois com dados frescos — evita race condition
   const atualizadosDatajud = await sincronizarDatajud(processos, admin, hoje, startAt);
 
-  // Re-carrega movimentos_recentes depois que DataJud atualizou
-  const { data: todosProcessosFresh } = await admin
-    .from('processos')
-    .select('id, user_id, numero, movimentos_recentes, created_at')
-    .not('numero', 'is', null)
-    .neq('status', 'Arquivado');
-
-  const atualizadosDJEN = await sincronizarDJEN(todosProcessosFresh || [], oabsPorUsuario, admin, hoje);
+  // DJEN: migrado pro cron dedicado api/cron/djen-cadernos.js (baixa o caderno
+  // diário por tribunal em vez de 1 requisição por OAB por usuário — evitava o
+  // limite de 20 req/min por IP da API do DJEN, que aqui só gerava 403 à toa).
 
   // Dispara email imediato se houve movimentos novos — não bloqueia o response em caso de erro
-  if (atualizadosDatajud > 0 || atualizadosDJEN > 0) {
+  if (atualizadosDatajud > 0) {
     try {
       await fetch('https://meuprocesso.app.br/api/cron/verificar-atualizacoes?tipo=instant', {
         headers: { 'Authorization': `Bearer ${CRON_SECRET || ''}` },
@@ -122,10 +104,8 @@ async function rodarDatajud(admin, res, hoje) {
     ok: true, tipo: 'datajud', hoje,
     reparados,
     processosNaFila: processos?.length || 0,
-    todosParaDJEN: todosProcessos?.length || 0,
     datajud: atualizadosDatajud,
-    djen: atualizadosDJEN,
-    emailInstant: atualizadosDatajud > 0 || atualizadosDJEN > 0,
+    emailInstant: atualizadosDatajud > 0,
     elapsed: Math.round((Date.now() - startAt) / 1000) + 's',
   });
 }
@@ -204,84 +184,6 @@ async function sincronizarDatajudUm(proc, admin, hoje) {
 }
 
 // ── DJEN ─────────────────────────────────────────────────────────────────────
-
-async function sincronizarDJEN(processos, oabsPorUsuario, admin, hoje) {
-  const ontem     = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-  const numeroSet = new Set(processos.map(p => p.numero).filter(Boolean));
-  // Inclui todos com OAB, mesmo sem processos — auto-import cria os processos faltantes
-  const userIds   = [...new Set([...processos.map(p => p.user_id), ...Object.keys(oabsPorUsuario)])];
-
-  // Descoberto ao vivo: disparar todos os usuários (e todas as OABs de cada um)
-  // de uma vez batia rajada demais no comunicaapi.pje.jus.br e a API bloqueava
-  // TUDO com 403 — 6 OABs diferentes, tribunais diferentes, falharam no mesmo
-  // milissegundo. Lotes pequenos com respiro entre eles evitam a rajada.
-  let atualizados = 0;
-  for (let i = 0; i < userIds.length; i += 4) {
-    const lote = userIds.slice(i, i + 4);
-    const resultados = await Promise.allSettled(
-      lote.map(uid => _djenUsuario(uid, processos, oabsPorUsuario, numeroSet, admin, hoje, ontem))
-    );
-    atualizados += resultados.reduce((acc, r) => acc + (r.status === 'fulfilled' ? r.value : 0), 0);
-    if (i + 4 < userIds.length) await new Promise(r => setTimeout(r, 400));
-  }
-
-  return atualizados;
-}
-
-async function _djenUsuario(uid, processos, oabsPorUsuario, numeroSet, admin, hoje, ontem) {
-  const oabs = oabsPorUsuario[uid];
-  if (!oabs?.length) return 0;
-
-  let atualizados = 0;
-  try {
-    // Cada OAB é isolada: uma falha não pode derrubar o Promise.all e cancelar
-    // a checagem das outras OABs do mesmo usuário. Mas antes engolia o erro sem
-    // registrar nada — ficava invisível até no error_log. Agora loga e segue.
-    const reqs = oabs.map(oab =>
-      fetch(`${DJEN_API}?${new URLSearchParams({ numeroOab: oab.num, ufOab: oab.uf, dataDisponibilizacaoInicio: ontem, dataDisponibilizacaoFim: hoje, pagina: 1, tamanhoPagina: 100 })}`, { signal: AbortSignal.timeout(20000) })
-        .then(r => r.ok ? r.json() : Promise.reject(new Error(`DJEN respondeu ${r.status}`)))
-        .catch(async e => {
-          await logErro(admin, 'cron:djen', e.message, { oab: `${oab.uf}${oab.num}` }, uid);
-          return { items: [] };
-        })
-    );
-    const items = (await Promise.all(reqs)).flatMap(r => r.items || []);
-
-    for (const item of items) {
-      const dataPub = item.data_disponibilizacao || hoje;
-      if (dataPub < ontem) continue;
-
-      const movDJEN = { nome: `DJEN — ${item.tipoComunicacao || 'Publicação'}`, data: dataPub };
-      const PADRAO  = /\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/g;
-
-      // Número principal da publicação: auto-importar se ainda não cadastrado
-      const numPrincipal = item.numeroprocessocommascara;
-      if (numPrincipal) {
-        const proc = processos.find(p => p.numero === numPrincipal && p.user_id === uid);
-        if (!proc) {
-          const importado = await _djenAutoImportar(numPrincipal, uid, movDJEN, admin);
-          if (importado) atualizados++;
-        } else if ((proc.created_at || '').slice(0, 10) !== hoje) {
-          const ok = await _djenAtualizarProcesso(proc.id, movDJEN, admin);
-          if (ok) atualizados++;
-        }
-      }
-
-      // Números citados no texto: só atualizar processos já cadastrados (evita falsos positivos)
-      const numsTexto = [...new Set((item.texto || '').match(PADRAO) || [])]
-        .filter(n => n !== numPrincipal && numeroSet.has(n));
-      for (const num of numsTexto) {
-        const proc = processos.find(p => p.numero === num && p.user_id === uid);
-        if (!proc || (proc.created_at || '').slice(0, 10) === hoje) continue;
-        const ok = await _djenAtualizarProcesso(proc.id, movDJEN, admin);
-        if (ok) atualizados++;
-      }
-    }
-  } catch (e) {
-    await logErro(admin, 'cron:djen', e.message, { oabs }, uid);
-  }
-  return atualizados;
-}
 
 export async function _djenAtualizarProcesso(processoId, movDJEN, admin) {
   const { data: procFresh } = await admin.from('processos')
