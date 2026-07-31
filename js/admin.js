@@ -45,14 +45,14 @@ async function init() {
 
 const CRON_DEFS = [
   // dias úteis
-  { name: 'Sincronizar DataJud+DJEN', utcH: 8,  utcM: 0,  days: [1,2,3,4,5], icon: 'ti-refresh',   color: '#3b82f6', label: '5h BRT · seg–sex' },
+  { name: 'Sincronizar DataJud', utcH: 8,  utcM: 0,  days: [1,2,3,4,5], icon: 'ti-refresh',   color: '#3b82f6', label: '5h BRT · seg–sex' },
   { name: 'E-mail Morning',           utcH: 11, utcM: 0,  days: [1,2,3,4,5], icon: 'ti-sun',        color: '#f59e0b', label: '8h BRT · seg–sex' },
-  { name: 'Sincronizar DataJud+DJEN', utcH: 15, utcM: 0,  days: [1,2,3,4,5], icon: 'ti-refresh',   color: '#3b82f6', label: '12h BRT · seg–sex' },
+  { name: 'Sincronizar DataJud', utcH: 15, utcM: 0,  days: [1,2,3,4,5], icon: 'ti-refresh',   color: '#3b82f6', label: '12h BRT · seg–sex' },
   { name: 'E-mail Tarde',             utcH: 16, utcM: 0,  days: [1,2,3,4,5], icon: 'ti-mail',       color: '#f97316', label: '13h BRT · seg–sex' },
   { name: 'E-mail Noite',             utcH: 20, utcM: 0,  days: [1,2,3,4,5], icon: 'ti-moon',       color: '#8b5cf6', label: '17h BRT · seg–sex' },
   { name: 'OAB Scan',                 utcH: 21, utcM: 30, days: [1,2,3,4,5], icon: 'ti-id-badge-2', color: '#10b981', label: '18h30 BRT · seg–sex' },
   // fins de semana
-  { name: 'Sincronizar DataJud+DJEN', utcH: 11, utcM: 0,  days: [0,6],       icon: 'ti-refresh',   color: '#3b82f6', label: '8h BRT · fim de semana' },
+  { name: 'Sincronizar DataJud', utcH: 11, utcM: 0,  days: [0,6],       icon: 'ti-refresh',   color: '#3b82f6', label: '8h BRT · fim de semana' },
   { name: 'E-mail Morning',           utcH: 11, utcM: 30, days: [0,6],       icon: 'ti-sun',        color: '#f59e0b', label: '8h30 BRT · fim de semana' },
   { name: 'OAB Scan',                 utcH: 21, utcM: 0,  days: [0,6],       icon: 'ti-id-badge-2', color: '#10b981', label: '18h BRT · fim de semana' },
 ];
@@ -755,32 +755,6 @@ async function enviarEmailsAgora() {
   await carregarEmails();
 }
 
-async function rodarDjenScan() {
-  const btn    = document.getElementById('btn-djen-scan');
-  const result = document.getElementById('sync-resultado');
-
-  btn.disabled = true;
-  btn.innerHTML = '<i class="ti ti-loader"></i> Rodando…';
-  result.style.display = 'none';
-
-  const r = await chamarAdmin('rodar-djen-scan', {});
-
-  btn.disabled = false;
-  btn.innerHTML = '<i class="ti ti-scan"></i> DJEN + OAB scan agora';
-
-  if (r.erro) {
-    result.style.cssText = 'display:block;padding:12px 16px;border-radius:8px;font-size:13px;background:#fef2f2;color:#991b1b;border:1px solid #fca5a5;margin-bottom:16px;';
-    result.textContent = 'Erro: ' + r.erro;
-    return;
-  }
-
-  const res = r.resultado || {};
-  result.style.cssText = 'display:block;padding:12px 16px;border-radius:8px;font-size:13px;background:#f0fdf4;color:#166534;border:1px solid #86efac;margin-bottom:16px;';
-  result.innerHTML = `DJEN+DataJud concluído · DJEN: <strong>${res.djen ?? '—'}</strong> atualizados · DataJud: <strong>${res.datajud ?? '—'}</strong> · ${res.elapsed ?? ''}`;
-
-  await recarregarSyncStats();
-}
-
 async function sincronizarTodos(userId) {
   const btn    = document.getElementById('btn-sincronizar');
   const result = document.getElementById('sync-resultado');
@@ -793,7 +767,7 @@ async function sincronizarTodos(userId) {
   const r = await chamarAdmin('sincronizar-processos', body);
 
   btn.disabled = false;
-  btn.innerHTML = '<i class="ti ti-refresh"></i> Sincronizar todos agora';
+  btn.innerHTML = '<i class="ti ti-refresh"></i> DataJud agora';
 
   if (r.erro) {
     result.style.cssText = 'display:block;padding:12px 16px;border-radius:8px;font-size:13px;background:#fef2f2;color:#991b1b;border:1px solid #fca5a5;margin-bottom:16px;';

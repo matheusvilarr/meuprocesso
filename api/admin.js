@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
-import sincronizarHandler, { repararDatajudIndex } from './cron/sincronizar.js';
+import { repararDatajudIndex } from './cron/sincronizar.js';
 import emailHandler from './cron/verificar-atualizacoes.js';
 import djenCadernosHandler from './cron/djen-cadernos.js';
 
@@ -645,25 +645,6 @@ async function acaoRodarEmails(req, res) {
   }
 }
 
-async function acaoRodarDjenScan(req, res) {
-  const cronSecret = process.env.CRON_SECRET;
-  const fakeReq = {
-    headers: { authorization: cronSecret ? `Bearer ${cronSecret}` : '' },
-    query: {},
-  };
-  let resultado = null;
-  const fakeRes = {
-    status(code) { this._code = code; return this; },
-    json(data)   { resultado = data; return this; },
-  };
-  try {
-    await sincronizarHandler(fakeReq, fakeRes);
-    return res.json({ ok: true, resultado });
-  } catch (e) {
-    return res.status(500).json({ erro: e.message });
-  }
-}
-
 export default async function handler(req, res) {
   const admin = getAdminClient();
   const adminUser = await requireAdmin(req, admin);
@@ -685,10 +666,8 @@ export default async function handler(req, res) {
   if (acao === 'convidar-advogado')     return acaoConvidarAdvogado(req, res, admin, adminUser);
   if (acao === 'reenviar-convite')      return acaoReenviarConvite(req, res, admin);
   if (acao === 'sincronizar-processos') return acaoSincronizarProcessos(req, res, admin, adminUser);
-  if (acao === 'rodar-djen-scan')       return acaoRodarDjenScan(req, res);
   if (acao === 'rodar-djen-cadernos')   return acaoRodarDjenCadernos(req, res);
   if (acao === 'rodar-emails')          return acaoRodarEmails(req, res);
-  if (acao === 'emails' || req.query?.acao === 'emails') return acaoEmails(req, res, admin);
   if (acao === 'aprovar-usuario')       return acaoAprovarUsuario(req, res, admin);
   if (acao === 'rejeitar-usuario')      return acaoRejeitarUsuario(req, res, admin);
   if (acao === 'atualizar-assinatura')  return acaoAtualizarAssinatura(req, res, admin, adminUser);
