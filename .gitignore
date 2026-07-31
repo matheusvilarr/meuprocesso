@@ -8,3 +8,4 @@ node_modules
 precos.completo.local.html
 js/precos.completo.local.js
 js/precos.js
+.env*

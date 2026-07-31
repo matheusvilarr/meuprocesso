@@ -75,6 +75,7 @@
         <button class="adm-tab active" data-tab="advogados"><i class="ti ti-users"></i> Advogados</button>
         <button class="adm-tab" data-tab="pendentes"><i class="ti ti-clock-pause"></i> Pendentes <span class="adm-badge-tab" id="badge-pendentes" style="display:none;background:#ef4444;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px;margin-left:4px;"></span></button>
         <button class="adm-tab" data-tab="sincronizacoes"><i class="ti ti-refresh"></i> Sincronizações</button>
+        <button class="adm-tab" data-tab="djen-cadernos"><i class="ti ti-file-stack"></i> Cadernos DJEN</button>
         <button class="adm-tab" data-tab="emails"><i class="ti ti-mail"></i> E-mails</button>
         <button class="adm-tab" data-tab="codigos"><i class="ti ti-ticket"></i> Códigos de convite</button>
         <button class="adm-tab" data-tab="admins"><i class="ti ti-shield-lock"></i> Administradores</button>
@@ -159,6 +160,24 @@
         <div class="sync-chart" id="sync-chart"></div>
 
         <div id="sync-erros-wrap" style="margin-top:24px;"></div>
+      </section>
+
+      <!-- CADERNOS DJEN -->
+      <section id="tab-djen-cadernos" class="adm-panel" style="display:none;">
+        <div class="adm-panel-header">
+          <h2>Cadernos DJEN por tribunal/dia</h2>
+          <div style="display:flex;gap:10px;">
+            <button class="adm-btn-secondary" onclick="carregarDjenCadernos()"><i class="ti ti-refresh"></i> Atualizar</button>
+            <button class="adm-btn-primary" id="btn-djen-cadernos" onclick="rodarDjenCadernos()">
+              <i class="ti ti-play"></i> Processar próximo da fila
+            </button>
+          </div>
+        </div>
+        <div id="djen-resultado" style="display:none;margin-bottom:16px;padding:12px 16px;border-radius:8px;font-size:13px;"></div>
+
+        <div class="sync-stats-row" id="djen-stats-row"></div>
+
+        <div id="djen-tabela-wrap" style="margin-top:24px;"></div>
       </section>
 
       <!-- E-MAILS -->

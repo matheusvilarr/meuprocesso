@@ -144,8 +144,9 @@ function setupTabs() {
       document.querySelectorAll('.adm-panel').forEach(p => p.style.display = 'none');
       btn.classList.add('active');
       document.getElementById('tab-' + btn.dataset.tab).style.display = 'block';
-      if (btn.dataset.tab === 'emails')    carregarEmails();
-      if (btn.dataset.tab === 'pendentes') carregarPendentes();
+      if (btn.dataset.tab === 'emails')        carregarEmails();
+      if (btn.dataset.tab === 'pendentes')     carregarPendentes();
+      if (btn.dataset.tab === 'djen-cadernos') carregarDjenCadernos();
     });
   });
 }
@@ -824,6 +825,97 @@ async function recarregarSyncStats() {
   _adminData = await r.json();
   renderStats();
   renderSincronizacoes();
+}
+
+// ── CADERNOS DJEN ──────────────────────────────────────────────────────────────
+
+async function carregarDjenCadernos() {
+  const wrap = document.getElementById('djen-tabela-wrap');
+  wrap.innerHTML = '<p style="color:#9f9f98;padding:20px 0;">Carregando...</p>';
+
+  const r = await fetch('/api/admin?acao=djen-cadernos', {
+    headers: { 'Authorization': `Bearer ${_adminToken}` },
+  });
+  const data = await r.json();
+  if (!data.ok) {
+    wrap.innerHTML = `<p style="color:#c0392b;">Erro ao carregar: ${data.erro || 'desconhecido'}</p>`;
+    return;
+  }
+  renderDjenCadernos(data.fila || []);
+}
+
+function renderDjenCadernos(fila) {
+  const cont = s => fila.filter(f => f.status === s).length;
+  document.getElementById('djen-stats-row').innerHTML = `
+    <div class="sync-stat"><span class="sync-stat-val">${fila.length}</span><span class="sync-stat-lbl">Linhas (14 dias)</span></div>
+    <div class="sync-stat sync-stat-blue"><span class="sync-stat-val">${cont('concluido')}</span><span class="sync-stat-lbl">Concluídos</span></div>
+    <div class="sync-stat sync-stat-orange"><span class="sync-stat-val">${cont('pendente')}</span><span class="sync-stat-lbl">Pendentes</span></div>
+    <div class="sync-stat ${cont('erro') > 0 ? 'sync-stat-orange' : ''}"><span class="sync-stat-val">${cont('erro')}</span><span class="sync-stat-lbl">Erros</span></div>
+    <div class="sync-stat"><span class="sync-stat-val">${cont('processando')}</span><span class="sync-stat-lbl">Processando agora</span></div>
+  `;
+
+  const wrap = document.getElementById('djen-tabela-wrap');
+  if (!fila.length) {
+    wrap.innerHTML = '<p style="color:#9f9f98;text-align:center;padding:32px;">Nenhum registro ainda — a fila é populada na primeira execução do dia.</p>';
+    return;
+  }
+
+  const corStatus = { concluido: '#166534', pendente: '#92400e', processando: '#1d4ed8', erro: '#991b1b' };
+  const bgStatus  = { concluido: '#f0fdf4', pendente: '#fffbeb', processando: '#eff6ff', erro: '#fef2f2' };
+
+  wrap.innerHTML = `
+    <div class="adm-table-wrap">
+      <table class="adm-table">
+        <thead>
+          <tr>
+            <th>Tribunal</th><th>Data</th><th>Status</th><th>Comunicações</th>
+            <th>Tentativas</th><th>Concluído em</th><th>Obs.</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${fila.map(f => `
+            <tr>
+              <td><code style="font-size:11px;">${esc(f.tribunal)}</code></td>
+              <td style="font-size:12px;">${f.data}</td>
+              <td><span style="font-size:11px;background:${bgStatus[f.status] || '#f3f4f6'};color:${corStatus[f.status] || '#374151'};padding:2px 8px;border-radius:6px;">${esc(f.status)}</span></td>
+              <td style="font-size:12px;">${f.comunicacoes_encontradas ?? '—'}</td>
+              <td style="font-size:12px;">${f.tentativas}</td>
+              <td style="font-size:12px;color:#6b7280;">${f.concluido_em ? new Date(f.concluido_em).toLocaleString('pt-BR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }) : '—'}</td>
+              <td style="font-size:11px;color:#991b1b;max-width:260px;">${f.erro_msg ? esc(f.erro_msg) : ''}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function rodarDjenCadernos() {
+  const btn    = document.getElementById('btn-djen-cadernos');
+  const result = document.getElementById('djen-resultado');
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="ti ti-loader"></i> Processando…';
+  result.style.display = 'none';
+
+  const r = await chamarAdmin('rodar-djen-cadernos', {});
+
+  btn.disabled = false;
+  btn.innerHTML = '<i class="ti ti-play"></i> Processar próximo da fila';
+
+  if (r.erro) {
+    result.style.cssText = 'display:block;padding:12px 16px;border-radius:8px;font-size:13px;background:#fef2f2;color:#991b1b;border:1px solid #fca5a5;margin-bottom:16px;';
+    result.textContent = 'Erro: ' + r.erro;
+    return;
+  }
+
+  const res = r.resultado || {};
+  result.style.cssText = 'display:block;padding:12px 16px;border-radius:8px;font-size:13px;background:#f0fdf4;color:#166534;border:1px solid #86efac;margin-bottom:16px;';
+  result.innerHTML = res.semPendencias
+    ? 'Fila de hoje já está toda processada.'
+    : `Tribunal <strong>${res.tribunal}</strong>${res.pulado ? ` pulado (${res.motivo})` : ` · <strong>${res.comunicacoesEncontradas ?? 0}</strong> atualização(ões) · ${res.totalComunicacoesNoCaderno ?? '—'} comunicações no caderno`}`;
+
+  await carregarDjenCadernos();
 }
 
 async function reenviarConvite(id) {

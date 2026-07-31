@@ -283,7 +283,7 @@ async function _djenUsuario(uid, processos, oabsPorUsuario, numeroSet, admin, ho
   return atualizados;
 }
 
-async function _djenAtualizarProcesso(processoId, movDJEN, admin) {
+export async function _djenAtualizarProcesso(processoId, movDJEN, admin) {
   const { data: procFresh } = await admin.from('processos')
     .select('movimentos_recentes').eq('id', processoId).single();
   const movsAtuais = procFresh?.movimentos_recentes || [];
@@ -297,7 +297,7 @@ async function _djenAtualizarProcesso(processoId, movDJEN, admin) {
   return true;
 }
 
-async function _djenAutoImportar(numero, userId, movDJEN, admin) {
+export async function _djenAutoImportar(numero, userId, movDJEN, admin) {
   // Só importa processos do ano corrente — publicações de casos antigos não cadastrados são ignoradas
   const m = (numero || '').match(/\d{7}-\d{2}\.(\d{4})\./);
   if (!m || parseInt(m[1], 10) < new Date().getFullYear()) return false;
@@ -474,7 +474,7 @@ function normalizarDescoberta(p, index) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function buscarOabsUsuarios(admin, userIds) {
+export async function buscarOabsUsuarios(admin, userIds) {
   if (!userIds.length) return {};
   const result = {};
 
@@ -566,7 +566,7 @@ function parsarData(s) {
   return s;
 }
 
-async function logErro(admin, origem, mensagem, detalhes, userId) {
+export async function logErro(admin, origem, mensagem, detalhes, userId) {
   try {
     await admin.from('error_log').insert({ origem, mensagem, detalhes: detalhes || null, user_id: userId || null });
   } catch (_) {}

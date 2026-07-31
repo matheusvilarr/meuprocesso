@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import sincronizarHandler, { repararDatajudIndex } from './cron/sincronizar.js';
 import emailHandler from './cron/verificar-atualizacoes.js';
+import djenCadernosHandler from './cron/djen-cadernos.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
 const SUPA_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -480,6 +481,39 @@ async function acaoEmails(req, res, admin) {
   return res.json({ ok: true, logs: logs || [], erros: erros || [] });
 }
 
+async function acaoDjenCadernos(req, res, admin) {
+  const desde14 = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+  const { data: fila, error } = await admin
+    .from('djen_cadernos_fila')
+    .select('tribunal, data, status, comunicacoes_encontradas, tentativas, erro_msg, criado_em, concluido_em')
+    .gte('data', desde14)
+    .order('data', { ascending: false })
+    .order('tribunal', { ascending: true })
+    .limit(300);
+
+  if (error) return res.status(500).json({ erro: error.message });
+  return res.json({ ok: true, fila: fila || [] });
+}
+
+async function acaoRodarDjenCadernos(req, res) {
+  const cronSecret = process.env.CRON_SECRET;
+  const fakeReq = {
+    headers: { authorization: cronSecret ? `Bearer ${cronSecret}` : '' },
+    query: {},
+  };
+  let resultado = null;
+  const fakeRes = {
+    status(code) { this._code = code; return this; },
+    json(data)   { resultado = data; return this; },
+  };
+  try {
+    await djenCadernosHandler(fakeReq, fakeRes);
+    return res.json({ ok: true, resultado });
+  } catch (e) {
+    return res.status(500).json({ erro: e.message });
+  }
+}
+
 // ── Helpers DataJud (cópia local para a ação de sync admin) ──────────────────
 
 function _decodeBuf(buf) {
@@ -637,9 +671,10 @@ export default async function handler(req, res) {
 
   const acao = req.method === 'GET' ? req.query?.acao : (req.body || {}).acao;
 
-  if (acao === 'dados')     return acaoDados(req, res, admin, adminUser);
-  if (acao === 'emails')    return acaoEmails(req, res, admin);
-  if (acao === 'pendentes') return acaoPendentes(req, res, admin);
+  if (acao === 'dados')         return acaoDados(req, res, admin, adminUser);
+  if (acao === 'emails')        return acaoEmails(req, res, admin);
+  if (acao === 'pendentes')     return acaoPendentes(req, res, admin);
+  if (acao === 'djen-cadernos') return acaoDjenCadernos(req, res, admin);
 
   if (req.method !== 'POST') return res.status(405).end();
 
@@ -651,6 +686,7 @@ export default async function handler(req, res) {
   if (acao === 'reenviar-convite')      return acaoReenviarConvite(req, res, admin);
   if (acao === 'sincronizar-processos') return acaoSincronizarProcessos(req, res, admin, adminUser);
   if (acao === 'rodar-djen-scan')       return acaoRodarDjenScan(req, res);
+  if (acao === 'rodar-djen-cadernos')   return acaoRodarDjenCadernos(req, res);
   if (acao === 'rodar-emails')          return acaoRodarEmails(req, res);
   if (acao === 'emails' || req.query?.acao === 'emails') return acaoEmails(req, res, admin);
   if (acao === 'aprovar-usuario')       return acaoAprovarUsuario(req, res, admin);
