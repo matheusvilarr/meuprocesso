@@ -542,6 +542,7 @@ function renderSincronizacoes() {
 }
 
 function renderSyncErros(erros) {
+  console.log('Renderizando erros de sincronização')
   console.log(erros)
   const wrap = document.getElementById('sync-erros-wrap');
   if (!wrap) return;
