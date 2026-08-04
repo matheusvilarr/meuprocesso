@@ -550,7 +550,7 @@ function renderSyncErros(erros) {
 
   wrap.innerHTML = `
     <h3 style="font-size:14px;font-weight:600;color:#991b1b;margin:0 0 12px;display:flex;align-items:center;gap:6px;">
-      <i class="ti ti-alert-triangle"></i> Log de erros de sincronização — DataJud/DJEN/OAB (14 dias)
+      <i class="ti ti-alert-triangle"></i> Log de erros de sincronização — DataJud/DJEN/OAB (14 diass)
     </h3>
     <div class="adm-table-wrap">
       <table class="adm-table">
