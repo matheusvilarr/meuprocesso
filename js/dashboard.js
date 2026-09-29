@@ -2102,27 +2102,17 @@ async function verificarProcessoAgora(evt, id, datajudIndex, numero) {
     if (!res.ok) throw new Error(data.erro || 'erro api');
     if (!data.resultados?.length) throw new Error('não encontrado');
 
-    const d     = data.resultados[0];
-    const movs  = d.movimentos || [];
-    const hash  = movs.slice(0, 6).map(m => m.data + m.nome).join('|');
+    const d    = data.resultados[0];
+    const movs = d.movimentos || [];
 
-    const proc        = (window._processosDB || []).find(p => p.id === id);
-    const importadoEm = (proc?.created_at || '').slice(0, 10);
-    const existentes  = new Set((proc?.movimentos_recentes || []).map(m => m.data + m.nome));
-    const novo  = hash !== proc?.movimentos_hash;
-    const novos = novo
-      ? movs.filter(m => !existentes.has(m.data + m.nome) && (!importadoEm || m.data >= importadoEm))
-      : [];
+    const proc = await _processoFresco(id);
+    if (!proc) throw new Error('não encontrado');
 
-    await _supabase.from('processos').update({
-      movimentos_recentes:  movs,
-      movimentos_hash:      hash,
-      ultima_verificacao:   new Date().toISOString(),
-      notificacao_pendente: novos.length > 0,
-      novos_movimentos:     novos.length ? novos : null,
-    }).eq('id', id);
+    const { upd, novos } = _atualizacaoDatajud(proc, movs);
+    const { error: upErr } = await _supabase.from('processos').update(upd).eq('id', id);
+    if (upErr) throw upErr;
 
-    showToast(novo && novos.length ? `${novos.length} nova(s) movimentação(ões)!` : 'Nenhuma novidade.');
+    showToast(novos.length ? `${novos.length} nova(s) movimentação(ões)!` : 'Nenhuma novidade.');
     carregarProcessos();
   } catch (err) {
     const msg = (err.message || '').includes('não encontrado')
@@ -2742,23 +2732,18 @@ async function sincronizarDetalhe() {
     const data = await res.json();
     if (!res.ok || !data.resultados?.length) throw new Error();
 
-    const movs        = data.resultados[0].movimentos || [];
-    const hash        = movs.slice(0, 6).map(m => m.data + m.nome).join('|');
-    const importadoEm = (_processoAtual.created_at || '').slice(0, 10);
-    const existentes  = new Set((_processoAtual.movimentos_recentes || []).map(m => m.data + m.nome));
-    const novos       = movs.filter(m =>
-      !existentes.has(m.data + m.nome) && (!importadoEm || m.data >= importadoEm)
-    );
+    const movs = data.resultados[0].movimentos || [];
 
-    const upd = {
-      movimentos_recentes:  movs,
-      movimentos_hash:      hash,
-      ultima_verificacao:   new Date().toISOString(),
-      notificacao_pendente: novos.length > 0,
-      novos_movimentos:     novos.length ? novos : null,
-    };
+    // Quem está com o processo aberto já está vendo as novidades — não
+    // acende a notificação de novo (abrirProcesso já a marcou como lida).
+    const fresco = await _processoFresco(_processoAtual.id);
+    if (!fresco) throw new Error();
+    const { upd, novos } = _atualizacaoDatajud({ ...fresco, notificacao_pendente: false }, movs);
+    delete upd.notificacao_pendente;
+    if (novos.length) upd.novos_movimentos = novos; // só pra destacar "NOVO" na timeline
 
-    await _supabase.from('processos').update(upd).eq('id', _processoAtual.id);
+    const { error: upErr } = await _supabase.from('processos').update(upd).eq('id', _processoAtual.id);
+    if (upErr) throw upErr;
     Object.assign(_processoAtual, upd);
 
     renderizarTimelineCNJ(_processoAtual);
@@ -3128,11 +3113,85 @@ async function fazerLogout() {
 
 // ── SYNC AUTOMÁTICO ───────────────────────────────────────────────────────
 
-const SYNC_INTERVALO_MS = 10 * 60 * 1000; // 10 minutos
+// 30 min (era 10): o cron do servidor já sincroniza tudo várias vezes ao dia;
+// o navegador só complementa, e cada consulta gasta cota do plano gratuito.
+const SYNC_INTERVALO_MS    = 30 * 60 * 1000;
+const SYNC_PULAR_RECENTE_MS = 6 * 3600 * 1000; // verificado há menos que isso: pula
 let _syncTimer = null;
 
+function _ehMovDJEN(m) {
+  return m?._fonte === 'djen' || (m?.nome || '').startsWith('DJEN');
+}
+
+// Mesma regra do servidor (api/cron/sincronizar.js → mesmoMovDJEN)
+function _mesmoMovDJEN(a, b) {
+  if (a?._url && b?._url) return a._url === b._url;
+  const dia  = m => String(m?.data || '').slice(0, 10);
+  const tipo = m => String(m?.nome || '').split(' · ')[0].trim();
+  return dia(a) === dia(b) && tipo(a) === tipo(b);
+}
+
+// Mesma regra do servidor (api/cron/sincronizar.js → chaveMov). Só texto,
+// sem new Date(), pra não depender do fuso do navegador.
+function _chaveMov(m) {
+  let s = String(m?.data || '');
+  if (/^\d{14}$/.test(s)) s = `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}T${s.slice(8,10)}:${s.slice(10,12)}:${s.slice(12,14)}`;
+  else if (/^\d{8}$/.test(s)) s = `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;
+  const dia = s.replace(/\.\d+/, '').replace(/(Z|[+-]\d{2}:?\d{2})$/, '').slice(0, 16);
+  return `${dia}|${(m?.nome || '').trim()}`;
+}
+
+// Monta o update de um processo com os movimentos vindos do DataJud, sem
+// perder nada: publicações DJEN já salvas continuam na timeline e uma
+// notificação pendente nunca é apagada aqui (só abrir o processo ou o e-mail
+// limpam). Mesmos critérios de "novo" do cron do servidor.
+// Relê do banco os campos que _atualizacaoDatajud usa — o cache da página pode
+// estar desatualizado (ex: o cron do DJEN gravou uma publicação depois que a
+// página abriu) e gravar em cima dele apagaria essa publicação.
+async function _processoFresco(id) {
+  const { data } = await _supabase.from('processos')
+    .select('id, created_at, movimentos_recentes, notificacao_pendente, novos_movimentos')
+    .eq('id', id).single();
+  return data;
+}
+
+function _atualizacaoDatajud(proc, movs) {
+  const salvos      = proc.movimentos_recentes || [];
+  const anteriores  = salvos.filter(m => !_ehMovDJEN(m));
+  const conhecidas  = new Set(anteriores.map(_chaveMov));
+  const importadoEm = (proc.created_at || '').slice(0, 10);
+  const limite30d   = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const novos = anteriores.length
+    ? movs.filter(m => {
+        const dia = String(m.data || '').slice(0, 10);
+        return !conhecidas.has(_chaveMov(m)) && dia && dia >= limite30d && (!importadoEm || dia >= importadoEm);
+      })
+    : [];
+
+  const final = [...movs, ...salvos.filter(_ehMovDJEN)]
+    .sort((a, b) => (b.data || '') > (a.data || '') ? 1 : -1)
+    .slice(0, 100);
+
+  const upd = {
+    movimentos_recentes: final,
+    movimentos_hash:     movs.slice(0, 6).map(m => m.data + m.nome).join('|'),
+    ultima_verificacao:  new Date().toISOString(),
+  };
+  if (novos.length) {
+    const pendentes = proc.notificacao_pendente ? (proc.novos_movimentos || []) : [];
+    const chaves    = new Set(novos.map(_chaveMov));
+    upd.notificacao_pendente = true;
+    upd.novos_movimentos     = [...novos, ...pendentes.filter(m => !chaves.has(_chaveMov(m)))];
+  }
+  return { upd, novos };
+}
+
 async function sincronizarTodos() {
-  const procs = (window._processosDB || []).filter(p => p.datajud_index && p.numero);
+  const agora = Date.now();
+  const procs = (window._processosDB || []).filter(p =>
+    p.datajud_index && p.numero && !window._sharedSet?.[p.id] &&
+    !(p.ultima_verificacao && agora - new Date(p.ultima_verificacao).getTime() < SYNC_PULAR_RECENTE_MS)
+  );
   if (!procs.length) return;
 
   let atualizados = 0;
@@ -3143,27 +3202,15 @@ async function sincronizarTodos() {
       const data = await res.json();
       if (!res.ok || !data.resultados?.length) continue;
 
-      const movs  = data.resultados[0].movimentos || [];
-      // Hash usa slice(0,6) igual ao cron do servidor — evita mismatch permanente
-      const hash  = movs.slice(0, 6).map(m => m.data + m.nome).join('|');
+      const movs = data.resultados[0].movimentos || [];
+      const hash = movs.slice(0, 6).map(m => m.data + m.nome).join('|');
       if (hash === p.movimentos_hash) continue;
 
-      // Só notifica movimentos após a data de adição do processo ao sistema
-      const importadoEm = (p.created_at || '').slice(0, 10);
-      const existentes  = new Set((p.movimentos_recentes || []).map(m => m.data + m.nome));
-      const novos = movs.filter(m =>
-        !existentes.has(m.data + m.nome) && (!importadoEm || m.data >= importadoEm)
-      );
-
-      await _supabase.from('processos').update({
-        movimentos_recentes:  movs,
-        movimentos_hash:      hash,
-        ultima_verificacao:   new Date().toISOString(),
-        notificacao_pendente: novos.length > 0,
-        novos_movimentos:     novos.length ? novos : null,
-      }).eq('id', p.id);
-
-      atualizados++;
+      const fresco = await _processoFresco(p.id);
+      if (!fresco) continue;
+      const { upd, novos } = _atualizacaoDatajud(fresco, movs);
+      const { error } = await _supabase.from('processos').update(upd).eq('id', p.id);
+      if (!error && novos.length) atualizados++;
     } catch (_) {}
   }
 
@@ -6376,17 +6423,20 @@ async function _salvarMovimentoDJe(doc, proc) {
     _url:   doc.link || null,
   };
 
-  const existentes = proc.movimentos_recentes || [];
-  const jaSalvo = existentes.some(m => m.nome === novoMov.nome && m.data === novoMov.data);
+  const fresco = await _processoFresco(proc.id);
+  if (!fresco) return { status: 'erro', error: { message: 'Processo não encontrado.' } };
+
+  const existentes = fresco.movimentos_recentes || [];
+  const jaSalvo = existentes.some(m => _ehMovDJEN(m) && _mesmoMovDJEN(m, novoMov));
   if (jaSalvo) return { status: 'duplicado' };
 
   const novosMovs = [novoMov, ...existentes];
 
+  const pendentes = fresco.notificacao_pendente ? (fresco.novos_movimentos || []) : [];
   const { error } = await _supabase.from('processos').update({
     movimentos_recentes:  novosMovs,
     notificacao_pendente: true,
-    novos_movimentos:     [novoMov],
-    ultima_verificacao:   new Date().toISOString(),
+    novos_movimentos:     [novoMov, ...pendentes],
   }).eq('id', proc.id);
 
   if (error) return { status: 'erro', error };
@@ -6441,26 +6491,31 @@ async function importarProcessoDJe(docIndex) {
   const clienteFinal  = clienteManual || (doc.partes?.cliente?.length > 2 ? doc.partes.cliente : null);
   const userId = window._escritorioId || window._user?.id;
   const numero = doc.processos[0];
-  const novoMov = { data: (doc.data_disponibilizacao || '') + 'T00:00:00', nome: mov };
+  const novoMov = { data: (doc.data_disponibilizacao || '') + 'T00:00:00', nome: mov, _fonte: 'djen', _url: doc.link || null };
 
   // Checa direto no banco (não no cache local) se o processo já existe, para não duplicar
   // nem descartar a publicação encontrada caso já esteja cadastrado
   const { data: existente } = await _supabase
     .from('processos')
-    .select('id,movimentos_recentes')
+    .select('id,movimentos_recentes,notificacao_pendente,novos_movimentos')
     .eq('user_id', userId)
     .eq('numero', numero)
     .maybeSingle();
 
   if (existente) {
     const movsAtuais = existente.movimentos_recentes || [];
-    const novasMovs   = [novoMov, ...movsAtuais].slice(0, 100);
+    if (movsAtuais.some(m => _ehMovDJEN(m) && _mesmoMovDJEN(m, novoMov))) {
+      if (btn) btn.innerHTML = '<i class="ti ti-check"></i> Já estava salvo';
+      showToast(`Processo ${numero} já cadastrado e com esta publicação na timeline.`);
+      return;
+    }
+    const novasMovs = [novoMov, ...movsAtuais].slice(0, 100);
+    const pendentes = existente.notificacao_pendente ? (existente.novos_movimentos || []) : [];
+    // movimentos_hash e ultima_verificacao ficam como estão: representam só o DataJud
     const { error } = await _supabase.from('processos').update({
       movimentos_recentes:  novasMovs,
-      movimentos_hash:      novasMovs.slice(0, 6).map(m => m.data + m.nome).join('|'),
-      ultima_verificacao:   new Date().toISOString(),
       notificacao_pendente: true,
-      novos_movimentos:     [novoMov],
+      novos_movimentos:     [novoMov, ...pendentes],
     }).eq('id', existente.id);
 
     if (error) {
@@ -6485,7 +6540,7 @@ async function importarProcessoDJe(docIndex) {
     classe:          doc.nomeClasse  || null,
     orgao_julgador:  doc.nomeOrgao   || null,
     movimentos_recentes: [novoMov],
-    movimentos_hash:     (doc.data_disponibilizacao || '') + mov,
+    movimentos_hash:     null, // só o DataJud preenche o hash
     ultima_verificacao:  new Date().toISOString(),
   }, { onConflict: 'user_id,numero' });
 
@@ -6512,11 +6567,15 @@ async function _enriquecerComDatajud(numero) {
     const p = d.resultados?.[0];
     if (!p?.movimentos?.length) return;
 
-    const update = {
-      movimentos_recentes: p.movimentos,
-      movimentos_hash: p.movimentos.slice(0, 20).map(m => (m.data || '') + (m.nome || '')).join('|').slice(0, 500),
-      ultima_verificacao: new Date().toISOString(),
-    };
+    const userId = window._escritorioId || window._user?.id;
+    // Relê do banco: o processo pode ter acabado de ser importado e ainda não
+    // estar no cache; precisa dos movimentos salvos pra não apagar os do DJEN.
+    const { data: atual } = await _supabase.from('processos')
+      .select('id, created_at, movimentos_recentes, notificacao_pendente, novos_movimentos')
+      .eq('numero', numero).eq('user_id', userId).maybeSingle();
+    if (!atual) return;
+
+    const { upd: update } = _atualizacaoDatajud(atual, p.movimentos);
     // Aproveita dados extras do DataJud se não vieram do DJEN
     if (p.tribunal)       update.tribunal       = p.tribunal;
     if (p.orgaoJulgador)  update.orgao_julgador = p.orgaoJulgador;
@@ -6524,8 +6583,7 @@ async function _enriquecerComDatajud(numero) {
     // datajud_index é essencial para o cron de monitoramento detectar este processo
     if (p._datajudIndex)  update.datajud_index  = p._datajudIndex;
 
-    const userId = window._escritorioId || window._user?.id;
-    await _supabase.from('processos').update(update).eq('numero', numero).eq('user_id', userId);
+    await _supabase.from('processos').update(update).eq('id', atual.id);
     await carregarProcessos();
 
     // Se o detalhe deste processo estiver aberto, re-renderiza a timeline
@@ -6568,6 +6626,8 @@ async function importarTodosDJe() {
         movimentos_recentes: [{
           data: (doc.data_disponibilizacao || '') + 'T00:00:00',
           nome: `DJEN — ${doc.tipoComunicacao || 'Publicação'}${doc.tipoDecisao ? ' · ' + doc.tipoDecisao : ''}`,
+          _fonte: 'djen',
+          _url:   doc.link || null,
         }],
       });
       if (error) { erros++; }

@@ -1,5 +1,6 @@
 {
   "cleanUrls": true,
+  "regions": ["gru1"],
   "redirects": [
     {
       "source": "/",
@@ -37,7 +38,7 @@
   "functions": {
     "api/buscar-processo.js":             { "maxDuration": 30 },
     "api/cron/sincronizar.js":            { "maxDuration": 120 },
-    "api/cron/djen-cadernos.js":          { "maxDuration": 300 },
+    "api/cron/djen-cadernos.js":          { "maxDuration": 120 },
     "api/cron/verificar-atualizacoes.js": { "maxDuration": 30 },
     "api/admin.js":                        { "maxDuration": 120 }
   },
@@ -52,15 +53,15 @@
     { "path": "/api/cron/sincronizar",                           "schedule": "0 18 * * 1-5" },
     { "path": "/api/cron/sincronizar",                           "schedule": "0 20 * * 1-5" },
     { "path": "/api/cron/verificar-atualizacoes?tipo=evening",   "schedule": "0 21 * * 1-5" },
-    { "path": "/api/cron/sincronizar?tipo=oab",                  "schedule": "30 21 * * 1-5" },
     { "path": "/api/cron/sincronizar",                           "schedule": "0 22 * * 1-5" },
     { "path": "/api/cron/sincronizar",                           "schedule": "0 10 * * 0,6" },
     { "path": "/api/cron/verificar-atualizacoes?tipo=morning",   "schedule": "30 10 * * 0,6" },
     { "path": "/api/cron/sincronizar",                           "schedule": "0 14 * * 0,6" },
     { "path": "/api/cron/sincronizar",                           "schedule": "0 18 * * 0,6" },
     { "path": "/api/cron/verificar-atualizacoes?tipo=afternoon", "schedule": "30 18 * * 0,6" },
-    { "path": "/api/cron/sincronizar?tipo=oab",                  "schedule": "0 21 * * 0,6" },
     { "path": "/api/cron/verificar-atualizacoes?tipo=prazo_fatal", "schedule": "0 12 * * *" },
-    { "path": "/api/cron/djen-cadernos", "schedule": "*/5 6-22 * * *" }
+    { "path": "/api/cron/djen-cadernos",                         "schedule": "0 9 * * *" },
+    { "path": "/api/cron/djen-cadernos",                         "schedule": "0 15 * * *" },
+    { "path": "/api/cron/djen-cadernos",                         "schedule": "0 22 * * *" }
   ]
 }

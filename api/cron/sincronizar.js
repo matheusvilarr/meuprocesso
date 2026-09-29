@@ -1,8 +1,10 @@
 // Sincronização de processos e OAB scan.
 // ?tipo=datajud (padrão) — atualiza movimentos de todos os processos no DataJud
 // ?tipo=oab     — varre todos os tribunais pela OAB do advogado buscando processos novos
+//                 (fora do vercel.json: a API pública do DataJud não expõe "partes",
+//                 então a busca por OAB nunca retorna nada — testado set/2026)
 //
-// DataJud: filtro de 20h (browser cobre usuários ativos). Time guard 45s.
+// DataJud: filtro de 20h (browser cobre usuários ativos). Time guard 90s.
 // DJEN: migrado pro cron dedicado api/cron/djen-cadernos.js (ver esse arquivo).
 
 import { createClient } from '@supabase/supabase-js';
@@ -73,10 +75,13 @@ async function rodarDatajud(admin, res, hoje) {
 
   // DataJud: browser cobre usuários ativos — servidor só entra para quem ficou 20h+ sem abrir.
   const limite20h = new Date(Date.now() - 20 * 3600 * 1000).toISOString();
+  // Só processos com datajud_index: os sem índice (ex: cadastro manual sem
+  // número CNJ) nunca eram atualizados e ficavam eternamente no topo da fila.
   const { data: processos, error } = await admin
     .from('processos')
-    .select('id, user_id, numero, nome, apelido, datajud_index, movimentos_hash, movimentos_recentes, created_at')
+    .select('id, user_id, numero, nome, apelido, datajud_index, movimentos_hash, movimentos_recentes, notificacao_pendente, novos_movimentos, created_at')
     .not('numero', 'is', null)
+    .not('datajud_index', 'is', null)
     .neq('status', 'Arquivado')
     .or(`ultima_verificacao.is.null,ultima_verificacao.lte.${limite20h}`)
     .order('ultima_verificacao', { ascending: true, nullsFirst: true })
@@ -115,53 +120,87 @@ async function sincronizarDatajud(processos, admin, hoje, startAt = Date.now()) 
   const com_datajud = processos.filter(p => p.datajud_index);
 
   for (let i = 0; i < com_datajud.length; i += 12) {
-    // 35s (não 45s) — o timeout por chamada subiu de 12s pra 28s, então um
-    // lote em andamento pode demorar mais até terminar; dá mais folga antes
-    // do DJEN e do disparo de e-mail rodarem, dentro do maxDuration de 120s.
-    if (Date.now() - startAt > 35000) break;
+    // 60s + até 28s do último lote + disparo de e-mail (25s) cabe no maxDuration
+    // de 120s. O DataJud chega a levar 20-30s por consulta em horário de pico.
+    if (Date.now() - startAt > 60000) break;
 
     const lote = com_datajud.slice(i, i + 12);
     const resultados = await Promise.allSettled(
       lote.map(proc => sincronizarDatajudUm(proc, admin, hoje))
     );
-    atualizados += resultados.filter(r => r.status === 'fulfilled' && r.value).length;
+    atualizados += resultados.filter(r => r.status === 'fulfilled' && r.value === 'novos').length;
   }
   return atualizados;
 }
 
-async function sincronizarDatajudUm(proc, admin, hoje) {
-  if ((proc.created_at || '').slice(0, 10) === hoje) return false;
+// Chave estável de um movimento pra comparar listas antigas e novas, mesmo
+// que a data tenha sido gravada em formatos diferentes (ISO com/sem ms,
+// "yyyyMMddHHmmss"...) por versões diferentes do código.
+// Só texto (sem new Date): o navegador roda em horário de Brasília e o
+// servidor em UTC, e a chave precisa dar igual nos dois.
+export function chaveMov(m) {
+  const dia = String(parsarData(m?.data) || '')
+    .replace(/\.\d+/, '').replace(/(Z|[+-]\d{2}:?\d{2})$/, '').slice(0, 16);
+  return `${dia}|${(m?.nome || '').trim()}`;
+}
+
+// Movimentos vindos do DataJud, de todos os graus do processo (G1, G2, JE...
+// são documentos separados no índice com o mesmo número), sem duplicatas,
+// do mais recente pro mais antigo.
+export function movimentosDosHits(hits) {
+  const vistos = new Map();
+  for (const h of hits || []) {
+    for (const m of h._source?.movimentos || []) {
+      const mov = { nome: m.nome, data: parsarData(m.dataHora) };
+      const k = chaveMov(mov);
+      if (!vistos.has(k)) vistos.set(k, mov);
+    }
+  }
+  const ts = m => { const t = new Date(m.data).getTime(); return isNaN(t) ? 0 : t; };
+  return [...vistos.values()].sort((a, b) => ts(b) - ts(a)).slice(0, 100);
+}
+
+// Usado pelo cron e pelo botão "DataJud agora" do painel admin (api/admin.js).
+// proc precisa de: id, user_id, numero, nome, datajud_index, movimentos_hash,
+// movimentos_recentes, notificacao_pendente, novos_movimentos, created_at.
+// Retorna 'novos' | 'atualizado' | 'sem-mudanca' | 'nao-encontrado' | 'pulado' | 'erro'.
+export async function sincronizarDatajudUm(proc, admin, hoje) {
+  if ((proc.created_at || '').slice(0, 10) === hoje) return 'pulado';
   try {
     const hits = await buscarNoDatajud(proc.datajud_index, proc.numero);
     if (!hits?.length) {
       await admin.from('processos').update({ ultima_verificacao: new Date().toISOString() }).eq('id', proc.id);
-      return false;
+      return 'nao-encontrado';
     }
 
-    const todosMovs = (hits[0]._source.movimentos || [])
-      .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))
-      .slice(0, 100)
-      .map(m => ({ nome: m.nome, data: parsarData(m.dataHora) }));
-
-    const novoHash = todosMovs.slice(0, 6).map(m => m.data + m.nome).join('|');
+    const todosMovs = movimentosDosHits(hits);
+    const novoHash  = todosMovs.slice(0, 6).map(m => m.data + m.nome).join('|');
 
     if (novoHash === proc.movimentos_hash) {
       await admin.from('processos').update({ ultima_verificacao: new Date().toISOString() }).eq('id', proc.id);
-      return false;
+      return 'sem-mudanca';
     }
 
+    // Novo = não estava na lista salva. Compara com a lista inteira (não só
+    // com o hash dos 6 últimos) e aceita até 30 dias de atraso: tribunais
+    // costumam enviar ao DataJud com dias/semanas de atraso, e a janela antiga
+    // de 5 dias fazia essas movimentações entrarem na timeline sem notificar.
+    const anteriores    = (proc.movimentos_recentes || []).filter(m => !ehMovDJEN(m));
+    const conhecidas    = new Set(anteriores.map(chaveMov));
     const importadoEm   = (proc.created_at || '').slice(0, 10);
-    const cincoDs       = new Date(Date.now() - 5 * 86400000).toISOString().slice(0, 10);
+    const limite30d     = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
     const detectadoEm   = new Date().toISOString().slice(0, 10);
-    const todosNovos    = proc.movimentos_hash
-      ? todosMovs.filter(m => !proc.movimentos_hash.includes(m.data + m.nome))
+    // Primeira sincronização (processo sem nenhum movimento do DataJud salvo):
+    // só a mais recente conta como novidade, igual ao comportamento anterior.
+    const todosNovos    = anteriores.length
+      ? todosMovs.filter(m => !conhecidas.has(chaveMov(m)))
       : todosMovs.slice(0, 1);
     const novosRecentes = todosNovos
-      .filter(m => m.data && m.data >= cincoDs && (!importadoEm || m.data >= importadoEm))
+      .filter(m => m.data && m.data.slice(0, 10) >= limite30d && (!importadoEm || m.data.slice(0, 10) >= importadoEm))
       .map(m => ({ ...m, _detectadoEm: detectadoEm }));
 
     // Preserva movimentos DJEN existentes — DataJud não deve apagá-los
-    const djenExistentes = (proc.movimentos_recentes || []).filter(m => (m.nome || '').startsWith('DJEN'));
+    const djenExistentes = (proc.movimentos_recentes || []).filter(ehMovDJEN);
     const movimentosFinal = [...todosMovs, ...djenExistentes]
       .sort((a, b) => (b.data || '') > (a.data || '') ? 1 : -1)
       .slice(0, 100);
@@ -171,31 +210,67 @@ async function sincronizarDatajudUm(proc, admin, hoje) {
       movimentos_hash:     novoHash,
       ultima_verificacao:  new Date().toISOString(),
     };
-    if (novosRecentes.length) {
-      update.notificacao_pendente = true;
-      update.novos_movimentos     = novosRecentes;
+    // Processo auto-importado pelo DJEN nasce com nome = número; completa com
+    // os dados do DataJud (só nesse caso — nunca sobrescreve o que o advogado editou).
+    const src = hits[0]._source || {};
+    if (proc.nome && proc.nome === proc.numero) {
+      if (src.classe?.nome)        { update.nome = src.classe.nome; update.classe = src.classe.nome; }
+      if (src.orgaoJulgador?.nome) update.orgao_julgador = src.orgaoJulgador.nome;
+      if (src.tribunal)            update.tribunal = src.tribunal;
     }
-    await admin.from('processos').update(update).eq('id', proc.id);
-    return novosRecentes.length > 0;
+    if (novosRecentes.length) {
+      // Mantém novidades ainda não notificadas (ex: publicação DJEN pendente de e-mail)
+      const pendentes = proc.notificacao_pendente ? (proc.novos_movimentos || []) : [];
+      const chaves    = new Set(novosRecentes.map(chaveMov));
+      update.notificacao_pendente = true;
+      update.novos_movimentos     = [...novosRecentes, ...pendentes.filter(m => !chaves.has(chaveMov(m)))];
+    }
+    const { error: upErr } = await admin.from('processos').update(update).eq('id', proc.id);
+    if (upErr) throw new Error(`Falha ao gravar: ${upErr.message}`);
+    return novosRecentes.length ? 'novos' : 'atualizado';
   } catch (e) {
     await logErro(admin, 'cron:datajud', e.message, { numero: proc.numero, processoId: proc.id }, proc.user_id);
-    return false;
+    // Não marca como verificado agora (a falha não pode esconder o processo por
+    // 20h), mas joga pra ~2h atrás do fim da janela: volta na próxima execução,
+    // só que atrás dos que nunca foram tentados. Sem isso, processos que sempre
+    // dão timeout ocupavam o começo da fila em toda execução.
+    const retry = new Date(Date.now() - 18 * 3600 * 1000).toISOString();
+    await admin.from('processos').update({ ultima_verificacao: retry }).eq('id', proc.id).then(() => {}, () => {});
+    return 'erro';
   }
 }
 
 // ── DJEN ─────────────────────────────────────────────────────────────────────
 
+export function ehMovDJEN(m) {
+  return m?._fonte === 'djen' || (m?.nome || '').startsWith('DJEN');
+}
+
+// Mesma publicação gravada por caminhos diferentes (cron antigo: data "AAAA-MM-DD"
+// e nome "DJEN — Tipo"; busca manual: data com "T00:00:00" e nome "DJEN — Tipo ·
+// Decisão"; cron de cadernos: com _url). Compara pelo link quando os dois têm,
+// senão pelo dia + tipo.
+export function mesmoMovDJEN(a, b) {
+  if (a?._url && b?._url) return a._url === b._url;
+  const dia  = m => String(m?.data || '').slice(0, 10);
+  const tipo = m => String(m?.nome || '').split(' · ')[0].trim();
+  return dia(a) === dia(b) && tipo(a) === tipo(b);
+}
+
 export async function _djenAtualizarProcesso(processoId, movDJEN, admin) {
   const { data: procFresh } = await admin.from('processos')
-    .select('movimentos_recentes').eq('id', processoId).single();
+    .select('movimentos_recentes, notificacao_pendente, novos_movimentos').eq('id', processoId).single();
   const movsAtuais = procFresh?.movimentos_recentes || [];
-  if (movsAtuais.some(m => m.data === movDJEN.data && m.nome === movDJEN.nome)) return false;
-  await admin.from('processos').update({
+  if (movsAtuais.some(m => ehMovDJEN(m) && mesmoMovDJEN(m, movDJEN))) return false;
+  const pendentes = procFresh?.notificacao_pendente ? (procFresh.novos_movimentos || []) : [];
+  // Sem ultima_verificacao aqui: ela controla a fila do DataJud, e uma
+  // publicação no DJEN não significa que o DataJud foi consultado.
+  const { error } = await admin.from('processos').update({
     movimentos_recentes:  [movDJEN, ...movsAtuais].slice(0, 100),
-    ultima_verificacao:   new Date().toISOString(),
     notificacao_pendente: true,
-    novos_movimentos:     [movDJEN],
+    novos_movimentos:     [movDJEN, ...pendentes],
   }).eq('id', processoId);
+  if (error) throw new Error(`Falha ao gravar DJEN no processo ${processoId}: ${error.message}`);
   return true;
 }
 
@@ -210,7 +285,7 @@ export async function _djenAutoImportar(numero, userId, movDJEN, admin) {
     if (existente) return false;
 
     const movMarcado = { ...movDJEN, _auto_importado: true };
-    await admin.from('processos').insert({
+    const { error } = await admin.from('processos').insert({
       user_id:              userId,
       numero,
       nome:                 numero,  // DataJud preenche no próximo cron
@@ -219,9 +294,10 @@ export async function _djenAutoImportar(numero, userId, movDJEN, admin) {
       movimentos_recentes:  [movMarcado],
       novos_movimentos:     [movMarcado],
       notificacao_pendente: true,
-      ultima_verificacao:   new Date().toISOString(),
+      // null = primeiro da fila do DataJud, que completa nome/classe/tribunal
+      ultima_verificacao:   null,
     });
-    return true;
+    return !error;
   } catch (_) {
     return false;
   }
@@ -380,10 +456,12 @@ export async function buscarOabsUsuarios(admin, userIds) {
   if (!userIds.length) return {};
   const result = {};
 
+  // num sem zeros à esquerda — o DJEN manda "8746", o advogado pode ter
+  // cadastrado "08746".
   const parseOab = raw =>
     (raw || '').split(',').map(s => s.trim()).filter(Boolean).map(o => {
       const m = o.toUpperCase().replace(/[.\-]/g, '').match(/^(?:OAB[/ ]?)?([A-Z]{2})[/ ]?(\d{3,7})$/);
-      return m ? { uf: m[1], num: m[2] } : null;
+      return m ? { uf: m[1], num: m[2].replace(/^0+/, '') } : null;
     }).filter(Boolean);
 
   // Colaboradores ativos de uma vez só
@@ -448,7 +526,8 @@ async function buscarNoDatajud(index, numero) {
     method: 'POST',
     headers: { 'Authorization': `ApiKey ${DATAJUD_KEY}`, 'Content-Type': 'application/json' },
     signal: AbortSignal.timeout(28000),
-    body: JSON.stringify({ size: 1, query: { match: { numeroProcesso: numeroLimpo } } }),
+    // size 10: um mesmo número pode ter um documento por grau (G1, G2, JE...)
+    body: JSON.stringify({ size: 10, query: { match: { numeroProcesso: numeroLimpo } } }),
   });
   if (!r.ok) throw new Error(`DataJud respondeu ${r.status} (${index})`);
   const json = JSON.parse(decodificarBuffer(await r.arrayBuffer()));

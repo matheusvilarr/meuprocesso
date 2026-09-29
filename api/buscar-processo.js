@@ -1,5 +1,9 @@
 // Vercel Serverless Function — proxy para DataJud CNJ
 // Suporta busca por: número CNJ, OAB, nome do advogado, nome do cliente, CPF
+// (OAB/nome/CPF dependem de "partes", que a API pública do DataJud não expõe —
+// na prática só a busca por número retorna resultado)
+
+import { movimentosDosHits } from './cron/sincronizar.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -26,13 +30,17 @@ export default async function handler(req, res) {
       });
     }
 
-    const body = { size: 1, query: { match: { numeroProcesso: numeroLimpo } } };
+    // size 10: o mesmo número pode ter um documento por grau (G1, G2, JE...) —
+    // junta os movimentos de todos, igual ao cron (api/cron/sincronizar.js).
+    const body = { size: 10, query: { match: { numeroProcesso: numeroLimpo } } };
     const hits  = await chamarDatajud(tribunalIndex, body, DATAJUD_KEY);
 
     if (!hits || hits._erro) return res.status(502).json({ erro: erroDetalhe(hits) });
     if (!hits.length) return res.status(404).json({ erro: 'Processo não encontrado neste tribunal.' });
 
-    return res.status(200).json({ resultados: [normalizarProcesso(hits[0]._source, tribunalIndex)] });
+    const processo = normalizarProcesso(hits[0]._source, tribunalIndex);
+    processo.movimentos = movimentosDosHits(hits);
+    return res.status(200).json({ resultados: [processo] });
   }
 
   // ── BUSCAS QUE PRECISAM DE TRIBUNAL ───────────────────────────────────
@@ -198,7 +206,7 @@ function normalizarProcesso(p, index) {
     movimentos: (p.movimentos || [])
       .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))
       .slice(0, 100)
-      .map(m => ({ nome: m.nome, data: m.dataHora }))
+      .map(m => ({ nome: m.nome, data: parsarData(m.dataHora) }))
   };
 }
 

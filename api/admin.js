@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
-import { repararDatajudIndex } from './cron/sincronizar.js';
+import { repararDatajudIndex, sincronizarDatajudUm } from './cron/sincronizar.js';
 import emailHandler from './cron/verificar-atualizacoes.js';
 import djenCadernosHandler from './cron/djen-cadernos.js';
 
@@ -514,36 +514,8 @@ async function acaoRodarDjenCadernos(req, res) {
   }
 }
 
-// ── Helpers DataJud (cópia local para a ação de sync admin) ──────────────────
-
-function _decodeBuf(buf) {
-  try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }
-  catch { return new TextDecoder('windows-1252').decode(buf); }
-}
-
-function _parsarData(s) {
-  if (!s) return null;
-  const str = String(s);
-  if (/^\d{14}$/.test(str)) return `${str.slice(0,4)}-${str.slice(4,6)}-${str.slice(6,8)}T${str.slice(8,10)}:${str.slice(10,12)}:${str.slice(12,14)}`;
-  if (/^\d{8}$/.test(str))  return `${str.slice(0,4)}-${str.slice(4,6)}-${str.slice(6,8)}`;
-  return s;
-}
-
-async function _buscarDatajud(index, numero) {
-  const key = process.env.DATAJUD_API_KEY || 'cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==';
-  const numeroLimpo = numero.replace(/[.\-\/ ]/g, '');
-  try {
-    const r = await fetch(`https://api-publica.datajud.cnj.jus.br/${index}/_search`, {
-      method: 'POST',
-      headers: { 'Authorization': `ApiKey ${key}`, 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(28000),
-      body: JSON.stringify({ size: 1, query: { match: { numeroProcesso: numeroLimpo } } }),
-    });
-    if (!r.ok) return null;
-    return JSON.parse(_decodeBuf(await r.arrayBuffer())).hits?.hits || null;
-  } catch { return null; }
-}
-
+// Mesma função do cron — antes havia uma cópia local aqui que divergia
+// (size 1, janela de "novos" diferente) e gerava resultados diferentes.
 async function acaoSincronizarProcessos(req, res, admin, adminUser) {
   const { userId } = req.body || {};
   const startAt = Date.now();
@@ -553,7 +525,7 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
 
   // Ordena pelos menos sincronizados primeiro — garante rotação entre todos
   let q = admin.from('processos')
-    .select('id, user_id, numero, datajud_index, movimentos_hash, movimentos_recentes, created_at')
+    .select('id, user_id, numero, nome, datajud_index, movimentos_hash, movimentos_recentes, notificacao_pendente, novos_movimentos, created_at')
     .not('datajud_index', 'is', null)
     .neq('status', 'Arquivado')
     .order('ultima_verificacao', { ascending: true, nullsFirst: true });
@@ -563,52 +535,26 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
   if (error) return res.status(500).json({ erro: error.message });
 
   const hoje = new Date().toISOString().slice(0, 10);
-  let atualizados = 0, semMudanca = 0, naoEncontrado = 0, erros = 0, parou = false;
+  let atualizados = 0, comNovidade = 0, semMudanca = 0, naoEncontrado = 0, erros = 0, parou = false;
 
   for (let i = 0; i < processos.length; i += 10) {
-    // 90s (não 75s) — o timeout por chamada subiu de 15s pra 28s, então um lote em
-    // andamento pode demorar mais; maxDuration deste endpoint subiu junto (vercel.json)
-    // pra sobrar espaço pro disparo de e-mail depois do loop.
-    if (Date.now() - startAt > 90000) { parou = true; break; }
+    // 70s + até 28s do último lote + disparo de e-mail cabem no maxDuration de 120s
+    if (Date.now() - startAt > 70000) { parou = true; break; }
 
     const lote = processos.slice(i, i + 10);
-    await Promise.all(lote.map(async proc => {
-      if ((proc.created_at || '').slice(0, 10) === hoje) return;
-      const hits = await _buscarDatajud(proc.datajud_index, proc.numero);
-      if (hits === null)  { erros++; return; }       // timeout ou erro de API
-      if (!hits.length)   { naoEncontrado++; return; } // 200 OK mas não existe no índice
-
-      const movimentos = (hits[0]._source.movimentos || [])
-        .sort((a, b) => new Date(b.dataHora) - new Date(a.dataHora))
-        .slice(0, 100)
-        .map(m => ({ nome: m.nome, data: _parsarData(m.dataHora) }));
-
-      const novoHash = movimentos.slice(0, 6).map(m => m.data + m.nome).join('|');
-      if (novoHash === proc.movimentos_hash) { semMudanca++; return; }
-
-      const novos = proc.movimentos_hash
-        ? movimentos.filter(m => !proc.movimentos_hash.includes(m.data + m.nome))
-        : movimentos.slice(0, 1);
-      const novosValidos = novos.filter(m => m.data && m.data >= (proc.created_at || '').slice(0, 10));
-
-      // Preserva movimentos DJEN existentes — mesmo critério do cron (sincronizar.js)
-      const djenExistentes = (proc.movimentos_recentes || []).filter(m => (m.nome || '').startsWith('DJEN'));
-      const movimentosFinal = [...movimentos, ...djenExistentes]
-        .sort((a, b) => (b.data || '') > (a.data || '') ? 1 : -1)
-        .slice(0, 100);
-
-      const update = { movimentos_recentes: movimentosFinal, movimentos_hash: novoHash, ultima_verificacao: new Date().toISOString() };
-      if (novosValidos.length) { update.notificacao_pendente = true; update.novos_movimentos = novosValidos; }
-
-      const { error: upErr } = await admin.from('processos').update(update).eq('id', proc.id);
-      if (upErr) erros++;
-      else atualizados++;
-    }));
+    const resultados = await Promise.all(lote.map(proc => sincronizarDatajudUm(proc, admin, hoje)));
+    for (const r of resultados) {
+      if (r === 'novos')               { atualizados++; comNovidade++; }
+      else if (r === 'atualizado')     atualizados++;
+      else if (r === 'sem-mudanca')    semMudanca++;
+      else if (r === 'nao-encontrado') naoEncontrado++;
+      else if (r === 'erro')           erros++;
+    }
   }
 
-  // Dispara e-mails imediatamente se houve atualizações — sem esperar o próximo cron agendado
+  // Dispara e-mails imediatamente se houve novidades — sem esperar o próximo cron agendado
   let emailsDisparados = 0;
-  if (atualizados > 0) {
+  if (comNovidade > 0) {
     const cronSecret = process.env.CRON_SECRET;
     const fakeReq = { headers: { authorization: cronSecret ? `Bearer ${cronSecret}` : '' }, query: {} }; // tipo auto-detectado pela hora atual
     let emailResult = null;
