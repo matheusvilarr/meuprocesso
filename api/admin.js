@@ -14,21 +14,26 @@ function getAdminClient() {
 
 // Verifica o token do usuário logado e confirma que ele está na tabela admins.
 // Retorna null se não for admin — nunca confiar em flags vindas do client.
+// Devolve { user, nivel } ou { negado: motivo } — o motivo aparece na tela
+// de "acesso restrito" pra dar pra diagnosticar sem abrir o console.
 async function requireAdmin(req, admin) {
   const authHeader = req.headers['authorization'] || '';
   const token = authHeader.replace('Bearer ', '').trim();
-  if (!token) return null;
+  if (!token) return { negado: 'Sessão não encontrada neste navegador — faça login de novo.' };
 
   const { data: userData, error } = await admin.auth.getUser(token);
-  if (error || !userData?.user) return null;
+  if (error || !userData?.user) {
+    return { negado: `Login inválido ou expirado (${error?.message || 'sem usuário'}) — saia e entre de novo.` };
+  }
 
-  const { data: adminRow } = await admin
+  const { data: adminRow, error: adminErr } = await admin
     .from('admins')
     .select('user_id, nivel')
     .eq('user_id', userData.user.id)
     .maybeSingle();
 
-  if (!adminRow) return null;
+  if (adminErr) return { negado: `Erro ao consultar a lista de administradores: ${adminErr.message}` };
+  if (!adminRow) return { negado: `A conta ${userData.user.email} não está na lista de administradores.` };
   return { user: userData.user, nivel: adminRow.nivel };
 }
 
@@ -631,7 +636,7 @@ async function acaoRodarEmails(req, res) {
 export default async function handler(req, res) {
   const admin = getAdminClient();
   const adminUser = await requireAdmin(req, admin);
-  if (!adminUser) return res.status(403).json({ erro: 'Acesso restrito a administradores.' });
+  if (adminUser.negado) return res.status(403).json({ erro: 'Acesso restrito a administradores.', motivo: adminUser.negado });
 
   const acao = req.method === 'GET' ? req.query?.acao : (req.body || {}).acao;
 

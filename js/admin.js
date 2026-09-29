@@ -20,9 +20,15 @@ async function init() {
     headers: { 'Authorization': `Bearer ${_adminToken}` },
   });
 
-  if (r.status === 403) {
-    document.getElementById('admin-guard').textContent = 'Acesso restrito a administradores.';
-    setTimeout(() => window.location.href = 'dashboard.html', 1800);
+  if (!r.ok) {
+    let motivo = '';
+    try { motivo = (await r.json()).motivo || ''; } catch (_) { motivo = `Servidor respondeu ${r.status}.`; }
+    document.getElementById('admin-guard').innerHTML = `
+      <div style="text-align:center;max-width:460px;line-height:1.6">
+        <div style="font-size:16px;font-weight:600;color:#2e2e2a;margin-bottom:8px">Acesso restrito a administradores</div>
+        ${motivo ? `<div style="font-size:13px;margin-bottom:16px">${esc(motivo)}</div>` : ''}
+        <a href="/dashboard" style="color:#1a2e6b;font-weight:600">← Voltar ao dashboard</a>
+      </div>`;
     return;
   }
 
