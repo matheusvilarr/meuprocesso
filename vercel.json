@@ -1,6 +1,5 @@
 {
   "cleanUrls": true,
-  "regions": ["gru1"],
   "redirects": [
     {
       "source": "/",
