@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { repararDatajudIndex, sincronizarDatajudUm } from './cron/sincronizar.js';
 import emailHandler from './cron/verificar-atualizacoes.js';
 import djenCadernosHandler from '../lib/djen-cadernos.js';
+import { ehMovDJEN } from '../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
 const SUPA_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -31,22 +32,49 @@ async function requireAdmin(req, admin) {
   return { user: userData.user, nivel: adminRow.nivel };
 }
 
+// O Supabase devolve no máximo 1000 linhas por consulta — pagina até o fim
+// pra contagens do painel não ficarem erradas quando a base crescer.
+async function todasAsLinhas(montarQuery) {
+  const linhas = [];
+  for (let de = 0; ; de += 1000) {
+    const { data, error } = await montarQuery().range(de, de + 999);
+    if (error) throw error;
+    linhas.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  return linhas;
+}
+
+async function todosOsUsuarios(admin) {
+  const users = [];
+  for (let page = 1; ; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ perPage: 1000, page });
+    if (error) throw error;
+    users.push(...(data?.users || []));
+    if ((data?.users || []).length < 1000) break;
+  }
+  return users;
+}
+
 async function acaoDados(req, res, admin, adminUser) {
-  const { data: usersList, error: usersErr } = await admin.auth.admin.listUsers({ perPage: 1000 });
-  if (usersErr) return res.status(500).json({ erro: usersErr.message });
-  const users = usersList?.users || [];
+  let users, processosRows, tarefasRows;
+  try {
+    [users, processosRows, tarefasRows] = await Promise.all([
+      todosOsUsuarios(admin),
+      todasAsLinhas(() => admin.from('processos').select('user_id, datajud_index, ultima_verificacao, notificacao_pendente').neq('status', 'Arquivado').order('id')),
+      todasAsLinhas(() => admin.from('tarefas').select('user_id').neq('coluna', 'concluida').order('id')),
+    ]);
+  } catch (e) {
+    return res.status(500).json({ erro: e.message });
+  }
 
   const [
-    { data: processosRows },
-    { data: tarefasRows },
     { data: colaboradoresRows },
     { data: adminsRows },
     { data: codigos },
     { data: assinaturasRows },
     { data: cronErros },
   ] = await Promise.all([
-    admin.from('processos').select('user_id, datajud_index, ultima_verificacao, notificacao_pendente').neq('status', 'Arquivado'),
-    admin.from('tarefas').select('user_id').neq('coluna', 'concluida'),
     admin.from('colaboradores').select('escritorio_id, user_id').eq('status', 'ativo'),
     admin.from('admins').select('user_id, nivel'),
     admin.from('codigos_acesso')
@@ -60,16 +88,18 @@ async function acaoDados(req, res, admin, adminUser) {
       .not('origem', 'ilike', 'cron:email%')
       .gte('created_at', new Date(Date.now() - 14 * 86400000).toISOString())
       .order('created_at', { ascending: false })
-      .limit(100),
+      .limit(1000),
   ]);
 
+  const h48 = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
   const contagemProcessos = {};
   const syncStats = {};
   for (const p of processosRows || []) {
     contagemProcessos[p.user_id] = (contagemProcessos[p.user_id] || 0) + 1;
-    if (!syncStats[p.user_id]) syncStats[p.user_id] = { sincronizados: 0, comNotificacao: 0, ultimaSync: null };
+    if (!syncStats[p.user_id]) syncStats[p.user_id] = { sincronizados: 0, comNotificacao: 0, desatualizados: 0, ultimaSync: null };
     const s = syncStats[p.user_id];
     if (p.datajud_index) s.sincronizados++;
+    if (p.datajud_index && (!p.ultima_verificacao || p.ultima_verificacao < h48)) s.desatualizados++;
     if (p.notificacao_pendente) s.comNotificacao++;
     if (p.ultima_verificacao && (!s.ultimaSync || p.ultima_verificacao > s.ultimaSync)) s.ultimaSync = p.ultima_verificacao;
   }
@@ -115,6 +145,7 @@ async function acaoDados(req, res, admin, adminUser) {
         numProcessos:     contagemProcessos[u.id] || 0,
         numSincronizados: syncStats[u.id]?.sincronizados || 0,
         numNotificacoes:  syncStats[u.id]?.comNotificacao || 0,
+        numDesatualizados: syncStats[u.id]?.desatualizados || 0,
         ultimaSync:       syncStats[u.id]?.ultimaSync || null,
         numTarefas:       contagemTarefas[u.id] || 0,
         numColaboradores: colaboradoresPorTitular[u.id] || 0,
@@ -170,8 +201,7 @@ async function acaoGerenciarAdmin(req, res, admin, adminUser) {
   const { email, tipo } = req.body || {}; // tipo: 'promover' | 'remover'
   if (!email || !tipo) return res.status(400).json({ erro: 'email e tipo são obrigatórios.' });
 
-  const { data: usersList } = await admin.auth.admin.listUsers({ perPage: 1000 });
-  const target = usersList?.users?.find(u => u.email?.toLowerCase() === email.toLowerCase().trim());
+  const target = (await todosOsUsuarios(admin)).find(u => u.email?.toLowerCase() === email.toLowerCase().trim());
   if (!target) return res.status(404).json({ erro: 'Usuário não encontrado.' });
 
   if (tipo === 'promover') {
@@ -233,8 +263,7 @@ async function acaoConvidarAdvogado(req, res, admin, adminUser) {
   }
   const emailNorm = email.toLowerCase().trim();
 
-  const { data: usersList } = await admin.auth.admin.listUsers({ perPage: 1000 });
-  if (usersList?.users?.some(u => u.email?.toLowerCase() === emailNorm)) {
+  if ((await todosOsUsuarios(admin)).some(u => u.email?.toLowerCase() === emailNorm)) {
     return res.status(422).json({ erro: 'Esse e-mail já tem conta cadastrada.' });
   }
 
@@ -606,6 +635,8 @@ export default async function handler(req, res) {
 
   const acao = req.method === 'GET' ? req.query?.acao : (req.body || {}).acao;
 
+  if (acao === 'saude')            return acaoSaude(req, res, admin);
+  if (acao === 'detalhe-usuario')  return acaoDetalheUsuario(req, res, admin);
   if (acao === 'dados')         return acaoDados(req, res, admin, adminUser);
   if (acao === 'emails')        return acaoEmails(req, res, admin);
   if (acao === 'pendentes')     return acaoPendentes(req, res, admin);
@@ -629,6 +660,206 @@ export default async function handler(req, res) {
   return res.status(400).json({ erro: 'acao inválida.' });
 }
 
+// ── SAÚDE DO SISTEMA ─────────────────────────────────────────────────────────
+// Diagnóstico automático: configuração, DataJud, DJEN, e-mails e assinaturas.
+// Gera alertas prontos pro painel — a ideia é que um problema como os deploys
+// quebrados de ago–set/2026 apareça aqui no mesmo dia, não dois meses depois.
+
+function dataBrasilia(deltaDias = 0) {
+  return new Date(Date.now() - 3 * 3600 * 1000 + deltaDias * 86400000).toISOString().slice(0, 10);
+}
+
+async function contar(query) {
+  const { count, error } = await query;
+  return error ? null : (count ?? 0);
+}
+
+async function acaoSaude(req, res, admin) {
+  const agora = Date.now();
+  const h24   = new Date(agora - 24 * 3600 * 1000).toISOString();
+  const h48   = new Date(agora - 48 * 3600 * 1000).toISOString();
+  const em7d  = new Date(agora + 7 * 86400000).toISOString();
+  const hoje  = dataBrasilia(0);
+  const ontem = dataBrasilia(-1);
+  const base  = () => admin.from('processos').select('id', { count: 'exact', head: true }).neq('status', 'Arquivado');
+
+  const [
+    totalAtivos, comIndice, desatualizados, nuncaVerificados, avisosSite, emailsPendentes,
+    { data: ultimaVerif }, { data: fila }, { data: erros24h }, { data: ultimoEmail }, { data: assinaturas },
+  ] = await Promise.all([
+    contar(base()),
+    contar(base().not('datajud_index', 'is', null)),
+    contar(base().not('datajud_index', 'is', null).lt('ultima_verificacao', h48)),
+    contar(base().not('datajud_index', 'is', null).is('ultima_verificacao', null)),
+    contar(base().eq('notificacao_pendente', true)),
+    contar(base().eq('email_pendente', true)),
+    admin.from('processos').select('ultima_verificacao').not('ultima_verificacao', 'is', null)
+      .order('ultima_verificacao', { ascending: false }).limit(1),
+    admin.from('djen_cadernos_fila').select('tribunal, data, status, comunicacoes_encontradas, concluido_em').in('data', [ontem, hoje]),
+    admin.from('error_log').select('origem').gte('created_at', h24).limit(1000),
+    admin.from('notif_log').select('tipo, data').order('data', { ascending: false }).limit(1),
+    admin.from('assinaturas').select('escritorio_id, plano, status, data_expiracao'),
+  ]);
+
+  const djen = {
+    hoje:  { total: 0, concluidos: 0, pendentes: 0, erros: 0, publicacoes: 0 },
+    ontem: { total: 0, concluidos: 0, pendentes: 0, erros: 0, publicacoes: 0 },
+    ultimaConclusao: null,
+  };
+  for (const f of fila || []) {
+    const d = f.data === hoje ? djen.hoje : djen.ontem;
+    d.total++;
+    if (f.status === 'concluido') d.concluidos++;
+    else if (f.status === 'erro') d.erros++;
+    else d.pendentes++;
+    d.publicacoes += f.comunicacoes_encontradas || 0;
+    if (f.concluido_em && (!djen.ultimaConclusao || f.concluido_em > djen.ultimaConclusao)) djen.ultimaConclusao = f.concluido_em;
+  }
+
+  const errosPorOrigem = {};
+  for (const e of erros24h || []) errosPorOrigem[e.origem] = (errosPorOrigem[e.origem] || 0) + 1;
+
+  const vencendo7d = (assinaturas || []).filter(a => a.status === 'ativo' && a.data_expiracao >= new Date(agora).toISOString() && a.data_expiracao <= em7d).length;
+  const vencidas   = (assinaturas || []).filter(a => a.status !== 'ativo' || a.data_expiracao < new Date(agora).toISOString()).length;
+  const emTrial    = (assinaturas || []).filter(a => a.plano === 'trial' && a.status === 'ativo' && a.data_expiracao >= new Date(agora).toISOString()).length;
+
+  const config = {
+    cronSecret: !!process.env.CRON_SECRET,
+    resend:     !!process.env.RESEND_API_KEY,
+    regiao:     process.env.VERCEL_REGION || null,
+    deploy:     (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || null,
+  };
+
+  // nivel: 'critico' | 'atencao' | 'info'
+  const alertas = [];
+  const add = (nivel, titulo, detalhe, acao) => alertas.push({ nivel, titulo, detalhe, acao: acao || null });
+
+  if (!config.cronSecret) add('critico', 'CRON_SECRET não configurado',
+    'Qualquer pessoa consegue disparar os crons pela URL. Na Vercel: Settings → Environment Variables → adicione CRON_SECRET com uma senha longa e faça um novo deploy.');
+  if (!config.resend) add('critico', 'RESEND_API_KEY ausente', 'Nenhum e-mail está sendo enviado.');
+  if (config.regiao && config.regiao !== 'gru1') add('atencao', `Funções rodando em ${config.regiao}`,
+    'A API do DJEN bloqueia IPs fora do Brasil (403). Confira "regions": ["gru1"] no vercel.json.');
+
+  const djenHorasSemConcluir = djen.ultimaConclusao ? (agora - new Date(djen.ultimaConclusao)) / 3600000 : null;
+  if (djenHorasSemConcluir === null || djenHorasSemConcluir > 24) add('critico', 'DJEN parado',
+    djen.ultimaConclusao ? `Nenhum caderno concluído há ${Math.round(djenHorasSemConcluir)}h.` : 'Nenhum caderno de hoje/ontem foi concluído.',
+    { tipo: 'aba', aba: 'djen-cadernos', label: 'Ver cadernos' });
+  const errosDjen = djen.hoje.erros + djen.ontem.erros;
+  if (errosDjen) add('atencao', `${errosDjen} caderno(s) do DJEN com erro`, 'Veja a aba Cadernos DJEN — publicações desses tribunais/dias podem ter ficado de fora.',
+    { tipo: 'aba', aba: 'djen-cadernos', label: 'Ver cadernos' });
+
+  if (desatualizados) add('atencao', `${desatualizados} processo(s) sem consulta ao DataJud há mais de 48h`,
+    'O DataJud anda instável (timeouts). Se o número não cair nas próximas execuções, rode "DataJud agora".',
+    { tipo: 'aba', aba: 'sincronizacoes', label: 'Ver sincronizações' });
+  if (nuncaVerificados) add('info', `${nuncaVerificados} processo(s) aguardando a primeira consulta ao DataJud`,
+    'Normal logo após importação — o cron pega esses primeiro.');
+
+  const totalErros24h = Object.values(errosPorOrigem).reduce((s, n) => s + n, 0);
+  if (totalErros24h >= 20) add('atencao', `${totalErros24h} erros de sincronização nas últimas 24h`,
+    Object.entries(errosPorOrigem).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([o, n]) => `${o}: ${n}`).join(' · '),
+    { tipo: 'aba', aba: 'sincronizacoes', label: 'Ver erros' });
+
+  const ultimoEmailData = ultimoEmail?.[0]?.data || null;
+  if (emailsPendentes && ultimoEmailData && ultimoEmailData < ontem) add('atencao', `${emailsPendentes} novidade(s) esperando e-mail`,
+    `Nenhum e-mail enviado desde ${ultimoEmailData.split('-').reverse().join('/')}.`, { tipo: 'aba', aba: 'emails', label: 'Ver e-mails' });
+
+  if (vencendo7d) add('info', `${vencendo7d} assinatura(s) vencem nos próximos 7 dias`, 'Bom momento para lembrar o cliente.',
+    { tipo: 'filtro', filtro: 'vencendo', label: 'Ver quem' });
+  if (vencidas) add('info', `${vencidas} conta(s) com assinatura vencida`, 'Esses usuários estão travados na tela de cobrança.',
+    { tipo: 'filtro', filtro: 'vencidos', label: 'Ver quem' });
+
+  return res.json({
+    ok: true,
+    geradoEm: new Date().toISOString(),
+    config,
+    datajud: { totalAtivos, comIndice, desatualizados, nuncaVerificados, ultimaVerificacao: ultimaVerif?.[0]?.ultima_verificacao || null },
+    djen,
+    emails: { pendentes: emailsPendentes, avisosSite, ultimoEnvio: ultimoEmailData, ultimoTipo: ultimoEmail?.[0]?.tipo || null },
+    erros24h: errosPorOrigem,
+    assinaturas: { vencendo7d, vencidas, emTrial },
+    alertas,
+  });
+}
+
+// ── FICHA DE UM ADVOGADO ─────────────────────────────────────────────────────
+
+async function acaoDetalheUsuario(req, res, admin) {
+  const userId = req.query?.userId;
+  if (!userId) return res.status(400).json({ erro: 'userId obrigatório.' });
+
+  const h48 = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+  const [
+    { data: ud, error: udErr },
+    { data: procs },
+    { data: assinatura },
+    { data: erros },
+    { data: colabs },
+    { data: ultimosEmails },
+  ] = await Promise.all([
+    admin.auth.admin.getUserById(userId),
+    admin.from('processos')
+      .select('id, numero, nome, apelido, cliente, tribunal, status, datajud_index, ultima_verificacao, notificacao_pendente, email_pendente, movimentos_recentes, created_at')
+      .eq('user_id', userId).limit(2000),
+    admin.from('assinaturas').select('plano, status, data_inicio, data_expiracao, valor_pago, forma_pagamento, observacoes').eq('escritorio_id', userId).maybeSingle(),
+    admin.from('error_log').select('origem, mensagem, created_at').eq('user_id', userId)
+      .gte('created_at', new Date(Date.now() - 14 * 86400000).toISOString()).order('created_at', { ascending: false }).limit(15),
+    admin.from('colaboradores').select('user_id, nome, email, cargo').eq('escritorio_id', userId).eq('status', 'ativo'),
+    admin.from('notif_log').select('tipo, data').eq('user_id', userId).order('data', { ascending: false }).limit(5),
+  ]);
+  if (udErr || !ud?.user) return res.status(404).json({ erro: 'Usuário não encontrado.' });
+
+  const u    = ud.user;
+  const meta = u.user_metadata || {};
+  const lista = procs || [];
+  const ativos = lista.filter(p => p.status !== 'Arquivado');
+
+  let ultimaPublicacaoDjen = null;
+  const recentes = [];
+  for (const p of ativos) {
+    const movs = p.movimentos_recentes || [];
+    const djen = movs.filter(ehMovDJEN).map(m => String(m.data || '').slice(0, 10)).sort().pop();
+    if (djen && (!ultimaPublicacaoDjen || djen > ultimaPublicacaoDjen)) ultimaPublicacaoDjen = djen;
+    const ultima = [...movs].sort((a, b) => String(b.data || '').localeCompare(String(a.data || '')))[0];
+    if (ultima) recentes.push({
+      numero: p.numero, nome: p.apelido || p.nome, cliente: p.cliente || null,
+      mov: ultima.nome, data: ultima.data, fonte: ehMovDJEN(ultima) ? 'DJEN' : 'DataJud',
+      novo: !!p.notificacao_pendente,
+    });
+  }
+  recentes.sort((a, b) => String(b.data || '').localeCompare(String(a.data || '')));
+
+  return res.json({
+    ok: true,
+    usuario: {
+      id: u.id, email: u.email,
+      nome: meta.full_name || meta.nome || '—',
+      oabs: String(meta.oab || '').split(',').map(s => s.trim()).filter(Boolean),
+      telefone: meta.telefone || null,
+      criadoEm: u.created_at, ultimoLogin: u.last_sign_in_at || null,
+      emailConfirmado: !!u.email_confirmed_at,
+      bloqueado: !!(u.banned_until && new Date(u.banned_until) > new Date()),
+      provider: u.app_metadata?.provider || 'email',
+    },
+    assinatura: assinatura || null,
+    processos: {
+      total: lista.length,
+      ativos: ativos.length,
+      arquivados: lista.length - ativos.length,
+      monitorados: ativos.filter(p => p.datajud_index).length,
+      semNumeroCnj: ativos.filter(p => !p.datajud_index).length,
+      desatualizados48h: ativos.filter(p => p.datajud_index && (!p.ultima_verificacao || p.ultima_verificacao < h48)).length,
+      avisosSite: ativos.filter(p => p.notificacao_pendente).length,
+      emailsPendentes: ativos.filter(p => p.email_pendente).length,
+      autoImportados: ativos.filter(p => (p.movimentos_recentes || []).some(m => m._auto_importado)).length,
+    },
+    ultimaPublicacaoDjen,
+    recentes: recentes.slice(0, 8),
+    colaboradores: colabs || [],
+    ultimosEmails: ultimosEmails || [],
+    erros: erros || [],
+  });
+}
+
 async function acaoPendentes(req, res, admin) {
   let page = 1;
   const todos = [];
@@ -639,8 +870,17 @@ async function acaoPendentes(req, res, admin) {
     if ((data?.users || []).length < 1000) break;
     page++;
   }
+  // Desde as assinaturas, quem tem linha em "assinaturas" (trial ou pago) já
+  // entra direto — só quem NÃO tem fica travado na tela /aguardando. Antes a
+  // lista mostrava todo mundo sem o status antigo "aprovado", inclusive
+  // usuários ativos em trial, ao lado de um botão que apaga a conta.
+  const { data: assinaturas } = await admin.from('assinaturas').select('escritorio_id');
+  const comAssinatura = new Set((assinaturas || []).map(a => a.escritorio_id));
+  const { data: colabs } = await admin.from('colaboradores').select('user_id').eq('status', 'ativo');
+  const ehColaborador = new Set((colabs || []).map(c => c.user_id));
+
   const pendentes = todos
-    .filter(u => u.user_metadata?.status !== 'aprovado')
+    .filter(u => u.user_metadata?.status !== 'aprovado' && !comAssinatura.has(u.id) && !ehColaborador.has(u.id))
     .map(u => ({
       id:         u.id,
       email:      u.email,
@@ -727,6 +967,24 @@ function emailAprovado(nome) {
 async function acaoRejeitarUsuario(req, res, admin) {
   const { userId } = req.body || {};
   if (!userId) return res.status(400).json({ erro: 'userId obrigatório.' });
+
+  // Trava de segurança: excluir conta é irreversível. Só permite para conta
+  // vazia (sem processos, tarefas, clientes nem assinatura). Pra suspender
+  // alguém que já usa o sistema, use "Bloquear".
+  const vazio = t => admin.from(t).select('id', { count: 'exact', head: true }).eq('user_id', userId);
+  const [nProc, nTar, nCli, { data: assin }] = await Promise.all([
+    contar(vazio('processos')), contar(vazio('tarefas')), contar(vazio('clientes')),
+    admin.from('assinaturas').select('escritorio_id').eq('escritorio_id', userId).maybeSingle(),
+  ]);
+  if (nProc === null || nTar === null || nCli === null) {
+    return res.status(500).json({ erro: 'Não foi possível confirmar que a conta está vazia — exclusão cancelada.' });
+  }
+  if (nProc || nTar || nCli || assin) {
+    return res.status(422).json({
+      erro: `Conta em uso (${nProc} processo(s), ${nTar} tarefa(s), ${nCli} cliente(s)${assin ? ', com assinatura' : ''}) — não pode ser excluída. Use "Bloquear" se precisar suspender o acesso.`,
+    });
+  }
+
   const { error } = await admin.auth.admin.deleteUser(userId);
   if (error) return res.status(500).json({ erro: error.message });
   return res.json({ ok: true });

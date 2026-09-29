@@ -35,10 +35,103 @@ async function init() {
   renderSincronizacoes();
   renderCodigos();
   renderAdmins();
-  setupTabs();
+  if (!_tabsProntas) { setupTabs(); _tabsProntas = true; }
   renderCronSchedule();
   startCronClock();
   carregarPendentes(); // carrega em background só para mostrar badge
+  carregarSaude();
+}
+let _tabsProntas = false;
+
+// ── SAÚDE DO SISTEMA ───────────────────────────────────────────────────────────
+
+const NIVEL_ALERTA = {
+  critico: { icone: 'ti-alert-octagon',  classe: 'alerta-critico' },
+  atencao: { icone: 'ti-alert-triangle', classe: 'alerta-atencao' },
+  info:    { icone: 'ti-info-circle',    classe: 'alerta-info' },
+};
+
+function tempoRelativo(iso) {
+  if (!iso) return 'nunca';
+  const min = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (min < 1)   return 'agora';
+  if (min < 60)  return `há ${min} min`;
+  const h = Math.round(min / 60);
+  if (h < 48)    return `há ${h}h`;
+  return `há ${Math.round(h / 24)} dias`;
+}
+
+async function carregarSaude() {
+  const alertasEl = document.getElementById('saude-alertas');
+  try {
+    const r = await fetch('/api/admin?acao=saude', { headers: { 'Authorization': `Bearer ${_adminToken}` } });
+    const s = await r.json();
+    if (!s.ok) throw new Error(s.erro || 'erro');
+    renderSaude(s);
+  } catch (e) {
+    alertasEl.innerHTML = `<div class="saude-alerta alerta-critico"><i class="ti ti-alert-octagon"></i><div><strong>Não foi possível verificar a saúde do sistema</strong><div>${esc(e.message)}</div></div></div>`;
+  }
+}
+
+function renderSaude(s) {
+  document.getElementById('saude-atualizado').textContent =
+    `verificado ${tempoRelativo(s.geradoEm)}${s.config.deploy ? ' · deploy ' + esc(s.config.deploy) : ''}`;
+
+  const alertasEl = document.getElementById('saude-alertas');
+  const ordem = { critico: 0, atencao: 1, info: 2 };
+  const alertas = [...(s.alertas || [])].sort((a, b) => ordem[a.nivel] - ordem[b.nivel]);
+  alertasEl.innerHTML = alertas.length
+    ? alertas.map((a, i) => {
+        const n = NIVEL_ALERTA[a.nivel] || NIVEL_ALERTA.info;
+        const botao = a.acao ? `<button class="adm-btn-small" onclick="acaoAlerta(${i})">${esc(a.acao.label)}</button>` : '';
+        return `<div class="saude-alerta ${n.classe}"><i class="ti ${n.icone}"></i><div class="saude-alerta-txt"><strong>${esc(a.titulo)}</strong><div>${esc(a.detalhe)}</div></div>${botao}</div>`;
+      }).join('')
+    : `<div class="saude-alerta alerta-ok"><i class="ti ti-circle-check"></i><div><strong>Tudo funcionando</strong><div>DataJud, DJEN e e-mails sem pendências.</div></div></div>`;
+  window._alertasSaude = alertas;
+
+  const d = s.datajud, dj = s.djen, em = s.emails;
+  const pct = d.comIndice ? Math.round(((d.comIndice - d.desatualizados) / d.comIndice) * 100) : 100;
+  const card = (icone, titulo, valor, linhas, estado) => `
+    <div class="saude-card ${estado}">
+      <div class="saude-card-topo"><i class="ti ${icone}"></i> ${titulo}</div>
+      <div class="saude-card-valor">${valor}</div>
+      ${linhas.map(l => `<div class="saude-card-linha">${l}</div>`).join('')}
+    </div>`;
+
+  document.getElementById('saude-cards').innerHTML = [
+    card('ti-cloud-search', 'DataJud', `${pct}% em dia`, [
+      `${d.comIndice} monitorados · ${d.desatualizados} atrasados (48h+)`,
+      `Última consulta ${tempoRelativo(d.ultimaVerificacao)}`,
+    ], pct >= 90 ? 'ok' : pct >= 60 ? 'atencao' : 'critico'),
+    card('ti-news', 'DJEN (cadernos)', `${dj.hoje.concluidos}/${dj.hoje.total} hoje`, [
+      `Ontem: ${dj.ontem.concluidos}/${dj.ontem.total}${dj.hoje.erros + dj.ontem.erros ? ` · ${dj.hoje.erros + dj.ontem.erros} com erro` : ''}`,
+      `${dj.hoje.publicacoes + dj.ontem.publicacoes} publicação(ões) encontradas · último ${tempoRelativo(dj.ultimaConclusao)}`,
+    ], !dj.ultimaConclusao ? 'critico' : (dj.hoje.erros + dj.ontem.erros) ? 'atencao' : 'ok'),
+    card('ti-mail', 'E-mails', `${em.pendentes} na fila`, [
+      `${em.avisosSite} aviso(s) aguardando leitura no site`,
+      `Último envio: ${em.ultimoEnvio ? em.ultimoEnvio.split('-').reverse().join('/') + (em.ultimoTipo ? ' (' + esc(em.ultimoTipo) + ')' : '') : 'nunca'}`,
+    ], s.config.resend ? 'ok' : 'critico'),
+    card('ti-shield-check', 'Configuração', s.config.cronSecret && s.config.resend ? 'OK' : 'Pendências', [
+      `CRON_SECRET ${s.config.cronSecret ? '✓' : '✗ faltando'} · Resend ${s.config.resend ? '✓' : '✗ faltando'}`,
+      `Região ${esc(s.config.regiao || '—')}${s.config.regiao === 'gru1' ? ' (São Paulo) ✓' : ''}`,
+    ], s.config.cronSecret && s.config.resend ? 'ok' : 'critico'),
+    card('ti-receipt', 'Assinaturas', `${s.assinaturas.emTrial} em teste`, [
+      `${s.assinaturas.vencendo7d} vencem em 7 dias`,
+      `${s.assinaturas.vencidas} vencida(s)`,
+    ], s.assinaturas.vencendo7d ? 'atencao' : 'ok'),
+  ].join('');
+}
+
+function irParaAba(aba) {
+  document.querySelector(`.adm-tab[data-tab="${aba}"]`)?.click();
+  document.querySelector('.adm-tabs')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function acaoAlerta(i) {
+  const a = (window._alertasSaude || [])[i]?.acao;
+  if (!a) return;
+  if (a.tipo === 'aba') irParaAba(a.aba);
+  if (a.tipo === 'filtro') { irParaAba('advogados'); setFiltroAdv(a.filtro); }
 }
 
 // ── CRON SCHEDULE ──────────────────────────────────────────────────────────────
@@ -215,7 +308,7 @@ async function aprovarUsuario(userId) {
 }
 
 async function rejeitarUsuario(userId) {
-  if (!confirm('Rejeitar e excluir esta conta permanentemente?')) return;
+  if (!confirm('Rejeitar e EXCLUIR esta conta permanentemente? (Só funciona para contas vazias — contas com processos são protegidas.)')) return;
   const r = await fetch('/api/admin?acao=rejeitar-usuario', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${_adminToken}`, 'Content-Type': 'application/json' },
@@ -406,26 +499,54 @@ function celulaAssinatura(a) {
           <div style="font-size:10px;color:${cor}">${fmtData(a.dataExpiracao)}${diasTxt ? ' · ' + diasTxt : ''}</div>`;
 }
 
-let _filtroOabDuplicada = false;
+let _filtroAdv = 'todos';
 
-function toggleFiltroOabDuplicada() {
-  _filtroOabDuplicada = !_filtroOabDuplicada;
-  document.getElementById('btn-filtro-oab-dup').classList.toggle('active', _filtroOabDuplicada);
+function setFiltroAdv(filtro) {
+  _filtroAdv = filtro;
+  document.querySelectorAll('#adv-filtros .adv-chip').forEach(b => b.classList.toggle('active', b.dataset.filtro === filtro));
   renderAdvogados();
 }
 
-function renderAdvogados() {
-  const lista = _filtroOabDuplicada
-    ? _adminData.advogados.filter(a => a.oabDuplicado)
-    : _adminData.advogados;
+function diasAte(iso) {
+  return iso ? Math.ceil((new Date(iso) - new Date()) / 86400000) : null;
+}
 
-  document.getElementById('adv-total').textContent = _filtroOabDuplicada
-    ? `${lista.length} com OAB duplicada`
-    : `${_adminData.advogados.length} cadastrado(s)`;
+const FILTROS_ADV = {
+  todos:          () => true,
+  trial:          a => a.plano === 'trial' && a.statusAssinatura === 'ativo' && diasAte(a.dataExpiracao) >= 0,
+  vencendo:       a => a.statusAssinatura === 'ativo' && diasAte(a.dataExpiracao) >= 0 && diasAte(a.dataExpiracao) <= 7,
+  vencidos:       a => a.plano && (a.statusAssinatura !== 'ativo' || diasAte(a.dataExpiracao) < 0),
+  desatualizados: a => a.numDesatualizados > 0,
+  inativos:       a => !a.ultimoLogin || (Date.now() - new Date(a.ultimoLogin)) > 30 * 86400000,
+  bloqueados:     a => a.bloqueado,
+  oabdup:         a => a.oabDuplicado,
+};
+
+function renderAdvogados() {
+  const termo = (document.getElementById('adv-busca')?.value || '').toLowerCase().trim();
+  const semAcento = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  const t = semAcento(termo);
+  const lista = _adminData.advogados
+    .filter(FILTROS_ADV[_filtroAdv] || FILTROS_ADV.todos)
+    .filter(a => !t || semAcento(a.nome).includes(t) || semAcento(a.email).includes(t) ||
+                 semAcento(a.oab).replace(/\W/g, '').includes(t.replace(/\W/g, '')));
+
+  // Contador em cada chip — mostra de relance quantos há em cada situação
+  document.querySelectorAll('#adv-filtros .adv-chip').forEach(b => {
+    const f = b.dataset.filtro;
+    if (f === 'todos') return;
+    const n = _adminData.advogados.filter(FILTROS_ADV[f]).length;
+    const rotulo = b.dataset.rotulo || (b.dataset.rotulo = b.textContent);
+    b.textContent = n ? `${rotulo} (${n})` : rotulo;
+  });
+
+  document.getElementById('adv-total').textContent = lista.length === _adminData.advogados.length
+    ? `${_adminData.advogados.length} cadastrado(s)`
+    : `${lista.length} de ${_adminData.advogados.length}`;
 
   document.getElementById('adv-tbody').innerHTML = lista.map(a => `
-    <tr>
-      <td>${esc(a.nome)}${a.nivelAdmin ? ' <span class="adm-badge" style="font-size:9px;vertical-align:middle;">' + esc(a.nivelAdmin.toUpperCase()) + '</span>' : ''}</td>
+    <tr class="adv-linha" onclick="abrirFicha('${a.id}')" title="Ver ficha completa">
+      <td><span class="adv-nome">${esc(a.nome)}</span>${a.nivelAdmin ? ' <span class="adm-badge" style="font-size:9px;vertical-align:middle;">' + esc(a.nivelAdmin.toUpperCase()) + '</span>' : ''}${a.numDesatualizados ? ` <span class="adm-status-pill adm-status-pendente" style="font-size:9px;" title="Processos sem consulta ao DataJud há 48h+">${a.numDesatualizados} atrasado(s)</span>` : ''}</td>
       <td>${esc(a.email)}${a.emailConfirmado ? '' : ' <span class="adm-status-pill adm-status-pendente" style="font-size:9px;">não confirmado</span>'}</td>
       <td>${esc(a.oab)}${a.oabDuplicado ? ' <span class="adm-status-pill adm-status-bloqueado" title="Outra conta usa a mesma OAB" style="font-size:9px;"><i class="ti ti-alert-triangle"></i> duplicada</span>' : ''}</td>
       <td>${fmtData(a.criadoEm)}</td>
@@ -435,7 +556,7 @@ function renderAdvogados() {
       <td>${a.numColaboradores}</td>
       <td><span class="adm-status-pill ${a.bloqueado ? 'adm-status-bloqueado' : 'adm-status-ativo'}">${a.bloqueado ? 'Bloqueado' : 'Ativo'}</span></td>
       <td>${celulaAssinatura(a)}</td>
-      <td>
+      <td onclick="event.stopPropagation()">
         <button class="adm-btn-small ${a.bloqueado ? 'ok' : 'danger'}" onclick="toggleStatus('${a.id}', ${!a.bloqueado})">
           ${a.bloqueado ? 'Desbloquear' : 'Bloquear'}
         </button>
@@ -444,7 +565,165 @@ function renderAdvogados() {
         </button>
       </td>
     </tr>
-  `).join('') || `<tr><td colspan="11" style="text-align:center;color:#9f9f98;">${_filtroOabDuplicada ? 'Nenhuma OAB duplicada encontrada.' : 'Nenhum advogado cadastrado.'}</td></tr>`;
+  `).join('') || `<tr><td colspan="11" style="text-align:center;color:#9f9f98;">Nenhum advogado encontrado com esse filtro/busca.</td></tr>`;
+}
+
+// ── FICHA DO ADVOGADO ──────────────────────────────────────────────────────────
+
+let _fichaId = null;
+
+function fecharFicha() {
+  document.getElementById('modal-ficha').style.display = 'none';
+  _fichaId = null;
+}
+
+async function abrirFicha(id) {
+  _fichaId = id;
+  const a = (_adminData.advogados || []).find(x => x.id === id);
+  document.getElementById('ficha-nome').textContent = a?.nome || '—';
+  document.getElementById('ficha-sub').textContent  = a?.email || '';
+  document.getElementById('ficha-corpo').innerHTML  = '<div class="saude-carregando">Carregando…</div>';
+  document.getElementById('modal-ficha').style.display = 'flex';
+
+  try {
+    const r = await fetch(`/api/admin?acao=detalhe-usuario&userId=${encodeURIComponent(id)}`, { headers: { 'Authorization': `Bearer ${_adminToken}` } });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.erro || 'erro');
+    if (_fichaId === id) renderFicha(d, a);
+  } catch (e) {
+    document.getElementById('ficha-corpo').innerHTML = `<p style="color:#c0392b">Erro ao carregar: ${esc(e.message)}</p>`;
+  }
+}
+
+function renderFicha(d, resumo) {
+  const u = d.usuario, p = d.processos, as = d.assinatura;
+  document.getElementById('ficha-sub').innerHTML =
+    `${esc(u.email)} · ${u.oabs.length ? 'OAB ' + u.oabs.map(esc).join(', ') : '<span style="color:#c0392b">sem OAB cadastrada — DJEN não encontra publicações</span>'}`;
+
+  const dias = as ? diasAte(as.data_expiracao) : null;
+  const assinTxt = !as ? 'Sem assinatura (travado em /aguardando)'
+    : `${esc(PLANO_LABEL[as.plano] || as.plano)} · ${as.status !== 'ativo' || dias < 0 ? '<strong style="color:#c0392b">vencida</strong>' : dias === 0 ? 'vence hoje' : `${dias} dia(s) restantes`} · até ${fmtData(as.data_expiracao)}`;
+
+  const kpi = (valor, rotulo, alerta) => `<div class="ficha-kpi${alerta ? ' alerta' : ''}"><div class="ficha-kpi-v">${valor}</div><div class="ficha-kpi-l">${rotulo}</div></div>`;
+
+  const recentes = d.recentes.length
+    ? d.recentes.map(m => `
+        <div class="ficha-mov">
+          <div class="ficha-mov-data">${m.data ? fmtData(m.data) : '—'}</div>
+          <div class="ficha-mov-txt">
+            <div><strong>${esc(m.nome)}</strong>${m.novo ? ' <span class="adm-status-pill adm-status-pendente" style="font-size:9px;">não lido</span>' : ''}</div>
+            <div class="ficha-mov-sub">${esc(m.mov)} · <span class="ficha-fonte ${m.fonte === 'DJEN' ? 'djen' : ''}">${m.fonte}</span></div>
+          </div>
+        </div>`).join('')
+    : '<div class="ficha-vazio">Nenhuma movimentação registrada.</div>';
+
+  const erros = d.erros.length
+    ? d.erros.map(e => `<div class="ficha-erro"><code>${esc(e.origem)}</code> ${esc(e.mensagem)} <span>${tempoRelativo(e.created_at)}</span></div>`).join('')
+    : '<div class="ficha-vazio">Nenhum erro nos últimos 14 dias.</div>';
+
+  // Dicas automáticas a partir dos dados
+  const dicas = [];
+  if (!u.oabs.length) dicas.push('Sem OAB no perfil: o DJEN não consegue achar publicações nem importar processos novos.');
+  if (p.desatualizados48h) dicas.push(`${p.desatualizados48h} processo(s) sem consulta ao DataJud há 48h+ — use "Sincronizar agora".`);
+  if (p.semNumeroCnj) dicas.push(`${p.semNumeroCnj} processo(s) sem número CNJ válido não são monitorados automaticamente.`);
+  if (!u.ultimoLogin || (Date.now() - new Date(u.ultimoLogin)) > 30 * 86400000) dicas.push('Não entra no sistema há mais de 30 dias.');
+  if (as && as.plano === 'trial' && dias !== null && dias >= 0 && dias <= 3) dicas.push('Teste grátis acabando — bom momento para contato.');
+  if (!u.emailConfirmado) dicas.push('E-mail ainda não confirmado.');
+
+  document.getElementById('ficha-corpo').innerHTML = `
+    ${dicas.length ? `<div class="ficha-dicas">${dicas.map(t => `<div><i class="ti ti-bulb"></i> ${esc(t)}</div>`).join('')}</div>` : ''}
+
+    <div class="ficha-kpis">
+      ${kpi(p.ativos, 'processos ativos')}
+      ${kpi(p.monitorados, 'monitorados (CNJ)')}
+      ${kpi(p.desatualizados48h, 'sync atrasada', p.desatualizados48h > 0)}
+      ${kpi(p.avisosSite, 'avisos não lidos')}
+      ${kpi(p.autoImportados, 'importados pelo DJEN')}
+      ${kpi(d.ultimaPublicacaoDjen ? fmtData(d.ultimaPublicacaoDjen) : '—', 'última publicação DJEN')}
+    </div>
+
+    <div class="ficha-secao">
+      <div class="ficha-secao-titulo"><i class="ti ti-receipt"></i> Assinatura</div>
+      <div class="ficha-linha">${assinTxt}${as?.valor_pago ? ` · R$ ${Number(as.valor_pago).toFixed(2).replace('.', ',')}` : ''}${as?.observacoes ? ` · <em>${esc(as.observacoes)}</em>` : ''}</div>
+      <div class="ficha-acoes">
+        <button class="adm-btn-small" onclick="renovarAssinatura('${u.id}', 30, 'mensal')">+30 dias (mensal)</button>
+        <button class="adm-btn-small" onclick="renovarAssinatura('${u.id}', 182, 'semestral')">+6 meses</button>
+        <button class="adm-btn-small" onclick="renovarAssinatura('${u.id}', 365, 'anual')">+1 ano</button>
+        <button class="adm-btn-small" onclick="renovarAssinatura('${u.id}', 7, null)">+7 dias (mesmo plano)</button>
+        <button class="adm-btn-small" onclick="fecharFicha();abrirAssinatura('${u.id}')">Editar…</button>
+      </div>
+    </div>
+
+    <div class="ficha-secao">
+      <div class="ficha-secao-titulo"><i class="ti ti-activity"></i> Últimas movimentações</div>
+      ${recentes}
+    </div>
+
+    <div class="ficha-secao">
+      <div class="ficha-secao-titulo"><i class="ti ti-alert-triangle"></i> Erros de sincronização (14 dias)</div>
+      ${erros}
+    </div>
+
+    <div class="ficha-secao ficha-rodape">
+      <div class="ficha-linha" style="color:#9f9f98;font-size:12px;">
+        Cadastro ${fmtData(u.criadoEm)} · último login ${u.ultimoLogin ? tempoRelativo(u.ultimoLogin) : 'nunca'} · via ${esc(u.provider)}
+        ${u.telefone ? ` · tel. ${esc(u.telefone)}` : ''}
+        ${d.colaboradores.length ? ` · ${d.colaboradores.length} colaborador(es)` : ''}
+        ${d.ultimosEmails.length ? ` · último e-mail ${d.ultimosEmails[0].data.split('-').reverse().join('/')} (${esc(d.ultimosEmails[0].tipo)})` : ' · nenhum e-mail enviado'}
+      </div>
+      <div class="ficha-acoes">
+        <button class="adm-btn-primary" id="ficha-btn-sync" onclick="sincronizarUsuario('${u.id}')"><i class="ti ti-refresh"></i> Sincronizar DataJud agora</button>
+        <button class="adm-btn-small ${u.bloqueado ? 'ok' : 'danger'}" onclick="toggleStatus('${u.id}', ${!u.bloqueado})">${u.bloqueado ? 'Desbloquear acesso' : 'Bloquear acesso'}</button>
+      </div>
+      <div id="ficha-resultado" class="ficha-resultado" style="display:none"></div>
+    </div>`;
+}
+
+// Soma dias a partir do vencimento atual (se ainda válido) ou de hoje.
+async function renovarAssinatura(id, dias, plano) {
+  const a = (_adminData.advogados || []).find(x => x.id === id);
+  const atual  = a?.dataExpiracao && new Date(a.dataExpiracao) > new Date() ? new Date(a.dataExpiracao) : new Date();
+  const novo   = new Date(atual.getTime() + dias * 86400000);
+  const planoF = plano || a?.plano || 'trial';
+  const ok = confirm(`${a?.nome || 'Advogado'}: plano ${PLANO_LABEL[planoF] || planoF}, válido até ${novo.toLocaleDateString('pt-BR')}. Confirmar?`);
+  if (!ok) return;
+
+  const r = await chamarAdmin('atualizar-assinatura', {
+    escritorioId: id,
+    plano: planoF,
+    status: 'ativo',
+    dataExpiracao: new Date(novo.toISOString().slice(0, 10) + 'T23:59:59').toISOString(),
+    valorPago: a?.valorPago ?? null,
+    formaPagamento: a?.formaPagamento || null,
+    observacoes: a?.obsAssinatura || null,
+  });
+  if (r.erro) return alert(r.erro);
+  await recarregarDados();
+  if (_fichaId === id) abrirFicha(id);
+  carregarSaude();
+}
+
+async function sincronizarUsuario(id) {
+  const btn = document.getElementById('ficha-btn-sync');
+  const out = document.getElementById('ficha-resultado');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Sincronizando…'; }
+  const r = await chamarAdmin('sincronizar-processos', { userId: id });
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-refresh"></i> Sincronizar DataJud agora'; }
+  if (out) {
+    out.style.display = 'block';
+    out.innerHTML = r.erro
+      ? `<span style="color:#c0392b">Erro: ${esc(r.erro)}</span>`
+      : `${r.atualizados} atualizado(s) · ${r.semMudanca} sem mudança · ${r.naoEncontrado} não encontrado(s) · ${r.erros} com erro do DataJud${r.parou ? ' · parou pelo limite de tempo, rode de novo pra continuar' : ''}`;
+  }
+}
+
+async function recarregarDados() {
+  const r = await fetch('/api/admin?acao=dados', { headers: { 'Authorization': `Bearer ${_adminToken}` } });
+  if (!r.ok) return;
+  _adminData = await r.json();
+  renderStats();
+  renderAdvogados();
+  renderSincronizacoes();
 }
 
 function renderCodigos() {
@@ -546,31 +825,62 @@ function renderSincronizacoes() {
   renderSyncErros(_adminData.cronErros || []);
 }
 
+// Explicação em linguagem simples para os erros mais comuns
+function explicarErro(origem, mensagem) {
+  const m = String(mensagem || '');
+  if (origem === 'cron:djen' && /403/.test(m)) return 'Código antigo (DJEN por OAB, anterior a 29/09) bloqueado pela API do DJEN. Não deve mais aparecer.';
+  if (/timeout|aborted/i.test(m))             return 'O DataJud demorou mais de 28s para responder (instabilidade do CNJ). O processo é tentado de novo automaticamente.';
+  if (/DataJud respondeu 5\d\d/.test(m))       return 'Erro no servidor do DataJud (CNJ). Tentado de novo na próxima execução.';
+  if (/DataJud respondeu 429/.test(m))         return 'DataJud limitou o número de consultas. Tentado de novo na próxima execução.';
+  if (/Metadados do caderno .* 403/.test(m))   return 'API do DJEN bloqueou o acesso — confira se as funções estão na região gru1 (São Paulo).';
+  return null;
+}
+
 function renderSyncErros(erros) {
   const wrap = document.getElementById('sync-erros-wrap');
   if (!wrap) return;
-  if (!erros.length) { wrap.innerHTML = ''; return; }
+  if (!erros.length) {
+    wrap.innerHTML = '<div class="saude-alerta alerta-ok"><i class="ti ti-circle-check"></i><div><strong>Nenhum erro de sincronização nos últimos 14 dias</strong></div></div>';
+    return;
+  }
+
+  // Agrupa erros iguais (números/ids trocados por #) — mostra o padrão, quantas
+  // vezes aconteceu, quantos usuários afetou e quando foi a última vez.
+  const grupos = new Map();
+  for (const e of erros) {
+    const padrao = String(e.mensagem || '').replace(/\d[\d.\-/]*/g, '#').slice(0, 160);
+    const chave  = `${e.origem}|${padrao}`;
+    if (!grupos.has(chave)) grupos.set(chave, { origem: e.origem, exemplo: e.mensagem, n: 0, usuarios: new Set(), ultima: e.created_at, primeira: e.created_at });
+    const g = grupos.get(chave);
+    g.n++;
+    if (e.user_id) g.usuarios.add(e.user_id);
+    if (e.created_at > g.ultima)   g.ultima = e.created_at;
+    if (e.created_at < g.primeira) g.primeira = e.created_at;
+  }
+  const lista = [...grupos.values()].sort((a, b) => b.ultima.localeCompare(a.ultima));
 
   wrap.innerHTML = `
     <h3 style="font-size:14px;font-weight:600;color:#991b1b;margin:0 0 12px;display:flex;align-items:center;gap:6px;">
-      <i class="ti ti-alert-triangle"></i> Log de erros de sincronização — DataJud/DJEN/OAB (14 dias)
+      <i class="ti ti-alert-triangle"></i> Erros de sincronização — ${erros.length} ocorrência(s) em ${lista.length} tipo(s), últimos 14 dias
     </h3>
     <div class="adm-table-wrap">
       <table class="adm-table">
         <thead>
-          <tr><th>Data/hora</th><th>Origem</th><th>Mensagem</th><th>Usuário</th></tr>
+          <tr><th>Erro</th><th>Vezes</th><th>Usuários</th><th>Última vez</th></tr>
         </thead>
         <tbody>
-          ${erros.slice(0, 30).map(e => {
-            const adv = (_adminData.advogados || []).find(a => a.id === e.user_id);
-            const dt  = e.created_at
-              ? new Date(e.created_at).toLocaleString('pt-BR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
-              : '—';
+          ${lista.map(g => {
+            const nomes = [...g.usuarios].map(id => (_adminData.advogados || []).find(a => a.id === id)?.nome).filter(Boolean);
+            const expl  = explicarErro(g.origem, g.exemplo);
             return `<tr>
-              <td style="white-space:nowrap;font-size:12px;">${dt}</td>
-              <td><code style="font-size:11px;background:#fef2f2;color:#991b1b;padding:2px 6px;border-radius:4px;">${esc(e.origem)}</code></td>
-              <td style="font-size:12px;color:#374151;max-width:300px;">${esc(e.mensagem)}</td>
-              <td style="font-size:12px;">${adv ? esc(adv.nome) : (e.user_id ? e.user_id.slice(0,8)+'…' : '—')}</td>
+              <td style="max-width:420px;">
+                <code style="font-size:11px;background:#fef2f2;color:#991b1b;padding:2px 6px;border-radius:4px;">${esc(g.origem)}</code>
+                <div style="font-size:12px;color:#374151;margin-top:4px;">${esc(g.exemplo)}</div>
+                ${expl ? `<div style="font-size:11px;color:#6b6b63;margin-top:3px;"><i class="ti ti-bulb"></i> ${esc(expl)}</div>` : ''}
+              </td>
+              <td style="font-weight:600;">${g.n}</td>
+              <td style="font-size:12px;" title="${esc(nomes.join(', '))}">${g.usuarios.size ? `${g.usuarios.size}${nomes.length ? ' · ' + esc(nomes.slice(0, 2).join(', ')) + (nomes.length > 2 ? '…' : '') : ''}` : '—'}</td>
+              <td style="font-size:12px;white-space:nowrap;">${tempoRelativo(g.ultima)}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -603,9 +913,12 @@ async function chamarAdmin(acao, body) {
 }
 
 async function toggleStatus(userId, bloquear) {
+  const a = (_adminData.advogados || []).find(x => x.id === userId);
+  if (bloquear && !confirm(`Bloquear o acesso de ${a?.nome || 'este usuário'}? Os dados ficam preservados e dá pra desbloquear depois.`)) return;
   const r = await chamarAdmin('toggle-status', { userId, bloquear });
   if (r.erro) return alert(r.erro);
-  await init();
+  await recarregarDados();
+  if (_fichaId === userId) abrirFicha(userId);
 }
 
 function abrirGerarCodigo() {
@@ -890,9 +1203,16 @@ async function rodarDjenCadernos() {
 
   const res = r.resultado || {};
   result.style.cssText = 'display:block;padding:12px 16px;border-radius:8px;font-size:13px;background:#f0fdf4;color:#166534;border:1px solid #86efac;margin-bottom:16px;';
+  const lista = res.resultados || [];
+  const achadas = lista.reduce((s, x) => s + (x.comunicacoesEncontradas || 0), 0);
+  const comErro = lista.filter(x => x.erro);
   result.innerHTML = res.semPendencias
-    ? 'Fila de hoje já está toda processada.'
-    : `Tribunal <strong>${res.tribunal}</strong>${res.pulado ? ` pulado (${res.motivo})` : ` · <strong>${res.comunicacoesEncontradas ?? 0}</strong> atualização(ões) · ${res.totalComunicacoesNoCaderno ?? '—'} comunicações no caderno`}`;
+    ? 'Fila de hoje e ontem já está toda processada.'
+    : `<strong>${lista.length}</strong> caderno(s) processado(s) em ${esc(res.elapsed || '')} · <strong>${achadas}</strong> publicação(ões) gravada(s)` +
+      (comErro.length ? ` · <span style="color:#991b1b">${comErro.length} com erro (${esc(comErro[0].erro)})</span>` : '') +
+      (lista.length && res.elapsed && parseInt(res.elapsed) >= 80 ? ' · ainda pode haver itens na fila, clique de novo' : '');
+  if (comErro.length) result.style.background = '#fffbeb';
+  carregarSaude();
 
   await carregarDjenCadernos();
 }
