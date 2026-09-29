@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 import { repararDatajudIndex, sincronizarDatajudUm } from './cron/sincronizar.js';
 import emailHandler from './cron/verificar-atualizacoes.js';
-import djenCadernosHandler from './cron/djen-cadernos.js';
+import djenCadernosHandler from '../lib/djen-cadernos.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
 const SUPA_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;

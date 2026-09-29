@@ -37,7 +37,6 @@
   "functions": {
     "api/buscar-processo.js":             { "maxDuration": 30 },
     "api/cron/sincronizar.js":            { "maxDuration": 120 },
-    "api/cron/djen-cadernos.js":          { "maxDuration": 120 },
     "api/cron/verificar-atualizacoes.js": { "maxDuration": 30 },
     "api/admin.js":                        { "maxDuration": 120 }
   },
@@ -59,8 +58,8 @@
     { "path": "/api/cron/sincronizar",                           "schedule": "0 18 * * 0,6" },
     { "path": "/api/cron/verificar-atualizacoes?tipo=afternoon", "schedule": "30 18 * * 0,6" },
     { "path": "/api/cron/verificar-atualizacoes?tipo=prazo_fatal", "schedule": "0 12 * * *" },
-    { "path": "/api/cron/djen-cadernos",                         "schedule": "0 9 * * *" },
-    { "path": "/api/cron/djen-cadernos",                         "schedule": "0 15 * * *" },
-    { "path": "/api/cron/djen-cadernos",                         "schedule": "0 22 * * *" }
+    { "path": "/api/cron/sincronizar?tipo=djen",                 "schedule": "0 9 * * *" },
+    { "path": "/api/cron/sincronizar?tipo=djen",                 "schedule": "0 15 * * *" },
+    { "path": "/api/cron/sincronizar?tipo=djen",                 "schedule": "0 22 * * *" }
   ]
 }

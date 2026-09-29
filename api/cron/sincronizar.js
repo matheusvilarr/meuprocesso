@@ -34,9 +34,18 @@ export default async function handler(req, res) {
     return res.status(500).json({ erro: 'SUPABASE_SERVICE_KEY não configurada.' });
   }
 
+  const tipo  = req.query?.tipo || 'datajud';
+
+  // O DJEN mora em lib/ e é servido por esta função: o plano Hobby da Vercel
+  // aceita no máximo 12 funções em api/ — a 13ª (api/cron/djen-cadernos.js)
+  // fez todos os deploys falharem de 31/07 a 29/09/2026.
+  if (tipo === 'djen') {
+    const { default: djenCadernos } = await import('../../lib/djen-cadernos.js');
+    return djenCadernos(req, res);
+  }
+
   const admin = createClient(SUPA_URL, SUPA_SERVICE_KEY);
   const hoje  = new Date().toISOString().slice(0, 10);
-  const tipo  = req.query?.tipo || 'datajud';
 
   if (tipo === 'oab') return rodarOabScan(admin, res, hoje);
   return rodarDatajud(admin, res, hoje);
