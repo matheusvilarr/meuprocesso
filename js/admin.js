@@ -106,13 +106,13 @@ function renderSaude(s) {
 
   document.getElementById('saude-cards').innerHTML = [
     card('ti-cloud-search', 'DataJud', `${pct}% em dia`, [
-      `${d.comIndice} monitorados · ${d.desatualizados} atrasados (48h+)`,
+      `${d.comIndice} monitorados · ${d.desatualizados} atrasados (48h+)${d.falhando ? ` · ${d.falhando} falhando` : ''}`,
       `Última consulta ${tempoRelativo(d.ultimaVerificacao)}`,
     ], pct >= 90 ? 'ok' : pct >= 60 ? 'atencao' : 'critico'),
     card('ti-news', 'DJEN (cadernos)', `${dj.hoje.concluidos}/${dj.hoje.total} hoje`, [
-      `Ontem: ${dj.ontem.concluidos}/${dj.ontem.total}${dj.hoje.erros + dj.ontem.erros ? ` · ${dj.hoje.erros + dj.ontem.erros} com erro` : ''}`,
-      `${dj.hoje.publicacoes + dj.ontem.publicacoes} publicação(ões) encontradas · último ${tempoRelativo(dj.ultimaConclusao)}`,
-    ], !dj.ultimaConclusao ? 'critico' : (dj.hoje.erros + dj.ontem.erros) ? 'atencao' : 'ok'),
+      `Ontem: ${dj.ontem.concluidos}/${dj.ontem.total}${dj.anteriores?.pendentes ? ` · ${dj.anteriores.pendentes} atrasado(s) na fila` : ''}${dj.hoje.erros + dj.ontem.erros ? ` · ${dj.hoje.erros + dj.ontem.erros} com erro` : ''}`,
+      `${dj.hoje.publicacoes + dj.ontem.publicacoes + (dj.anteriores?.publicacoes || 0)} publicação(ões) em 7 dias · último ${tempoRelativo(dj.ultimaConclusao)}`,
+    ], !dj.ultimaConclusao ? 'critico' : (dj.hoje.erros + dj.ontem.erros || dj.anteriores?.pendentes) ? 'atencao' : 'ok'),
     card('ti-mail', 'E-mails', `${em.pendentes} na fila`, [
       `${em.avisosSite} aviso(s) aguardando leitura no site`,
       `Último envio: ${em.ultimoEnvio ? em.ultimoEnvio.split('-').reverse().join('/') + (em.ultimoTipo ? ' (' + esc(em.ultimoTipo) + ')' : '') : 'nunca'}`,
@@ -665,6 +665,19 @@ function renderFicha(d, resumo) {
       ${recentes}
     </div>
 
+    ${(d.falhando || []).length ? `
+    <div class="ficha-secao">
+      <div class="ficha-secao-titulo"><i class="ti ti-repeat"></i> Na fila com falha no DataJud (${d.falhando.length})</div>
+      ${d.falhando.map(f => `
+        <div class="ficha-mov">
+          <div class="ficha-mov-data">${f.falhas} falha${f.falhas > 1 ? 's' : ''}</div>
+          <div class="ficha-mov-txt">
+            <div><strong>${esc(f.nome)}</strong> <span style="color:#9f9f98;font-size:11px">${esc(f.numero)}</span></div>
+            <div class="ficha-mov-sub">${esc(f.erro || '—')} · tentado ${tempoRelativo(f.ultimaTentativa)} · última consulta ok ${tempoRelativo(f.ultimaVerificacao)}</div>
+          </div>
+        </div>`).join('')}
+    </div>` : ''}
+
     <div class="ficha-secao">
       <div class="ficha-secao-titulo"><i class="ti ti-alert-triangle"></i> Erros de sincronização (14 dias)</div>
       ${erros}
@@ -854,7 +867,9 @@ function renderSyncErros(erros) {
   // vezes aconteceu, quantos usuários afetou e quando foi a última vez.
   const grupos = new Map();
   for (const e of erros) {
-    const padrao = String(e.mensagem || '')
+    // Erros novos do DataJud vêm como "[tipo] texto — detalhe": agrupa pelo tipo
+    const classificado = String(e.mensagem || '').match(/^\[([a-z-]+)\] ([^—]+)/);
+    const padrao = classificado ? `[${classificado[1]}] ${classificado[2].trim()}` : String(e.mensagem || '')
       .replace(/\(IP [^)]*\)/g, '')                                              // IP/região variam
       .replace(/\b(?:TJM?|TRE|TRF|TRT|STJ|STF|TST|TSE|STM|CJF)[A-Z0-9-]*\b/g, 'TRIB') // sigla do tribunal
       .replace(/\d[\d.\-/]*/g, '#')
@@ -887,9 +902,14 @@ function renderSyncErros(erros) {
           ${lista.map(g => {
             const nomes = [...g.usuarios].map(id => (_adminData.advogados || []).find(a => a.id === id)?.nome).filter(Boolean);
             const expl  = explicarErro(g.origem, g.exemplo);
+            const nosso = g.origem.endsWith('-sistema');
+            const doCnj = /^\[(cnj-|rede)/.test(g.exemplo || '');
+            const culpa = nosso
+              ? '<span style="font-size:10px;font-weight:700;background:#fee2e2;color:#991b1b;padding:1px 6px;border-radius:4px;margin-left:6px">FALHA NOSSA</span>'
+              : doCnj ? '<span style="font-size:10px;font-weight:700;background:#e0e7ff;color:#3730a3;padding:1px 6px;border-radius:4px;margin-left:6px">INSTABILIDADE DO CNJ</span>' : '';
             return `<tr>
               <td style="max-width:420px;">
-                <code style="font-size:11px;background:#fef2f2;color:#991b1b;padding:2px 6px;border-radius:4px;">${esc(g.origem)}</code>
+                <code style="font-size:11px;background:#fef2f2;color:#991b1b;padding:2px 6px;border-radius:4px;">${esc(g.origem)}</code>${culpa}
                 <div style="font-size:12px;color:#374151;margin-top:4px;">${esc(g.exemplo)}</div>
                 ${g.tribunais.size > 1 ? `<div style="font-size:11px;color:#6b6b63;margin-top:3px;">Tribunais: ${esc([...g.tribunais].sort().join(', '))}</div>` : ''}
                 ${g.ips.size ? `<div style="font-size:11px;color:#6b6b63;margin-top:3px;"><i class="ti ti-world"></i> IP(s) recusado(s): ${esc([...g.ips].join(' · '))}</div>` : ''}
@@ -1224,7 +1244,7 @@ async function rodarDjenCadernos() {
   const achadas = lista.reduce((s, x) => s + (x.comunicacoesEncontradas || 0), 0);
   const comErro = lista.filter(x => x.erro);
   result.innerHTML = res.semPendencias
-    ? 'Fila de hoje e ontem já está toda processada.'
+    ? 'Fila dos últimos 7 dias já está toda processada.'
     : `<strong>${lista.length}</strong> caderno(s) processado(s) em ${esc(res.elapsed || '')} · <strong>${achadas}</strong> publicação(ões) gravada(s)` +
       (comErro.length ? ` · <span style="color:#991b1b">${comErro.length} com erro (${esc(comErro[0].erro)})</span>` : '') +
       (lista.length && res.elapsed && parseInt(res.elapsed) >= 80 ? ' · ainda pode haver itens na fila, clique de novo' : '');

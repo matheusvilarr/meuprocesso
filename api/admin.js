@@ -559,10 +559,10 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
 
   // Ordena pelos menos sincronizados primeiro — garante rotação entre todos
   let q = admin.from('processos')
-    .select('id, user_id, numero, nome, datajud_index, movimentos_hash, movimentos_recentes, notificacao_pendente, novos_movimentos, created_at')
+    .select('id, user_id, numero, nome, datajud_index, movimentos_hash, movimentos_recentes, notificacao_pendente, novos_movimentos, sync_falhas, created_at')
     .not('datajud_index', 'is', null)
     .neq('status', 'Arquivado')
-    .order('ultima_verificacao', { ascending: true, nullsFirst: true });
+    .order('sync_ultima_tentativa', { ascending: true, nullsFirst: true });
   if (userId) q = q.eq('user_id', userId);
 
   const { data: processos, error } = await q;
@@ -688,8 +688,9 @@ async function acaoSaude(req, res, admin) {
   const ontem = dataBrasilia(-1);
   const base  = () => admin.from('processos').select('id', { count: 'exact', head: true }).neq('status', 'Arquivado');
 
+  const seteDias = dataBrasilia(-6);
   const [
-    totalAtivos, comIndice, desatualizados, nuncaVerificados, avisosSite, emailsPendentes,
+    totalAtivos, comIndice, desatualizados, nuncaVerificados, avisosSite, emailsPendentes, falhando,
     { data: ultimaVerif }, { data: fila }, { data: erros24h }, { data: ultimoEmail }, { data: assinaturas },
   ] = await Promise.all([
     contar(base()),
@@ -698,9 +699,10 @@ async function acaoSaude(req, res, admin) {
     contar(base().not('datajud_index', 'is', null).is('ultima_verificacao', null)),
     contar(base().eq('notificacao_pendente', true)),
     contar(base().eq('email_pendente', true)),
+    contar(base().not('datajud_index', 'is', null).gte('sync_falhas', 3)),
     admin.from('processos').select('ultima_verificacao').not('ultima_verificacao', 'is', null)
       .order('ultima_verificacao', { ascending: false }).limit(1),
-    admin.from('djen_cadernos_fila').select('tribunal, data, status, comunicacoes_encontradas, concluido_em').in('data', [ontem, hoje]),
+    admin.from('djen_cadernos_fila').select('tribunal, data, status, comunicacoes_encontradas, concluido_em').gte('data', seteDias),
     admin.from('error_log').select('origem').gte('created_at', h24).limit(1000),
     admin.from('notif_log').select('tipo, data').order('data', { ascending: false }).limit(1),
     admin.from('assinaturas').select('escritorio_id, plano, status, data_expiracao'),
@@ -709,10 +711,11 @@ async function acaoSaude(req, res, admin) {
   const djen = {
     hoje:  { total: 0, concluidos: 0, pendentes: 0, erros: 0, publicacoes: 0 },
     ontem: { total: 0, concluidos: 0, pendentes: 0, erros: 0, publicacoes: 0 },
+    anteriores: { total: 0, concluidos: 0, pendentes: 0, erros: 0, publicacoes: 0 }, // 2 a 6 dias atrás
     ultimaConclusao: null,
   };
   for (const f of fila || []) {
-    const d = f.data === hoje ? djen.hoje : djen.ontem;
+    const d = f.data === hoje ? djen.hoje : f.data === ontem ? djen.ontem : djen.anteriores;
     d.total++;
     if (f.status === 'concluido') d.concluidos++;
     else if (f.status === 'erro') d.erros++;
@@ -749,15 +752,26 @@ async function acaoSaude(req, res, admin) {
   if (djenHorasSemConcluir === null || djenHorasSemConcluir > 24) add('critico', 'DJEN parado',
     djen.ultimaConclusao ? `Nenhum caderno concluído há ${Math.round(djenHorasSemConcluir)}h.` : 'Nenhum caderno de hoje/ontem foi concluído.',
     { tipo: 'aba', aba: 'djen-cadernos', label: 'Ver cadernos' });
-  const errosDjen = djen.hoje.erros + djen.ontem.erros;
-  if (errosDjen) add('atencao', `${errosDjen} caderno(s) do DJEN com erro`, 'Veja a aba Cadernos DJEN — publicações desses tribunais/dias podem ter ficado de fora.',
+  const errosDjen = djen.hoje.erros + djen.ontem.erros + djen.anteriores.erros;
+  if (errosDjen) add('atencao', `${errosDjen} caderno(s) do DJEN desistidos após muitas tentativas`, 'Veja a aba Cadernos DJEN — publicações desses tribunais/dias podem ter ficado de fora (dá pra buscar manualmente pela OAB no dashboard).',
     { tipo: 'aba', aba: 'djen-cadernos', label: 'Ver cadernos' });
+  if (djen.anteriores.pendentes) add('atencao', `${djen.anteriores.pendentes} caderno(s) de dias anteriores ainda na fila do DJEN`,
+    'A fila recupera atrasos em ordem (mais antigo primeiro), cerca de 14 por execução. Se o número não cair, o DJEN pode estar bloqueando — veja os erros.',
+    { tipo: 'aba', aba: 'djen-cadernos', label: 'Ver fila' });
 
-  if (desatualizados) add('atencao', `${desatualizados} processo(s) sem consulta ao DataJud há mais de 48h`,
-    'O DataJud anda instável (timeouts). Se o número não cair nas próximas execuções, rode "DataJud agora".',
+  if (desatualizados) add('atencao', `${desatualizados} processo(s) sem consulta bem-sucedida ao DataJud há mais de 48h`,
+    'Eles continuam na fila e são tentados a cada execução. Se o número não cair, rode "DataJud agora" ou veja os erros.',
     { tipo: 'aba', aba: 'sincronizacoes', label: 'Ver sincronizações' });
+  if (falhando) add('atencao', `${falhando} processo(s) falhando repetidamente no DataJud (3+ tentativas seguidas)`,
+    'Continuam na fila. O erro de cada um aparece na ficha do advogado.',
+    { tipo: 'filtro', filtro: 'desatualizados', label: 'Ver advogados' });
   if (nuncaVerificados) add('info', `${nuncaVerificados} processo(s) aguardando a primeira consulta ao DataJud`,
     'Normal logo após importação — o cron pega esses primeiro.');
+
+  const errosNossos = errosPorOrigem['cron:datajud-sistema'] || 0;
+  if (errosNossos) add('critico', `${errosNossos} falha(s) do nosso sistema na sincronização (24h)`,
+    'Não é instabilidade do CNJ — é algo que precisa ser corrigido no código ou nos dados (ex: número de processo inválido, erro ao gravar). Veja os erros.',
+    { tipo: 'aba', aba: 'sincronizacoes', label: 'Ver erros' });
 
   const totalErros24h = Object.values(errosPorOrigem).reduce((s, n) => s + n, 0);
   if (totalErros24h >= 20) add('atencao', `${totalErros24h} erros de sincronização nas últimas 24h`,
@@ -777,7 +791,7 @@ async function acaoSaude(req, res, admin) {
     ok: true,
     geradoEm: new Date().toISOString(),
     config,
-    datajud: { totalAtivos, comIndice, desatualizados, nuncaVerificados, ultimaVerificacao: ultimaVerif?.[0]?.ultima_verificacao || null },
+    datajud: { totalAtivos, comIndice, desatualizados, nuncaVerificados, falhando, ultimaVerificacao: ultimaVerif?.[0]?.ultima_verificacao || null },
     djen,
     emails: { pendentes: emailsPendentes, avisosSite, ultimoEnvio: ultimoEmailData, ultimoTipo: ultimoEmail?.[0]?.tipo || null },
     erros24h: errosPorOrigem,
@@ -803,7 +817,7 @@ async function acaoDetalheUsuario(req, res, admin) {
   ] = await Promise.all([
     admin.auth.admin.getUserById(userId),
     admin.from('processos')
-      .select('id, numero, nome, apelido, cliente, tribunal, status, datajud_index, ultima_verificacao, notificacao_pendente, email_pendente, movimentos_recentes, created_at')
+      .select('id, numero, nome, apelido, cliente, tribunal, status, datajud_index, ultima_verificacao, notificacao_pendente, email_pendente, movimentos_recentes, sync_falhas, sync_ultimo_erro, sync_ultima_tentativa, created_at')
       .eq('user_id', userId).limit(2000),
     admin.from('assinaturas').select('plano, status, data_inicio, data_expiracao, valor_pago, forma_pagamento, observacoes').eq('escritorio_id', userId).maybeSingle(),
     admin.from('error_log').select('origem, mensagem, created_at').eq('user_id', userId)
@@ -859,6 +873,14 @@ async function acaoDetalheUsuario(req, res, admin) {
     },
     ultimaPublicacaoDjen,
     recentes: recentes.slice(0, 8),
+    falhando: ativos
+      .filter(p => p.datajud_index && (p.sync_falhas || 0) > 0)
+      .sort((a, b) => (b.sync_falhas || 0) - (a.sync_falhas || 0))
+      .slice(0, 10)
+      .map(p => ({
+        numero: p.numero, nome: p.apelido || p.nome, falhas: p.sync_falhas,
+        erro: p.sync_ultimo_erro, ultimaTentativa: p.sync_ultima_tentativa, ultimaVerificacao: p.ultima_verificacao,
+      })),
     colaboradores: colabs || [],
     ultimosEmails: ultimosEmails || [],
     erros: erros || [],

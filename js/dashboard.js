@@ -3174,10 +3174,14 @@ function _atualizacaoDatajud(proc, movs) {
     .sort((a, b) => (b.data || '') > (a.data || '') ? 1 : -1)
     .slice(0, 100);
 
+  const agora = new Date().toISOString();
   const upd = {
-    movimentos_recentes: final,
-    movimentos_hash:     movs.slice(0, 6).map(m => m.data + m.nome).join('|'),
-    ultima_verificacao:  new Date().toISOString(),
+    movimentos_recentes:   final,
+    movimentos_hash:       movs.slice(0, 6).map(m => m.data + m.nome).join('|'),
+    ultima_verificacao:    agora,
+    sync_ultima_tentativa: agora,
+    sync_falhas:           0,
+    sync_ultimo_erro:      null,
   };
   if (novos.length) {
     const pendentes = proc.notificacao_pendente ? (proc.novos_movimentos || []) : [];

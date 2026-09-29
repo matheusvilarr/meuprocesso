@@ -84,18 +84,22 @@ async function rodarDatajud(admin, res, hoje) {
   // Backfill: preenche datajud_index para processos que têm numero mas não têm index
   const reparados = await repararDatajudIndex(admin);
 
-  // DataJud: browser cobre usuários ativos — servidor só entra para quem ficou 20h+ sem abrir.
+  // Fila: todo processo cuja última consulta BEM-SUCEDIDA tem 20h+ (ou nunca
+  // teve) entra, e a ordem é pela última TENTATIVA — quem nunca foi tentado
+  // primeiro, quem falhou vai pro fim e é tentado de novo na próxima volta.
+  // Assim a fila sempre anda e todos os processos são consultados, sem que um
+  // processo que falha sempre trave os outros ou tenha a data falseada.
   const limite20h = new Date(Date.now() - 20 * 3600 * 1000).toISOString();
   // Só processos com datajud_index: os sem índice (ex: cadastro manual sem
-  // número CNJ) nunca eram atualizados e ficavam eternamente no topo da fila.
+  // número CNJ) não têm como ser consultados no DataJud.
   const { data: processos, error } = await admin
     .from('processos')
-    .select('id, user_id, numero, nome, apelido, datajud_index, movimentos_hash, movimentos_recentes, notificacao_pendente, novos_movimentos, created_at')
+    .select('id, user_id, numero, nome, apelido, datajud_index, movimentos_hash, movimentos_recentes, notificacao_pendente, novos_movimentos, sync_falhas, created_at')
     .not('numero', 'is', null)
     .not('datajud_index', 'is', null)
     .neq('status', 'Arquivado')
     .or(`ultima_verificacao.is.null,ultima_verificacao.lte.${limite20h}`)
-    .order('ultima_verificacao', { ascending: true, nullsFirst: true })
+    .order('sync_ultima_tentativa', { ascending: true, nullsFirst: true })
     .limit(300);
 
   if (error) return res.status(500).json({ erro: error.message });
@@ -126,12 +130,14 @@ async function sincronizarDatajud(processos, admin, hoje, startAt = Date.now()) 
   let atualizados = 0;
   const com_datajud = processos.filter(p => p.datajud_index);
 
-  for (let i = 0; i < com_datajud.length; i += 12) {
-    // 60s + até 28s do último lote + disparo de e-mail (25s) cabe no maxDuration
-    // de 120s. O DataJud chega a levar 20-30s por consulta em horário de pico.
-    if (Date.now() - startAt > 60000) break;
+  // 8 consultas simultâneas (eram 12): o DataJud já rejeita consultas por
+  // sobrecarga do lado deles — mandar menos de uma vez reduz as falhas.
+  for (let i = 0; i < com_datajud.length; i += 8) {
+    // 55s + até 28s do último lote (ou ~16s de retentativas) + disparo de
+    // e-mail (25s) cabe no maxDuration de 120s.
+    if (Date.now() - startAt > 55000) break;
 
-    const lote = com_datajud.slice(i, i + 12);
+    const lote = com_datajud.slice(i, i + 8);
     const resultados = await Promise.allSettled(
       lote.map(proc => sincronizarDatajudUm(proc, admin, hoje))
     );
@@ -144,12 +150,19 @@ async function sincronizarDatajud(processos, admin, hoje, startAt = Date.now()) 
 // proc precisa de: id, user_id, numero, nome, datajud_index, movimentos_hash,
 // movimentos_recentes, notificacao_pendente, novos_movimentos, created_at.
 // Retorna 'novos' | 'atualizado' | 'sem-mudanca' | 'nao-encontrado' | 'pulado' | 'erro'.
+// Campos gravados em toda consulta que deu certo: marca como verificado e
+// zera o contador de falhas da fila.
+function sucessoFila() {
+  const agora = new Date().toISOString();
+  return { ultima_verificacao: agora, sync_ultima_tentativa: agora, sync_falhas: 0, sync_ultimo_erro: null };
+}
+
 export async function sincronizarDatajudUm(proc, admin, hoje) {
   if ((proc.created_at || '').slice(0, 10) === hoje) return 'pulado';
   try {
-    const hits = await buscarNoDatajud(proc.datajud_index, proc.numero);
+    const hits = await buscarComRetentativa(proc.datajud_index, proc.numero);
     if (!hits?.length) {
-      await admin.from('processos').update({ ultima_verificacao: new Date().toISOString() }).eq('id', proc.id);
+      await admin.from('processos').update(sucessoFila()).eq('id', proc.id);
       return 'nao-encontrado';
     }
 
@@ -157,7 +170,7 @@ export async function sincronizarDatajudUm(proc, admin, hoje) {
     const novoHash  = todosMovs.slice(0, 6).map(m => m.data + m.nome).join('|');
 
     if (novoHash === proc.movimentos_hash) {
-      await admin.from('processos').update({ ultima_verificacao: new Date().toISOString() }).eq('id', proc.id);
+      await admin.from('processos').update(sucessoFila()).eq('id', proc.id);
       return 'sem-mudanca';
     }
 
@@ -188,7 +201,7 @@ export async function sincronizarDatajudUm(proc, admin, hoje) {
     const update = {
       movimentos_recentes: movimentosFinal,
       movimentos_hash:     novoHash,
-      ultima_verificacao:  new Date().toISOString(),
+      ...sucessoFila(),
     };
     // Processo auto-importado pelo DJEN nasce com nome = número; completa com
     // os dados do DataJud (só nesse caso — nunca sobrescreve o que o advogado editou).
@@ -210,22 +223,63 @@ export async function sincronizarDatajudUm(proc, admin, hoje) {
     if (upErr) throw new Error(`Falha ao gravar: ${upErr.message}`);
     return novosRecentes.length ? 'novos' : 'atualizado';
   } catch (e) {
-    await logErro(admin, 'cron:datajud', e.message, { numero: proc.numero, processoId: proc.id }, proc.user_id);
-    // Não marca como verificado agora (a falha não pode esconder o processo por
-    // 20h), mas joga pra ~2h atrás do fim da janela: volta na próxima execução,
-    // só que atrás dos que nunca foram tentados. Sem isso, processos que sempre
-    // dão timeout ocupavam o começo da fila em toda execução.
-    const retry = new Date(Date.now() - 18 * 3600 * 1000).toISOString();
-    await admin.from('processos').update({ ultima_verificacao: retry }).eq('id', proc.id).then(() => {}, () => {});
+    const c = classificarErroDatajud(e);
+    const falhas = (proc.sync_falhas || 0) + 1;
+    // Mensagem no formato "[tipo] texto (detalhe técnico)" — o painel admin
+    // agrupa pelo tipo e separa culpa do CNJ de falha nossa.
+    await logErro(admin, c.origem === 'sistema' ? 'cron:datajud-sistema' : 'cron:datajud',
+      `[${c.tipo}] ${c.texto} — ${String(e.message || '').slice(0, 150)}`,
+      { numero: proc.numero, processoId: proc.id, tipo: c.tipo, origem: c.origem, falhasSeguidas: falhas }, proc.user_id);
+    // ultima_verificacao NÃO muda (continua sendo a última consulta que deu
+    // certo). Só registra a tentativa: o processo vai pro fim da fila e é
+    // tentado de novo na próxima volta, sem travar os outros.
+    await admin.from('processos').update({
+      sync_ultima_tentativa: new Date().toISOString(),
+      sync_falhas:           falhas,
+      sync_ultimo_erro:      `[${c.tipo}] ${c.texto}`.slice(0, 300),
+    }).eq('id', proc.id).then(() => {}, () => {});
     return 'erro';
+  }
+}
+
+// Classifica a falha em linguagem simples e diz de quem é a responsabilidade:
+// 'cnj' = problema do lado do DataJud (fora do nosso controle, a fila tenta
+// de novo); 'sistema' = problema nosso (nunca deveria acontecer — vira alerta
+// crítico no painel admin).
+export function classificarErroDatajud(e) {
+  const m = String(e?.message || e || '');
+  if (/aborted|timeout/i.test(m))           return { tipo: 'cnj-lento',     origem: 'cnj',     texto: 'DataJud não respondeu em 28s (lentidão do CNJ)' };
+  if (/respondeu 429/.test(m))              return { tipo: 'cnj-limite',    origem: 'cnj',     texto: 'DataJud limitou o número de consultas (429)' };
+  if (/respondeu 5\d\d/.test(m))            return { tipo: 'cnj-fora',      origem: 'cnj',     texto: `DataJud com erro interno (${m.match(/respondeu (\d+)/)[1]})` };
+  if (/respondeu 40[13]/.test(m))           return { tipo: 'cnj-bloqueio',  origem: 'cnj',     texto: 'DataJud recusou o acesso (chave pública trocada ou bloqueio de IP)' };
+  if (/respondeu 404/.test(m))              return { tipo: 'indice',        origem: 'sistema', texto: 'Tribunal (índice DataJud) inexistente para este número — número do processo pode estar errado' };
+  if (/fetch failed|ECONN|ENOTFOUND|socket/i.test(m)) return { tipo: 'rede', origem: 'cnj',  texto: 'Falha de conexão com o DataJud' };
+  if (/Falha ao gravar/.test(m))            return { tipo: 'banco',         origem: 'sistema', texto: 'Erro ao gravar no banco de dados' };
+  return { tipo: 'desconhecido', origem: 'sistema', texto: m.slice(0, 200) || 'Erro desconhecido' };
+}
+
+// Tenta de novo na hora as falhas rápidas e passageiras (5xx, 429, conexão),
+// com espera crescente. Timeout não é repetido aqui: já custou 28s e, se o CNJ
+// está lento, o processo volta na próxima execução da fila.
+async function buscarComRetentativa(index, numero) {
+  const esperas = [2000, 6000];
+  for (let tentativa = 0; ; tentativa++) {
+    try {
+      return await buscarNoDatajud(index, numero);
+    } catch (e) {
+      const { tipo } = classificarErroDatajud(e);
+      const passageiro = tipo === 'cnj-fora' || tipo === 'cnj-limite' || tipo === 'rede';
+      if (!passageiro || tentativa >= esperas.length) throw e;
+      await new Promise(r => setTimeout(r, esperas[tentativa]));
+    }
   }
 }
 
 // IMPORTANTE: propositalmente NÃO engole erro aqui (nem timeout, nem status
 // != 200) — se engolisse e devolvesse null/[], sincronizarDatajudUm() trataria
 // isso como "consultei e não achou nada" e marcaria ultima_verificacao como
-// agora, escondendo a falha e adiando a próxima tentativa real em 20h. Deixa
-// a exceção subir pro catch de sincronizarDatajudUm(), que loga em error_log.
+// agora, escondendo a falha. Deixa a exceção subir pro catch de
+// sincronizarDatajudUm(), que classifica, loga e registra na fila.
 async function buscarNoDatajud(index, numero) {
   const numeroLimpo = numero.replace(/[.\-\/ ]/g, '');
   const r = await fetch(`https://api-publica.datajud.cnj.jus.br/${index}/_search`, {
