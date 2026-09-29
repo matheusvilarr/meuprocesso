@@ -854,12 +854,21 @@ function renderSyncErros(erros) {
   // vezes aconteceu, quantos usuários afetou e quando foi a última vez.
   const grupos = new Map();
   for (const e of erros) {
-    const padrao = String(e.mensagem || '').replace(/\d[\d.\-/]*/g, '#').slice(0, 160);
+    const padrao = String(e.mensagem || '')
+      .replace(/\(IP [^)]*\)/g, '')                                              // IP/região variam
+      .replace(/\b(?:TJM?|TRE|TRF|TRT|STJ|STF|TST|TSE|STM|CJF)[A-Z0-9-]*\b/g, 'TRIB') // sigla do tribunal
+      .replace(/\d[\d.\-/]*/g, '#')
+      .replace(/\s+/g, ' ').trim()
+      .slice(0, 160);
     const chave  = `${e.origem}|${padrao}`;
-    if (!grupos.has(chave)) grupos.set(chave, { origem: e.origem, exemplo: e.mensagem, n: 0, usuarios: new Set(), ultima: e.created_at, primeira: e.created_at });
+    if (!grupos.has(chave)) grupos.set(chave, { origem: e.origem, exemplo: e.mensagem, n: 0, usuarios: new Set(), tribunais: new Set(), ips: new Set(), ultima: e.created_at, primeira: e.created_at });
     const g = grupos.get(chave);
     g.n++;
     if (e.user_id) g.usuarios.add(e.user_id);
+    const trib = String(e.mensagem || '').match(/^([A-Z][A-Z0-9-]+) \d{4}-\d{2}-\d{2}:/);
+    if (trib) g.tribunais.add(trib[1]);
+    const ip = String(e.mensagem || '').match(/\(IP ([^,)]+)(?:, região ([^)]+))?\)/);
+    if (ip) g.ips.add(ip[2] ? `${ip[1]} (${ip[2]})` : ip[1]);
     if (e.created_at > g.ultima)   g.ultima = e.created_at;
     if (e.created_at < g.primeira) g.primeira = e.created_at;
   }
@@ -867,7 +876,7 @@ function renderSyncErros(erros) {
 
   wrap.innerHTML = `
     <h3 style="font-size:14px;font-weight:600;color:#991b1b;margin:0 0 12px;display:flex;align-items:center;gap:6px;">
-      <i class="ti ti-alert-triangle"></i> Erros de sincronização — ${erros.length} ocorrência(s) em ${lista.length} tipo(s), últimos 14 dias
+      <i class="ti ti-alert-triangle"></i> Erros de sincronização — ${erros.length >= 1000 ? 'mais de 1000' : erros.length} ocorrência(s) em ${lista.length} tipo(s), últimos 14 dias
     </h3>
     <div class="adm-table-wrap">
       <table class="adm-table">
@@ -882,6 +891,8 @@ function renderSyncErros(erros) {
               <td style="max-width:420px;">
                 <code style="font-size:11px;background:#fef2f2;color:#991b1b;padding:2px 6px;border-radius:4px;">${esc(g.origem)}</code>
                 <div style="font-size:12px;color:#374151;margin-top:4px;">${esc(g.exemplo)}</div>
+                ${g.tribunais.size > 1 ? `<div style="font-size:11px;color:#6b6b63;margin-top:3px;">Tribunais: ${esc([...g.tribunais].sort().join(', '))}</div>` : ''}
+                ${g.ips.size ? `<div style="font-size:11px;color:#6b6b63;margin-top:3px;"><i class="ti ti-world"></i> IP(s) recusado(s): ${esc([...g.ips].join(' · '))}</div>` : ''}
                 ${expl ? `<div style="font-size:11px;color:#6b6b63;margin-top:3px;"><i class="ti ti-bulb"></i> ${esc(expl)}</div>` : ''}
               </td>
               <td style="font-weight:600;">${g.n}</td>
