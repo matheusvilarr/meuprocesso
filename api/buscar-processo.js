@@ -3,7 +3,7 @@
 // (OAB/nome/CPF dependem de "partes", que a API pública do DataJud não expõe —
 // na prática só a busca por número retorna resultado)
 
-import { movimentosDosHits } from './cron/sincronizar.js';
+import { movimentosDosHits } from '../lib/sync-comum.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
