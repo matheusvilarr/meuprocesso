@@ -203,6 +203,7 @@ export async function sincronizarDatajudUm(proc, admin, hoje) {
       const pendentes = proc.notificacao_pendente ? (proc.novos_movimentos || []) : [];
       const chaves    = new Set(novosRecentes.map(chaveMov));
       update.notificacao_pendente = true;
+      update.email_pendente       = true;
       update.novos_movimentos     = [...novosRecentes, ...pendentes.filter(m => !chaves.has(chaveMov(m)))];
     }
     const { error: upErr } = await admin.from('processos').update(update).eq('id', proc.id);

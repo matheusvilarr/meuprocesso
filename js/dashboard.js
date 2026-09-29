@@ -2150,8 +2150,9 @@ async function abrirProcesso(id) {
     proc.notificacao_pendente = false;
     proc.novos_movimentos     = null;
     atualizarBell(); // atualiza o badge imediatamente
+    // Já viu no site — não precisa mais de e-mail sobre isso
     _supabase.from('processos')
-      .update({ notificacao_pendente: false, novos_movimentos: null })
+      .update({ notificacao_pendente: false, email_pendente: false, novos_movimentos: null })
       .eq('id', id)
       .then(() => carregarProcessos());
   }
@@ -2740,6 +2741,7 @@ async function sincronizarDetalhe() {
     if (!fresco) throw new Error();
     const { upd, novos } = _atualizacaoDatajud({ ...fresco, notificacao_pendente: false }, movs);
     delete upd.notificacao_pendente;
+    delete upd.email_pendente;
     if (novos.length) upd.novos_movimentos = novos; // só pra destacar "NOVO" na timeline
 
     const { error: upErr } = await _supabase.from('processos').update(upd).eq('id', _processoAtual.id);
@@ -3181,6 +3183,7 @@ function _atualizacaoDatajud(proc, movs) {
     const pendentes = proc.notificacao_pendente ? (proc.novos_movimentos || []) : [];
     const chaves    = new Set(novos.map(_chaveMov));
     upd.notificacao_pendente = true;
+    upd.email_pendente       = true;
     upd.novos_movimentos     = [...novos, ...pendentes.filter(m => !chaves.has(_chaveMov(m)))];
   }
   return { upd, novos };
@@ -3312,7 +3315,7 @@ async function confirmarArquivar() {
 
   const { error } = await _supabase
     .from('processos')
-    .update({ status: 'Arquivado', notificacao_pendente: false })
+    .update({ status: 'Arquivado', notificacao_pendente: false, email_pendente: false })
     .eq('id', _arquivarId);
 
   closeModal('modal-arquivar');
@@ -5840,6 +5843,7 @@ async function _importarComMerge(d) {
       movimentos_hash:      novasMovs.length ? novasMovs.slice(0, 6).map(m => m.data + m.nome).join('|') : null,
       ultima_verificacao:   new Date().toISOString(),
       notificacao_pendente: false, // merge manual nunca gera notificação
+      email_pendente:       false,
       novos_movimentos:     null,
     };
     const tribunalDerivado = d.tribunal || _extrairTribunalDeIndex(d._datajudIndex);
@@ -6436,6 +6440,7 @@ async function _salvarMovimentoDJe(doc, proc) {
   const { error } = await _supabase.from('processos').update({
     movimentos_recentes:  novosMovs,
     notificacao_pendente: true,
+    email_pendente:       true,
     novos_movimentos:     [novoMov, ...pendentes],
   }).eq('id', proc.id);
 
@@ -6515,6 +6520,7 @@ async function importarProcessoDJe(docIndex) {
     const { error } = await _supabase.from('processos').update({
       movimentos_recentes:  novasMovs,
       notificacao_pendente: true,
+      email_pendente:       true,
       novos_movimentos:     [novoMov, ...pendentes],
     }).eq('id', existente.id);
 

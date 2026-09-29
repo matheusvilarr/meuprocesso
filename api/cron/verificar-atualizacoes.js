@@ -45,13 +45,15 @@ async function logErro(admin, origem, mensagem, detalhes, userId) {
 
 // ── INSTANT ───────────────────────────────────────────────────────────────────
 // Chamado diretamente pelo sincronizar.js quando há movimentos novos.
-// Não usa jaNotificouHoje — dedup feito pelo ciclo notificacao_pendente.
+// Não usa jaNotificouHoje — dedup feito pelo ciclo email_pendente.
+// email_pendente controla só o e-mail; notificacao_pendente (aviso no site)
+// continua aceso até o advogado abrir o processo.
 
 async function rodarInstant(admin, res, hoje) {
   const { data: pendentes } = await admin
     .from('processos')
     .select('id, user_id, numero, nome, apelido, cliente, tribunal, datajud_index, ultima_verificacao, novos_movimentos')
-    .eq('notificacao_pendente', true)
+    .eq('email_pendente', true)
     .neq('status', 'Arquivado');
 
   if (!pendentes?.length) {
@@ -101,7 +103,7 @@ async function rodarInstant(admin, res, hoje) {
 
   if (processosNotificados.length) {
     await admin.from('processos')
-      .update({ notificacao_pendente: false, ultima_notif_email: new Date().toISOString() })
+      .update({ email_pendente: false, ultima_notif_email: new Date().toISOString() })
       .in('id', processosNotificados);
   }
 
@@ -109,13 +111,13 @@ async function rodarInstant(admin, res, hoje) {
 }
 
 // ── MORNING ───────────────────────────────────────────────────────────────────
-// Só envia se sincronizar.js marcou notificacao_pendente = true no banco.
+// Só envia se a sincronização marcou email_pendente = true no banco.
 
 async function rodarMorning(admin, res, hoje) {
   const { data: pendentes } = await admin
     .from('processos')
     .select('id, user_id, numero, nome, apelido, cliente, tribunal, datajud_index, ultima_verificacao, novos_movimentos')
-    .eq('notificacao_pendente', true)
+    .eq('email_pendente', true)
     .neq('status', 'Arquivado');
 
   if (!pendentes?.length) {
@@ -174,7 +176,7 @@ async function rodarMorning(admin, res, hoje) {
 
   if (processosNotificados.length) {
     await admin.from('processos')
-      .update({ notificacao_pendente: false, ultima_notif_email: new Date().toISOString() })
+      .update({ email_pendente: false, ultima_notif_email: new Date().toISOString() })
       .in('id', processosNotificados);
   }
 
@@ -192,7 +194,7 @@ async function rodarAfternoon(admin, res, hoje) {
   const [{ data: pendentes }, { data: eventosAmanha }] = await Promise.all([
     admin.from('processos')
       .select('id, user_id, numero, nome, apelido, cliente, tribunal, datajud_index, ultima_verificacao, novos_movimentos')
-      .eq('notificacao_pendente', true)
+      .eq('email_pendente', true)
       .neq('status', 'Arquivado')
       .or(`ultima_notif_email.is.null,ultima_notif_email.lt.${cutoffMorning}`),
     admin.from('eventos')
@@ -253,7 +255,7 @@ async function rodarAfternoon(admin, res, hoje) {
 
   if (processosNotificados.length) {
     await admin.from('processos')
-      .update({ notificacao_pendente: false, ultima_notif_email: new Date().toISOString() })
+      .update({ email_pendente: false, ultima_notif_email: new Date().toISOString() })
       .in('id', processosNotificados);
   }
 
