@@ -232,13 +232,15 @@ function detectarTribunal(numero) {
     case '4': return tt >= 1 && tt <= 6  ? `api_publica_trf${tt}` : null;
     case '5': return tt >= 1 && tt <= 24 ? `api_publica_trt${tt}` : null;
     case '6': return ESTADOS[tt] ? `api_publica_tre-${ESTADOS[tt]}` : null;
-    case '7':
-      if (tt === 8)  return 'api_publica_tjmsp';
+    // J=7 é a Justiça Militar da União (STM); J=9 é a Justiça Militar Estadual,
+    // que só existe em MG (13), RS (21) e SP (26).
+    case '7': return 'api_publica_stm';
+    case '8': return tt === 7 ? 'api_publica_tjdft' : (ESTADOS[tt] ? `api_publica_tj${ESTADOS[tt]}` : null);
+    case '9':
       if (tt === 13) return 'api_publica_tjmmg';
       if (tt === 21) return 'api_publica_tjmrs';
+      if (tt === 26) return 'api_publica_tjmsp';
       return null;
-    case '8': return tt === 7 ? 'api_publica_tjdft' : (ESTADOS[tt] ? `api_publica_tj${ESTADOS[tt]}` : null);
-    case '9': return 'api_publica_tjdft';
     default:  return null;
   }
 }

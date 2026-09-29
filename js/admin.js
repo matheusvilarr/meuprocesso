@@ -176,10 +176,10 @@ async function carregarPendentes() {
 
   tbody.innerHTML = data.pendentes.map(u => `
     <tr id="pendente-row-${u.id}">
-      <td>${u.nome || '<span style="color:#9ca3af">—</span>'}</td>
-      <td>${u.email}</td>
-      <td>${u.oab || '<span style="color:#9ca3af">—</span>'}</td>
-      <td><span style="font-size:11px;background:#f3f4f6;padding:2px 8px;border-radius:6px">${u.provider}</span></td>
+      <td>${u.nome ? esc(u.nome) : '<span style="color:#9ca3af">—</span>'}</td>
+      <td>${esc(u.email)}</td>
+      <td>${u.oab ? esc(u.oab) : '<span style="color:#9ca3af">—</span>'}</td>
+      <td><span style="font-size:11px;background:#f3f4f6;padding:2px 8px;border-radius:6px">${esc(u.provider)}</span></td>
       <td style="color:#6b7280;font-size:12px">${new Date(u.created_at).toLocaleDateString('pt-BR')}</td>
       <td>
         <div style="display:flex;gap:8px">
@@ -243,7 +243,7 @@ async function carregarEmails() {
   const data = await r.json();
   if (!data.ok) {
     document.getElementById('email-tabela-wrap').innerHTML =
-      `<p style="color:#c0392b;">Erro ao carregar: ${data.erro || 'desconhecido'}</p>`;
+      `<p style="color:#c0392b;">Erro ao carregar: ${esc(data.erro || 'desconhecido')}</p>`;
     return;
   }
   renderEmails(data.logs || [], data.erros || []);
@@ -542,15 +542,13 @@ function renderSincronizacoes() {
 }
 
 function renderSyncErros(erros) {
-  console.log('Renderizando erros de sincronização')
-  console.log(erros)
   const wrap = document.getElementById('sync-erros-wrap');
   if (!wrap) return;
   if (!erros.length) { wrap.innerHTML = ''; return; }
 
   wrap.innerHTML = `
     <h3 style="font-size:14px;font-weight:600;color:#991b1b;margin:0 0 12px;display:flex;align-items:center;gap:6px;">
-      <i class="ti ti-alert-triangle"></i> Log de erros de sincronização — DataJud/DJEN/OAB (14 diass)
+      <i class="ti ti-alert-triangle"></i> Log de erros de sincronização — DataJud/DJEN/OAB (14 dias)
     </h3>
     <div class="adm-table-wrap">
       <table class="adm-table">

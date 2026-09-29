@@ -212,5 +212,7 @@ const result = await _importarComMerge(d);
 - O usuário (Matheus Vilar) é o advogado dono do produto — falar em português
 - Preferir edições cirúrgicas a reescritas grandes
 - Não adicionar comentários óbvios no código — só onde o "porquê" é não-óbvio
-- Erros de coluna no Supabase geralmente = tabela não criada ou schema desatualizado → rodar `schema.sql`
+- Erros de coluna no Supabase geralmente = migration não aplicada → rodar a migration específica em `supabase/`
+- **NUNCA rodar `schema.sql` em produção** — ele faz `DROP TABLE` em processos/tarefas e apaga dados de clientes reais
+- Migrations novas devem ser só aditivas (sem DROP TABLE / DELETE / UPDATE em massa de dados)
 - Erro "schema cache" → rodar `NOTIFY pgrst, 'reload schema';` no SQL Editor

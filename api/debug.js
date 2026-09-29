@@ -1,7 +1,25 @@
 // Endpoints de diagnóstico (uso interno, não chamados pelo frontend).
 //   /api/debug?tipo=datajud&tribunal=api_publica_tjsp&mode=mapping|partes|sample
 //   /api/debug?tipo=email&para=seu@email.com
+// Restrito a admins (Authorization: Bearer <jwt>) — antes era aberto e
+// permitia disparar e-mail do domínio para qualquer endereço.
+import { createClient } from '@supabase/supabase-js';
+
+const SUPA_URL = 'https://ctsjhsdblallguftycqs.supabase.co';
+
+async function isAdmin(req) {
+  const svcKey = process.env.SUPABASE_SERVICE_KEY;
+  const token  = (req.headers['authorization'] || '').replace('Bearer ', '').trim();
+  if (!svcKey || !token) return false;
+  const admin = createClient(SUPA_URL, svcKey);
+  const { data: userData, error } = await admin.auth.getUser(token);
+  if (error || !userData?.user) return false;
+  const { data: row } = await admin.from('admins').select('user_id').eq('user_id', userData.user.id).maybeSingle();
+  return !!row;
+}
+
 export default async function handler(req, res) {
+  if (!await isAdmin(req)) return res.status(403).json({ erro: 'Acesso restrito a administradores.' });
   const { tipo } = req.query;
   if (tipo === 'email') return debugEmail(req, res);
   return debugDatajud(req, res);

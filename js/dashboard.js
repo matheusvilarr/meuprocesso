@@ -378,7 +378,7 @@ function abrirDiaPopover(ano, mes, dia, celEl) {
     <div style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:8px;background:var(--gray-50)">
       <div style="width:3px;min-height:34px;border-radius:4px;background:${corTipo[e.tipo] || '#94a3b8'};flex-shrink:0;margin-top:2px"></div>
       <div style="flex:1;min-width:0">
-        <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${e.titulo}</div>
+        <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(e.titulo)}</div>
         <div style="font-size:11px;color:var(--gray-400);margin-top:1px">${tipoLabel[e.tipo] || e.tipo}${e.hora ? ' · ' + e.hora : ''}</div>
         ${sh ? `<div style="font-size:10px;color:#7c3aed;margin-top:2px"><i class="ti ti-handshake" style="font-size:10px"></i> ${_esc(sh.owner_nome)}</div>` : ''}
       </div>
@@ -628,7 +628,7 @@ function _buildCalExpMes() {
     const visiveis = evs.slice(0, 3), extra = evs.length - 3;
     const hons = (_honorariosDB||[]).filter(h => h.data_vencimento === iso && h.status !== 'pago' && h.status !== 'cancelado');
     const honHtml = hons.map(h => `<div class="cal-exp-ev" style="background:${h.status==='vencido'?'var(--red-light)':'var(--green-light)'};color:${h.status==='vencido'?'var(--red)':'var(--green)'};border-left:3px solid ${h.status==='vencido'?'var(--red)':'var(--green)'}" onclick="event.stopPropagation();abrirEditarHonorario('${h.id}')">
-      <i class="ti ti-cash" style="font-size:10px"></i> ${h.descricao.substring(0,22)}
+      <i class="ti ti-cash" style="font-size:10px"></i> ${_esc(h.descricao.substring(0,22))}
     </div>`).join('');
     html += `<div class="cal-exp-day${isToday?' today':''}" onclick="calExpClickDia('${iso}')">
       <div class="cal-exp-day-num">
@@ -773,17 +773,17 @@ function buildFullCal() {
     const events  = eventosPorDia[d] || [];
     const evHtml  = events.map(e => {
       const sh = e.processo_id ? window._sharedSet?.[e.processo_id] : null;
-      const shIcon = sh ? `<i class="ti ti-handshake" title="Compartilhado por ${sh.owner_nome}" style="font-size:9px;margin-left:3px;opacity:.8"></i>` : '';
+      const shIcon = sh ? `<i class="ti ti-handshake" title="Compartilhado por ${_esc(sh.owner_nome)}" style="font-size:9px;margin-left:3px;opacity:.8"></i>` : '';
       return `<div class="fcal-event ${_tipoEvtCls[e.tipo] || 'event-lembrete'}"
             onclick="event.stopPropagation();excluirEvento('${e.id}')"
-            title="${e.titulo}${sh ? ' · Compartilhado por ' + sh.owner_nome : ''} (clique para excluir)">${e.titulo}${shIcon}</div>`;
+            title="${_esc(e.titulo)}${sh ? ' · Compartilhado por ' + _esc(sh.owner_nome) : ''} (clique para excluir)">${_esc(e.titulo)}${shIcon}</div>`;
     }).join('');
     const tarefasDia = tarefasPorDia[d] || [];
     const tarHtml = tarefasDia.map(t => {
       const st = _prazoStatus(t.prazo, t.coluna);
       return `<div class="fcal-event event-tarefa event-tarefa-${st?.nivel || 'baixo'}"
             onclick="event.stopPropagation();abrirTarefaPorId('${t.id}','${t.quadro_id || ''}')"
-            title="${t.titulo} (tarefa — clique para abrir)"><i class="ti ti-checklist" style="font-size:9px;margin-right:2px"></i>${t.titulo}</div>`;
+            title="${_esc(t.titulo)} (tarefa — clique para abrir)"><i class="ti ti-checklist" style="font-size:9px;margin-right:2px"></i>${_esc(t.titulo)}</div>`;
     }).join('');
     html += `<div class="fcal-day ${isToday ? 'today' : ''}"><div class="fcal-day-num">${d}</div>${evHtml}${tarHtml}</div>`;
   }
@@ -1642,15 +1642,15 @@ function atualizarDashboard(processos, totalArquivados) {
   const areaMap = { 'Cível':'civil','Trabalhista':'trabalhista','Criminal':'criminal','Tributário':'tributario','Família':'familia','Previdenciário':'previdenciario' };
   wrap.innerHTML = processos.slice(0, 5).map(p => `
     <div class="process-row" onclick="abrirProcesso('${p.id}')">
-      <div class="process-num">${p.numero || '—'}</div>
+      <div class="process-num">${_esc(p.numero) || '—'}</div>
       <div class="process-info">
-        <div class="process-name">${p.apelido || p.nome}${p.notificacao_pendente ? ` <span title="Nova movimentação" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--amber);vertical-align:middle"></span>` : ''}</div>
+        <div class="process-name">${_esc(p.apelido || p.nome)}${p.notificacao_pendente ? ` <span title="Nova movimentação" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--amber);vertical-align:middle"></span>` : ''}</div>
         <div class="process-meta">
           ${p.datajud_index
             ? `<i class="ti ti-cloud-check" style="font-size:10px;color:var(--green)"></i> CNJ DataJud`
             : `<i class="ti ti-pencil" style="font-size:10px"></i> Manual`
           }
-          ${p.orgao_julgador ? ` · ${p.orgao_julgador}` : ''}
+          ${p.orgao_julgador ? ` · ${_esc(p.orgao_julgador)}` : ''}
           ${p.notificacao_pendente ? formatarHorarioMov(p.novos_movimentos?.[0]?.data) : ''}
         </div>
       </div>
@@ -1699,7 +1699,7 @@ function atualizarTimelineDash(processos) {
     <div class="timeline-item">
       <div class="tl-dot ${a.novo ? 'gold' : 'navy'}"></div>
       <div class="tl-content">
-        <div class="tl-text"><strong>${a.processo}</strong> — ${a.texto}</div>
+        <div class="tl-text"><strong>${_esc(a.processo)}</strong> — ${_esc(a.texto)}</div>
         <div class="tl-time">${fmt(a.data)} · CNJ DataJud</div>
       </div>
     </div>`).join('');
@@ -1873,8 +1873,8 @@ function renderizarListaProcessos(lista) {
     card.innerHTML = `
       <div class="pc-top">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-          <span class="pc-num">${p.numero || '—'}</span>
-          ${rec ? `<span class="recencia-badge ${rec.cls}">${rec.label}</span>` : ''}
+          <span class="pc-num">${_esc(p.numero) || '—'}</span>
+          ${rec ?`<span class="recencia-badge ${rec.cls}">${rec.label}</span>` : ''}
         </div>
         <div style="display:flex;align-items:center;gap:5px">
           ${isShared ? `<span class="pc-share-badge"><i class="ti ti-share" style="font-size:9px"></i> ${_esc(sharedInfo.owner_nome.split(' ')[0])}</span>` : ''}
@@ -1885,30 +1885,30 @@ function renderizarListaProcessos(lista) {
               <i class="ti ${p.favorito ? 'ti-star-filled' : 'ti-star'}"></i>
             </button>
             <button class="btn-arquivar-card" title="Arquivar processo"
-              onclick="pedirArquivar(event,'${p.id}','${(p.nome||'').replace(/'/g,'\\x27')}')">
+              onclick="pedirArquivar(event,'${p.id}')">
               <i class="ti ti-archive"></i>
             </button>` : ''}
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:4px;min-width:0" class="pc-title-row">
-        <div class="pc-title" style="flex:1;min-width:0" id="pc-title-${p.id}">${p.apelido || p.nome}</div>
+        <div class="pc-title" style="flex:1;min-width:0" id="pc-title-${p.id}">${_esc(p.apelido || p.nome)}</div>
         ${!isShared ? `<button onclick="editarApelidoCard(event,'${p.id}')" title="Editar apelido"
           style="background:none;border:none;padding:2px 4px;cursor:pointer;color:var(--gray-400);font-size:12px;flex-shrink:0;opacity:0;transition:opacity .15s"
           class="btn-edit-apelido-card">
           <i class="ti ti-pencil"></i>
         </button>` : ''}
       </div>
-      ${p.apelido ? `<div style="font-size:11px;color:var(--gray-400);margin-top:-2px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.nome}</div>` : ''}
+      ${p.apelido ? `<div style="font-size:11px;color:var(--gray-400);margin-top:-2px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(p.nome)}</div>` : ''}
       <div class="pc-client">
         <i class="ti ti-user" style="font-size:12px"></i>
-        ${p.cliente || 'Cliente não informado'}
-        ${p.classe ? `<span style="margin-left:6px;color:var(--gray-400)">· ${p.classe}</span>` : ''}
+        ${_esc(p.cliente) || 'Cliente não informado'}
+        ${p.classe ? `<span style="margin-left:6px;color:var(--gray-400)">· ${_esc(p.classe)}</span>` : ''}
       </div>
       <div class="pc-meta" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         <span class="badge badge-${areaMap[p.area] || 'civil'}">${p.area || 'Cível'}</span>
         ${temSync && !isShared ? `
           <button class="btn-atualizar-mini"
-            onclick="verificarProcessoAgora(event,'${p.id}','${p.datajud_index}','${p.numero}')">
+            onclick="verificarProcessoAgora(event,'${p.id}','${_jsArg(p.datajud_index)}','${_jsArg(p.numero)}')">
             <i class="ti ti-refresh"></i> Atualizar
           </button>` : ''}
         ${!isShared ? `<button class="pc-share-btn" onclick="abrirModalCompartilhar(event,'${p.id}')" title="Compartilhar processo">
@@ -1921,15 +1921,15 @@ function renderizarListaProcessos(lista) {
         if (temNotif && p.novos_movimentos?.length) {
           return `<div class="pc-prazo" style="color:#1d4ed8;border-top-color:#dbeafe">
             <i class="ti ti-bell-ringing"></i>
-            <span style="font-weight:600">${p.novos_movimentos[0].nome}</span>
+            <span style="font-weight:600">${_esc(p.novos_movimentos[0].nome)}</span>
           </div>`;
         }
         if (ultimoMov) {
           const nomeResumido = ultimoMov.nome.length > 55 ? ultimoMov.nome.slice(0, 55) + '…' : ultimoMov.nome;
           const dataFormatada = ultimoMov.data ? new Date(ultimoMov.data).toLocaleDateString('pt-BR', { day:'2-digit', month:'short' }) : '';
-          return `<div class="pc-prazo" title="${ultimoMov.nome}">
+          return `<div class="pc-prazo" title="${_esc(ultimoMov.nome)}">
             <i class="ti ti-clock" style="font-size:13px"></i>
-            <span>${dataFormatada ? dataFormatada + ' · ' : ''}${nomeResumido}</span>
+            <span>${dataFormatada ? dataFormatada + ' · ' : ''}${_esc(nomeResumido)}</span>
           </div>`;
         }
         return `<div class="pc-prazo"><i class="ti ti-pencil" style="font-size:13px"></i> Sem movimentações</div>`;
@@ -2010,8 +2010,8 @@ function topbarSearch(q) {
     <div onmousedown="topbarSearchSelect('${p.id}')"
       style="padding:10px 16px;cursor:pointer;border-bottom:1px solid var(--gray-100);display:flex;flex-direction:column;gap:2px"
       onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background=''">
-      <div style="font-size:13px;font-weight:600;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.apelido || p.nome}</div>
-      <div style="font-size:11px;color:var(--gray-400)">${p.numero || '—'}${p.cliente ? ' · ' + p.cliente : ''}</div>
+      <div style="font-size:13px;font-weight:600;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(p.apelido || p.nome)}</div>
+      <div style="font-size:11px;color:var(--gray-400)">${_esc(p.numero) || '—'}${p.cliente ? ' · ' + _esc(p.cliente) : ''}</div>
     </div>
   `).join('');
   drop.style.display = 'block';
@@ -2076,7 +2076,7 @@ function filtrarCalendario(q) {
         <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
         <div class="prazo-urgency ${urgCls[e.urgencia] || 'urgency-baixa'}"></div>
         <div class="prazo-info">
-          <div class="prazo-name">${e.titulo}</div>
+          <div class="prazo-name">${_esc(e.titulo)}</div>
           <div class="prazo-type"><span class="badge ${cls}">${tipoLabel[e.tipo] || 'Lembrete'}</span></div>
           ${shLine}
         </div>
@@ -2183,7 +2183,7 @@ function popularDetalhe(proc) {
     <span class="pc-status status-${statusCls(proc.status)}" style="font-size:11px;padding:3px 10px;border-radius:10px;font-weight:600">${proc.status || 'Ativo'}</span>
     ${isArquivado ? `
     <button class="btn-atualizar-mini" style="border-color:var(--green);color:var(--green)"
-      onclick="restaurarProcesso(event,'${proc.id}','${(proc.nome||'').replace(/'/g,"'")}')">
+      onclick="restaurarProcesso(event,'${proc.id}','${_jsArg(proc.nome)}')">
       <i class="ti ti-rotate-clockwise"></i> Restaurar processo
     </button>` : ''}`;
 
@@ -2248,9 +2248,9 @@ function popularDetalhe(proc) {
        </span>`;
 
   document.getElementById('detalhe-grid').innerHTML = `
-    <div class="detail-field"><label>Cliente</label><p>${clienteNome}${clienteLink}</p></div>
-    <div class="detail-field"><label>Classe</label><p>${proc.classe || '—'}</p></div>
-    <div class="detail-field"><label>Tribunal</label><p>${proc.tribunal || '—'}</p></div>
+    <div class="detail-field"><label>Cliente</label><p>${_esc(clienteNome)}${clienteLink}</p></div>
+    <div class="detail-field"><label>Classe</label><p>${_esc(proc.classe) || '—'}</p></div>
+    <div class="detail-field"><label>Tribunal</label><p>${_esc(proc.tribunal) || '—'}</p></div>
     <div class="detail-field"><label>Distribuído em</label><p>${fmt(proc.data_ajuizamento)}</p></div>
     <div class="detail-field" style="grid-column:1/-1"><label>Honorários vinculados</label><p>${honHtml}</p></div>`;
 
@@ -2352,7 +2352,7 @@ function renderizarTimelineCNJ(proc) {
              <i class="ti ti-refresh"></i> Atualizar CNJ
            </button>`
         : (proc.numero
-            ? `<button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="_enriquecerComDatajud('${proc.numero}')">
+            ? `<button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="_enriquecerComDatajud('${_jsArg(proc.numero)}')">
                  <i class="ti ti-cloud-download"></i> Buscar no CNJ
                </button>`
             : '')}
@@ -2385,8 +2385,8 @@ function renderizarTimelineCNJ(proc) {
             <div class="cnj-tl-nome">
               ${isNota      ? `<i class="ti ti-pencil" style="font-size:11px;color:var(--amber);margin-right:4px"></i>` : ''}
               ${isHistorico ? `<i class="ti ti-history" style="font-size:11px;color:var(--gray-400);margin-right:4px"></i>` : ''}
-              ${m.nome}
-              ${isHistorico && m._autor ? `<span style="color:var(--gray-300);font-size:11px;font-style:normal;margin-left:4px">— ${m._autor}</span>` : ''}
+              ${_esc(m.nome)}
+              ${isHistorico && m._autor ? `<span style="color:var(--gray-300);font-size:11px;font-style:normal;margin-left:4px">— ${_esc(m._autor)}</span>` : ''}
               ${isNovo ? '<span class="cnj-tl-novo-badge">NOVO</span>' : ''}
             </div>
             ${isNota ? `
@@ -2584,6 +2584,11 @@ function comentTecla(event) {
 
 function _esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Para valores dentro de string JS entre aspas simples num atributo onclick="..."
+function _jsArg(s) {
+  return _esc(String(s ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
 }
 
 // Converte MAIÚSCULAS para Title Case respeitando preposições em português
@@ -3040,7 +3045,7 @@ function _renderNotifPanel() {
       html: p => `<div onclick="abrirProcesso('${p.id}');toggleNotifPanel()" style="padding:6px 16px 6px 36px;cursor:pointer;display:flex;align-items:center;gap:8px;border-radius:6px;margin:0 8px 2px;transition:background .12s" onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background='transparent'">
         <i class="ti ti-point-filled" style="font-size:8px;color:#3b82f6;flex-shrink:0"></i>
         <div style="min-width:0">
-          <div style="font-size:12.5px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.apelido || p.nome}</div>
+          <div style="font-size:12.5px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(p.apelido || p.nome)}</div>
           <div style="font-size:11px;color:var(--gray-400)">Nova movimentação</div>
         </div>
       </div>`,
@@ -3052,8 +3057,8 @@ function _renderNotifPanel() {
       html: e => `<div onclick="showPage('calendario');toggleNotifPanel()" style="padding:6px 16px 6px 36px;cursor:pointer;display:flex;align-items:center;gap:8px;border-radius:6px;margin:0 8px 2px;transition:background .12s" onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background='transparent'">
         <i class="ti ti-point-filled" style="font-size:8px;color:var(--blue);flex-shrink:0"></i>
         <div style="min-width:0;flex:1">
-          <div style="font-size:12.5px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.titulo}</div>
-          <div style="font-size:11px;color:var(--gray-400)">${tipoEvento[e.tipo] || e.tipo} · ${fmt(e.data)}</div>
+          <div style="font-size:12.5px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(e.titulo)}</div>
+          <div style="font-size:11px;color:var(--gray-400)">${tipoEvento[e.tipo] || _esc(e.tipo)} · ${fmt(e.data)}</div>
         </div>
       </div>`,
     },
@@ -3068,7 +3073,7 @@ function _renderNotifPanel() {
         return `<div onclick="abrirTarefaPorId('${t.id}','${t.quadro_id || ''}');toggleNotifPanel()" style="padding:6px 16px 6px 36px;cursor:pointer;display:flex;align-items:center;gap:8px;border-radius:6px;margin:0 8px 2px;transition:background .12s" onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background='transparent'">
         <i class="ti ti-point-filled" style="font-size:8px;color:${cor};flex-shrink:0"></i>
         <div style="min-width:0;flex:1">
-          <div style="font-size:12.5px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${t.titulo}</div>
+          <div style="font-size:12.5px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(t.titulo)}</div>
           <div style="font-size:11px;color:${cor}">${label}</div>
         </div>
       </div>`;
@@ -3242,12 +3247,14 @@ function formatarNumero(num) {
 let _arquivarId   = null;
 let _arquivarNome = null;
 
-function pedirArquivar(evt, id, nome) {
+function pedirArquivar(evt, id) {
   evt.stopPropagation();
+  const proc = (window._processosDB || []).find(p => p.id === id);
+  const nome = proc?.nome || '';
   _arquivarId   = id;
   _arquivarNome = nome;
   const el = document.getElementById('arquivar-nome-processo');
-  if (el) el.innerHTML = `<i class="ti ti-folder" style="color:var(--gray-400)"></i> <strong>${nome}</strong>`;
+  if (el) el.innerHTML = `<i class="ti ti-folder" style="color:var(--gray-400)"></i> <strong>${_esc(nome)}</strong>`;
   openModal('modal-arquivar');
 }
 
@@ -3304,29 +3311,29 @@ async function carregarArquivados() {
 
     card.innerHTML = `
       <div class="pc-top">
-        <span class="pc-num">${p.numero || '—'}</span>
+        <span class="pc-num">${_esc(p.numero) || '—'}</span>
         <div style="display:flex;align-items:center;gap:5px">
           ${temSync ? `<span class="pc-sync-badge"><i class="ti ti-cloud-check"></i> CNJ DataJud</span>` : ''}
           <span class="pc-status" style="background:var(--gray-200);color:var(--gray-600)">Arquivado</span>
         </div>
       </div>
-      <div class="pc-title">${p.apelido || p.nome}</div>
-      ${p.apelido ? `<div style="font-size:11px;color:var(--gray-400);margin-top:-2px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${p.nome}</div>` : ''}
+      <div class="pc-title">${_esc(p.apelido || p.nome)}</div>
+      ${p.apelido ? `<div style="font-size:11px;color:var(--gray-400);margin-top:-2px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(p.nome)}</div>` : ''}
       <div class="pc-client">
         <i class="ti ti-user" style="font-size:12px"></i>
-        ${p.cliente || 'Cliente não informado'}
-        ${p.classe ? `<span style="margin-left:6px;color:var(--gray-400)">· ${p.classe}</span>` : ''}
+        ${_esc(p.cliente) || 'Cliente não informado'}
+        ${p.classe ? `<span style="margin-left:6px;color:var(--gray-400)">· ${_esc(p.classe)}</span>` : ''}
       </div>
       <div class="pc-meta">
         <span class="badge badge-${areaMap[p.area] || 'civil'}">${p.area || 'Cível'}</span>
         <div style="display:flex;gap:4px;margin-left:auto">
           ${temSync ? `
             <button class="btn-atualizar-mini"
-              onclick="verificarProcessoAgora(event,'${p.id}','${p.datajud_index}','${p.numero}')">
+              onclick="verificarProcessoAgora(event,'${p.id}','${_jsArg(p.datajud_index)}','${_jsArg(p.numero)}')">
               <i class="ti ti-refresh"></i> Atualizar
             </button>` : ''}
           <button class="btn-atualizar-mini" style="border-color:var(--green);color:var(--green)"
-            onclick="restaurarProcesso(event,'${p.id}','${(p.nome||'').replace(/'/g,'\\x27')}')">
+            onclick="restaurarProcesso(event,'${p.id}','${_jsArg(p.nome)}')">
             <i class="ti ti-rotate-clockwise"></i> Restaurar
           </button>
         </div>
@@ -4584,7 +4591,7 @@ async function carregarPrazosProcesso(processoId) {
         <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
         <div class="prazo-urgency ${urgCls[e.urgencia] || 'urgency-baixa'}"></div>
         <div class="prazo-info">
-          <div class="prazo-name">${e.titulo}</div>
+          <div class="prazo-name">${_esc(e.titulo)}</div>
           <div class="prazo-type">${tipoLabel[e.tipo] || 'Lembrete'}</div>
         </div>
         <span class="dias-badge ${badgeCls}">${label}</span>
@@ -4866,11 +4873,38 @@ function _tarefasParaSino() {
   return [...map.values()];
 }
 
+// DOMParser em vez de innerHTML num div: o documento gerado é inerte, então
+// <img onerror> etc. não executa (a descrição pode vir de parceiro de pasta).
 function _stripHtml(html) {
   if (!html) return '';
-  const div = document.createElement('div');
-  div.innerHTML = html;
-  return (div.textContent || '').trim();
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return (doc.body.textContent || '').trim();
+}
+
+// A descrição da tarefa é HTML do editor (negrito, listas...). Mantém só as
+// tags de formatação, sem nenhum atributo — remove scripts, handlers, links.
+const _TAGS_DESCRICAO = new Set(['B','STRONG','I','EM','U','UL','OL','LI','BR','DIV','P','SPAN']);
+function _sanitizarDescricao(html) {
+  if (!html) return '';
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const limpar = node => {
+    for (const filho of [...node.childNodes]) {
+      if (filho.nodeType === Node.TEXT_NODE) continue;
+      if (filho.nodeType !== Node.ELEMENT_NODE || !_TAGS_DESCRICAO.has(filho.tagName)) {
+        if (filho.nodeType === Node.ELEMENT_NODE && !['SCRIPT','STYLE','IFRAME','OBJECT','EMBED','TEMPLATE'].includes(filho.tagName)) {
+          filho.replaceWith(...filho.childNodes);
+          limpar(node);
+          return;
+        }
+        filho.remove();
+        continue;
+      }
+      for (const attr of [...filho.attributes]) filho.removeAttribute(attr.name);
+      limpar(filho);
+    }
+  };
+  limpar(doc.body);
+  return doc.body.innerHTML;
 }
 
 // Padrão CNJ: NNNNNNN-DD.AAAA.J.TR.OOOO — 20 dígitos no total.
@@ -5460,7 +5494,7 @@ function abrirDetalhe(id) {
 
   // Descrição (contenteditable)
   const descEl = document.getElementById('tp-descricao');
-  if (descEl) descEl.innerHTML = t.descricao || '';
+  if (descEl) descEl.innerHTML = _sanitizarDescricao(t.descricao);
 
   // Checklist
   _renderChecklist();
@@ -5504,7 +5538,8 @@ function _temAlteracoesTarefaDetalhe() {
   const t = _tarefasDB.find(x => x.id === _detalheId);
   if (!t) return false;
   const atual = _lerCamposTarefaDetalhe();
-  return Object.keys(atual).some(k => atual[k] !== (t[k] ?? (k === 'titulo' || k === 'descricao' ? '' : null)));
+  const salvo = { ...t, descricao: _sanitizarDescricao(t.descricao).trim() };
+  return Object.keys(atual).some(k => atual[k] !== (salvo[k] ?? (k === 'titulo' || k === 'descricao' ? '' : null)));
 }
 
 async function salvarTarefaDetalhe() {
@@ -6683,15 +6718,15 @@ function _renderClientes(lista) {
     card.dataset.id = cli.id;
     card.innerHTML = `
       <div class="cliente-card-header">
-        <div class="cliente-avatar">${iniciais}</div>
+        <div class="cliente-avatar">${_esc(iniciais)}</div>
         <div style="min-width:0">
-          <div class="cliente-nome">${cli.nome}</div>
-          <div class="cliente-doc">${cli.cpf_cnpj || '—'}</div>
+          <div class="cliente-nome">${_esc(cli.nome)}</div>
+          <div class="cliente-doc">${_esc(cli.cpf_cnpj) || '—'}</div>
         </div>
       </div>
       <div class="cliente-card-info">
-        ${cli.email    ? `<div class="cliente-info-row"><i class="ti ti-mail"></i>${cli.email}</div>` : ''}
-        ${cli.telefone ? `<div class="cliente-info-row"><i class="ti ti-phone"></i>${cli.telefone}</div>` : ''}
+        ${cli.email    ? `<div class="cliente-info-row"><i class="ti ti-mail"></i>${_esc(cli.email)}</div>` : ''}
+        ${cli.telefone ? `<div class="cliente-info-row"><i class="ti ti-phone"></i>${_esc(cli.telefone)}</div>` : ''}
       </div>
       <div class="cliente-card-footer">
         <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -6929,10 +6964,10 @@ function _buildHonCard(h, grupo) {
   card.innerHTML = `
     <div class="hon-card-icon"><i class="ti ${tipoIcone[h.tipo] || 'ti-cash'}"></i></div>
     <div class="hon-card-body">
-      <div class="hon-card-desc">${h.descricao}</div>
+      <div class="hon-card-desc">${_esc(h.descricao)}</div>
       <div class="hon-card-meta">
-        ${h.cliente_nome ? `<span class="hon-meta-item"><i class="ti ti-user"></i>${h.cliente_nome}</span>` : ''}
-        ${procLabel      ? `<span class="hon-meta-item"><i class="ti ti-briefcase"></i>${procLabel}</span>` : ''}
+        ${h.cliente_nome ? `<span class="hon-meta-item"><i class="ti ti-user"></i>${_esc(h.cliente_nome)}</span>` : ''}
+        ${procLabel      ? `<span class="hon-meta-item"><i class="ti ti-briefcase"></i>${_esc(procLabel)}</span>` : ''}
         <span class="hon-meta-item"><i class="ti ti-calendar"></i>${vencStr}</span>
         <span class="hon-tipo-badge">${tipoLabel[h.tipo] || h.tipo}</span>
       </div>

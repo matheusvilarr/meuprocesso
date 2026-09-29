@@ -128,8 +128,8 @@ function mostrarAguardando(email, nome) {
     localStorage.setItem(flagKey, '1');
     fetch('/api/email-transacional', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tipo: 'cadastro', para: email, nome }),
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${_session.access_token}` },
+      body: JSON.stringify({ tipo: 'cadastro' }),
     }).catch(() => {});
   }
 }

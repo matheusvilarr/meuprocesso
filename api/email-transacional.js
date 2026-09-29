@@ -1,30 +1,36 @@
-// E-mails transacionais: cadastro recebido e conta aprovada.
-// POST /api/email-transacional  { tipo: 'cadastro' | 'aprovado', para, nome }
+// E-mail transacional de "cadastro recebido".
+// POST /api/email-transacional  { tipo: 'cadastro' }  (Authorization: Bearer <jwt>)
+// Só envia para o e-mail do próprio usuário autenticado — antes aceitava
+// qualquer "para", o que permitia usar o domínio como relay de spam.
+// O e-mail de "acesso liberado" é enviado pelo api/admin.js.
 
-const RESEND_KEY = process.env.RESEND_API_KEY;
-const FROM       = 'Meu Processo <contato@meuprocesso.app.br>';
+import { createClient } from '@supabase/supabase-js';
+
+const SUPA_URL      = 'https://ctsjhsdblallguftycqs.supabase.co';
+const SUPA_ANON_KEY = 'sb_publishable_i2UzINt5Xv1QthMl1M0Tgw_iNkiO0K1';
+const RESEND_KEY    = process.env.RESEND_API_KEY;
+const FROM          = 'Meu Processo <contato@meuprocesso.app.br>';
+
+const ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ESCAPE_MAP[c]);
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { tipo, para, nome } = req.body || {};
-  if (!tipo || !para) return res.status(400).json({ erro: 'tipo e para são obrigatórios.' });
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith('Bearer ')) return res.status(401).json({ erro: 'Não autenticado.' });
 
-  const primeiroNome = (nome || '').split(' ')[0] || 'Advogado(a)';
+  const supaAnon = createClient(SUPA_URL, SUPA_ANON_KEY);
+  const { data: { user }, error: authErr } = await supaAnon.auth.getUser(auth.slice(7));
+  if (authErr || !user?.email) return res.status(401).json({ erro: 'Token inválido.' });
 
-  let assunto, html;
+  const { tipo } = req.body || {};
+  if (tipo !== 'cadastro') return res.status(400).json({ erro: 'tipo inválido.' });
 
-  if (tipo === 'cadastro') {
-    assunto = 'Recebemos seu cadastro — Meu Processo';
-    html = templateCadastro(primeiroNome);
-  } else if (tipo === 'aprovado') {
-    assunto = 'Seu acesso foi liberado — Meu Processo';
-    html = templateAprovado(primeiroNome);
-  } else {
-    return res.status(400).json({ erro: 'tipo inválido.' });
-  }
+  const nome         = user.user_metadata?.full_name || user.user_metadata?.nome || '';
+  const primeiroNome = nome.split(' ')[0] || 'Advogado(a)';
 
-  await enviarEmail(para, assunto, html);
+  await enviarEmail(user.email, 'Recebemos seu cadastro — Meu Processo', templateCadastro(esc(primeiroNome)));
   return res.json({ ok: true });
 }
 
@@ -94,62 +100,6 @@ function templateCadastro(nome) {
       </td></tr>
 
       <!-- Footer -->
-      <tr><td style="padding:20px 0;text-align:center">
-        <p style="font-size:12px;color:#9ca3af;margin:0">
-          Meu Processo · <a href="https://meuprocesso.app.br" style="color:#6b7280;text-decoration:none">meuprocesso.app.br</a>
-        </p>
-      </td></tr>
-
-    </table>
-  </td></tr>
-</table>
-</body></html>`;
-}
-
-function templateAprovado(nome) {
-  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Acesso liberado</title></head>
-<body style="margin:0;padding:0;background:#f3f4f6;font-family:'Helvetica Neue',Arial,sans-serif">
-<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;padding:40px 0">
-  <tr><td align="center">
-    <table width="580" cellpadding="0" cellspacing="0" border="0" style="max-width:580px;width:100%">
-
-      <!-- Header -->
-      <tr><td style="background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 55%,#1d4ed8 100%);border-radius:16px 16px 0 0;padding:36px 40px;text-align:center">
-        <div style="font-size:26px;font-weight:800;color:#ffffff;letter-spacing:-.5px">Meu Processo</div>
-        <div style="font-size:13px;color:rgba(255,255,255,.6);margin-top:4px">Gestão jurídica inteligente</div>
-      </td></tr>
-
-      <!-- Body -->
-      <tr><td style="background:#ffffff;padding:40px 40px 32px;border-radius:0 0 16px 16px">
-
-        <div style="text-align:center;margin-bottom:28px">
-          <div style="font-size:48px">🎉</div>
-          <p style="font-size:20px;font-weight:700;color:#111827;margin:12px 0 8px">Seu acesso foi liberado!</p>
-          <p style="font-size:15px;color:#6b7280;margin:0">Bem-vindo(a) ao Meu Processo, ${nome}.</p>
-        </div>
-
-        <p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 28px;text-align:center">
-          Agora você tem acesso completo à plataforma — monitore seus processos,
-          acompanhe prazos e receba alertas automáticos de movimentações.
-        </p>
-
-        <div style="text-align:center;margin-bottom:32px">
-          <a href="https://meuprocesso.app.br/login" style="display:inline-block;background:linear-gradient(135deg,#1e3a5f,#1d4ed8);color:#ffffff;text-decoration:none;font-size:16px;font-weight:700;padding:16px 40px;border-radius:12px;letter-spacing:.02em">
-            Acessar minha conta →
-          </a>
-        </div>
-
-        <div style="border-top:1px solid #e5e7eb;padding-top:24px;text-align:center">
-          <p style="font-size:13px;color:#6b7280;margin:0">
-            Qualquer dúvida, responda este e-mail.<br>
-            <strong style="color:#111827">Matheus Vilar</strong> · Fundador, Meu Processo
-          </p>
-        </div>
-
-      </td></tr>
-
       <tr><td style="padding:20px 0;text-align:center">
         <p style="font-size:12px;color:#9ca3af;margin:0">
           Meu Processo · <a href="https://meuprocesso.app.br" style="color:#6b7280;text-decoration:none">meuprocesso.app.br</a>

@@ -553,7 +553,7 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
 
   // Ordena pelos menos sincronizados primeiro — garante rotação entre todos
   let q = admin.from('processos')
-    .select('id, user_id, numero, datajud_index, movimentos_hash, created_at')
+    .select('id, user_id, numero, datajud_index, movimentos_hash, movimentos_recentes, created_at')
     .not('datajud_index', 'is', null)
     .neq('status', 'Arquivado')
     .order('ultima_verificacao', { ascending: true, nullsFirst: true });
@@ -591,7 +591,13 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
         : movimentos.slice(0, 1);
       const novosValidos = novos.filter(m => m.data && m.data >= (proc.created_at || '').slice(0, 10));
 
-      const update = { movimentos_recentes: movimentos, movimentos_hash: novoHash, ultima_verificacao: new Date().toISOString() };
+      // Preserva movimentos DJEN existentes — mesmo critério do cron (sincronizar.js)
+      const djenExistentes = (proc.movimentos_recentes || []).filter(m => (m.nome || '').startsWith('DJEN'));
+      const movimentosFinal = [...movimentos, ...djenExistentes]
+        .sort((a, b) => (b.data || '') > (a.data || '') ? 1 : -1)
+        .slice(0, 100);
+
+      const update = { movimentos_recentes: movimentosFinal, movimentos_hash: novoHash, ultima_verificacao: new Date().toISOString() };
       if (novosValidos.length) { update.notificacao_pendente = true; update.novos_movimentos = novosValidos; }
 
       const { error: upErr } = await admin.from('processos').update(update).eq('id', proc.id);
@@ -603,7 +609,8 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
   // Dispara e-mails imediatamente se houve atualizações — sem esperar o próximo cron agendado
   let emailsDisparados = 0;
   if (atualizados > 0) {
-    const fakeReq = { headers: {}, query: {} }; // tipo auto-detectado pela hora atual
+    const cronSecret = process.env.CRON_SECRET;
+    const fakeReq = { headers: { authorization: cronSecret ? `Bearer ${cronSecret}` : '' }, query: {} }; // tipo auto-detectado pela hora atual
     let emailResult = null;
     const fakeRes = {
       status(c) { return this; },
@@ -631,7 +638,8 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
 
 async function acaoRodarEmails(req, res) {
   const { tipo = 'morning' } = req.body || {};
-  const fakeReq = { headers: {}, query: { tipo } };
+  const cronSecret = process.env.CRON_SECRET;
+  const fakeReq = { headers: { authorization: cronSecret ? `Bearer ${cronSecret}` : '' }, query: { tipo } };
   let resultado = null;
   const fakeRes = {
     status(code) { this._code = code; return this; },
