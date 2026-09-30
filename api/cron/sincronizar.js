@@ -16,6 +16,7 @@ import djenCadernos from '../../lib/djen-cadernos.js';
 import {
   parsarData, decodificarBuffer, logErro, chaveMov, movimentosDosHits,
   ehMovDJEN, datajudIndexFromNumero, buscarOabsUsuarios, corrigirMojibake,
+  normalizarNumeroCNJ, tituloProcesso,
 } from '../../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
@@ -237,7 +238,7 @@ export async function sincronizarDatajudUm(proc, admin, hoje) {
     // os dados do DataJud (só nesse caso — nunca sobrescreve o que o advogado editou).
     const src = hits[0]._source || {};
     if (proc.nome && proc.nome === proc.numero) {
-      const classe = corrigirMojibake(src.classe?.nome);
+      const classe = tituloProcesso(src.classe?.nome);
       if (src.classe?.nome)        { update.nome = classe; update.classe = classe; }
       if (src.orgaoJulgador?.nome) update.orgao_julgador = corrigirMojibake(src.orgaoJulgador.nome);
       if (src.tribunal)            update.tribunal = corrigirMojibake(src.tribunal);
@@ -437,11 +438,13 @@ async function buscarPorOabNoDatajud(index, oab) {
 
 function normalizarDescoberta(p, index) {
   return {
-    numero: p.numeroProcesso || '',
-    tribunal: p.tribunal || index,
+    // Sem normalizar, o processo importado daqui entrava com os 20 dígitos
+    // corridos e ficava fora da fila de sincronização.
+    numero: normalizarNumeroCNJ(p.numeroProcesso),
+    tribunal: corrigirMojibake(p.tribunal) || index,
     _datajudIndex: index,
-    classe: p.classe?.nome || null,
-    orgaoJulgador: p.orgaoJulgador?.nome || null,
+    classe: p.classe?.nome ? tituloProcesso(p.classe.nome) : null,
+    orgaoJulgador: p.orgaoJulgador?.nome ? corrigirMojibake(p.orgaoJulgador.nome) : null,
     dataAjuizamento: parsarData(p.dataAjuizamento),
     partes: (p.partes || []).map(parte => ({
       nome: parte.nome,

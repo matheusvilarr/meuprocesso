@@ -947,7 +947,7 @@ async function buscarAdvogadoDJEN() {
       const parteAtiva   = item.destinatarios?.find(d => ['A','AT','ATIVO'].includes((d.polo||'').toUpperCase()));
       const partePassiva = item.destinatarios?.find(d => ['P','R','PA','RE','PASSIVO'].includes((d.polo||'').toUpperCase()));
       const partes       = { cliente: parteAtiva?.nome || null, contrario: partePassiva?.nome || null };
-      const matches      = processos.map(num => (window._processosDB || []).find(p => p.numero === num)).filter(Boolean);
+      const matches      = processos.map(_acharPorNumero).filter(Boolean);
       return { ...item, textoLimpo, processos, tipoDecisao, partes, matches };
     });
 
@@ -1313,9 +1313,9 @@ function exibirResultados(lista) {
   // Com múltiplos resultados: reutiliza o sistema de lote com checkboxes
   if (lista.length > 1) {
     _loteResultados = lista.map(d => {
-      const jaExiste = !!(d.numero && (window._processosDB || []).some(p => p.numero === d.numero));
+      const jaExiste = !!_acharPorNumero(d.numero);
       return {
-        numero:     d.numero || '—',
+        numero:     _numeroCNJ(d.numero) || '—',
         status:     'encontrado',
         data:       d,
         selecionado: true,
@@ -1352,7 +1352,7 @@ function exibirResultados(lista) {
   wrap.style.display = 'flex';
   const fmt = iso => iso ? new Date(iso).toLocaleDateString('pt-BR') : '—';
   const d = lista[0];
-  const jaExiste = !!(d.numero && (window._processosDB || []).some(p => p.numero === d.numero));
+  const jaExiste = !!_acharPorNumero(d.numero);
   const btnLabel = jaExiste
     ? '<i class="ti ti-refresh"></i> Atualizar e mesclar'
     : '<i class="ti ti-cloud-download"></i> Importar e monitorar';
@@ -1398,7 +1398,7 @@ async function adicionarProcesso(i) {
 
   // Verifica se processo já existe para mesclar diretamente
   if (d.numero) {
-    const jaExiste = (window._processosDB || []).some(p => p.numero === d.numero);
+    const jaExiste = !!_acharPorNumero(d.numero);
     if (jaExiste) {
       const result = await _importarComMerge(d);
       if (result.status === 'mesclado') {
@@ -1436,15 +1436,18 @@ async function adicionarProcesso(i) {
 async function salvarProcesso() {
   const btn = document.getElementById('btn-criar-processo');
 
-  const numero  = document.getElementById('np-numero').value.trim();
+  // Número sempre no formato do CNJ, independente de como foi digitado/colado
+  const numero  = _numeroCNJ(document.getElementById('np-numero').value);
   const nome    = document.getElementById('np-nome').value.trim();
   const cliente = document.getElementById('np-cliente').value.trim();
 
   if (!nome) { showToast('Preencha o nome / assunto do processo.'); return; }
 
-  // Verifica duplicata pelo número
+  // Verifica duplicata comparando só os dígitos — antes, o mesmo processo
+  // digitado com e sem pontuação passava como se fosse outro.
   if (numero) {
-    const jaExiste = (window._processosDB || []).some(p => p.numero === numero);
+    const soDigitos = n => String(n || '').replace(/\D/g, '');
+    const jaExiste = (window._processosDB || []).some(p => soDigitos(p.numero) === soDigitos(numero));
     if (!jaExiste) {
       const { count } = await _supabase
         .from('processos').select('id', { count: 'exact', head: true })
@@ -1467,8 +1470,8 @@ async function salvarProcesso() {
     area:            document.getElementById('np-area').value,
     tribunal:        document.getElementById('np-tribunal').value.trim(),
     parte_contraria: document.getElementById('np-parte-contraria').value.trim(),
-    datajud_index:       document.getElementById('np-datajud-index').value || null,
-    classe:              document.getElementById('np-classe').value || null,
+    datajud_index:       document.getElementById('np-datajud-index').value || _indiceDoNumero(numero),
+    classe:              _tituloProcesso(document.getElementById('np-classe').value) || null,
     orgao_julgador:      document.getElementById('np-orgao-julgador').value || null,
     data_ajuizamento:    document.getElementById('np-data-ajuizamento').value || null,
     valor_causa:         _parseValorMoeda(document.getElementById('np-valor').value),
@@ -2607,11 +2610,68 @@ function _jsArg(s) {
   return _esc(String(s ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
 }
 
+// ── PADRÃO DE CADASTRO ──
+// Mesmas regras do servidor (lib/sync-comum.js). Todo processo entra no
+// sistema com o número no formato do CNJ e o título na mesma caixa, venha
+// da busca por número, do DJEN ou do cadastro manual. Sem isso, o mesmo
+// processo podia ser cadastrado duas vezes e o número sem pontuação ficava
+// fora da fila de sincronização.
+const _PREPOSICOES = new Set([
+  'de','da','do','das','dos','e','ou','a','o','as','os','em','por','para','com','sem',
+  'ao','aos','à','às','no','na','nos','nas','num','numa','contra','sob','sobre','entre',
+  'perante','até','após','desde','durante','mediante','conforme','segundo','pelo','pela',
+]);
+
+// Índice do DataJud a partir do número — mesma regra do servidor
+// (lib/sync-comum.js → datajudIndexFromNumero). Um processo salvo sem índice
+// fica fora da fila de sincronização e nunca atualiza.
+const _UF_TRE = ['','ac','al','ap','am','ba','ce','df','es','go','ma','mt','ms','mg','pa','pb','pr','pe','pi','rj','rn','rs','ro','rr','sc','se','sp','to'];
+const _UF_TJ  = ['','ac','al','ap','am','ba','ce','dft','es','go','ma','mt','ms','mg','pa','pb','pr','pe','pi','rj','rn','rs','ro','rr','sc','se','sp','to'];
+
+function _indiceDoNumero(numero) {
+  const d = String(numero || '').replace(/\D/g, '');
+  if (d.length !== 20) return null;
+  const seg = d[13], tr = parseInt(d.slice(14, 16), 10);
+  if (seg === '1') return 'api_publica_stf';
+  if (seg === '3') return 'api_publica_stj';
+  if (seg === '7') return 'api_publica_stm';
+  if (seg === '4' && tr >= 1 && tr <= 6)  return `api_publica_trf${tr}`;
+  if (seg === '5' && tr >= 1 && tr <= 24) return `api_publica_trt${tr}`;
+  if (seg === '6') return _UF_TRE[tr] ? `api_publica_tre-${_UF_TRE[tr]}` : null;
+  if (seg === '8') return _UF_TJ[tr] ? (_UF_TJ[tr] === 'dft' ? 'api_publica_tjdft' : `api_publica_tj${_UF_TJ[tr]}`) : null;
+  if (seg === '9') return { 13: 'api_publica_tjmmg', 21: 'api_publica_tjmrs', 26: 'api_publica_tjmsp' }[tr] || null;
+  return null;
+}
+
+// Comparação de número sempre pelos dígitos: o mesmo processo pode estar
+// gravado com e sem pontuação, e a comparação por texto dava "não encontrado",
+// o que gerava cadastro duplicado.
+function _digitos(n) { return String(n || '').replace(/\D/g, ''); }
+
+function _acharPorNumero(num) {
+  const d = _digitos(num);
+  return d ? (window._processosDB || []).find(p => _digitos(p.numero) === d) : undefined;
+}
+
+// Formato canônico do CNJ: NNNNNNN-DD.AAAA.J.TR.OOOO
+function _numeroCNJ(numero) {
+  const s = String(numero ?? '').trim();
+  const d = s.replace(/\D/g, '');
+  if (d.length !== 20) return s;
+  return `${d.slice(0,7)}-${d.slice(7,9)}.${d.slice(9,13)}.${d.slice(13,14)}.${d.slice(14,16)}.${d.slice(16)}`;
+}
+
+// Junta as partes com " · " e padroniza a caixa
+function _tituloProcesso(...partes) {
+  const texto = partes.filter(Boolean).join(' · ').replace(/\s+/g, ' ').trim();
+  if (!texto) return '';
+  return _corrigirMojibake(texto).toLowerCase().replace(/[^\s·]+/g, (p, pos) =>
+    (pos === 0 || !_PREPOSICOES.has(p)) ? p.charAt(0).toUpperCase() + p.slice(1) : p);
+}
+
 // Converte MAIÚSCULAS para Title Case respeitando preposições em português
 function _titleCase(str) {
-  if (!str) return '';
-  const prep = new Set(['de','da','do','das','dos','e','ou','a','o','as','os','em','por','para','com','sem','ao','aos','à','às']);
-  return str.toLowerCase().replace(/\S+/g, (w, i) => (i === 0 || !prep.has(w)) ? w[0].toUpperCase() + w.slice(1) : w);
+  return _tituloProcesso(str);
 }
 
 // Label padrão para seletores de processo: "Nome do Cliente · número"
@@ -5854,14 +5914,15 @@ function _extrairTribunalDeIndex(datajudIndex) {
 }
 
 async function _importarComMerge(d) {
-  const movs = d.movimentos || [];
+  const movs   = d.movimentos || [];
+  const numero = _numeroCNJ(d.numero);   // padrão único de cadastro
 
   // Verifica se processo já existe
   const { data: existente } = await _supabase
     .from('processos')
     .select('id,apelido,cliente,notas_manuais,movimentos_recentes,movimentos_hash,tribunal')
     .eq('user_id', window._escritorioId)
-    .eq('numero', d.numero)
+    .eq('numero', numero)
     .maybeSingle();
 
   if (existente) {
@@ -5880,7 +5941,7 @@ async function _importarComMerge(d) {
     // direto da resposta do DataJud (não o fallback derivado do índice).
     if (tribunalDerivado && (d.tribunal || !existente.tribunal)) updates.tribunal = tribunalDerivado;
     if (d.orgaoJulgador)   updates.orgao_julgador  = d.orgaoJulgador;
-    if (d.classe)          updates.classe           = d.classe;
+    if (d.classe)          updates.classe           = _tituloProcesso(d.classe);
     if (d.dataAjuizamento) updates.data_ajuizamento = d.dataAjuizamento;
     if (d._datajudIndex)   updates.datajud_index   = d._datajudIndex;
     if (d.grau)            updates.grau            = d.grau;
@@ -5897,14 +5958,15 @@ async function _importarComMerge(d) {
   // no "Importar selecionados") passarem pela checagem acima ao mesmo tempo
   const { error } = await _supabase.from('processos').upsert({
     user_id:             window._escritorioId,
-    numero:              d.numero             || '',
-    nome:                d.classe             || d.numero || '',
+    numero,
+    nome:                _tituloProcesso(d.classe) || numero || '',
     cliente:             clientePart?.nome    || '',
     area:                'Cível',
     tribunal:            d.tribunal || _extrairTribunalDeIndex(d._datajudIndex) || '',
     parte_contraria:     '',
-    datajud_index:       d._datajudIndex      || null,
-    classe:              d.classe             || null,
+    // Sem índice o processo fica fora da fila — deriva do número como o servidor faz
+    datajud_index:       d._datajudIndex      || _indiceDoNumero(numero),
+    classe:              _tituloProcesso(d.classe) || null,
     orgao_julgador:      d.orgaoJulgador      || null,
     data_ajuizamento:    d.dataAjuizamento    || null,
     grau:                d.grau               || null,
@@ -6328,7 +6390,7 @@ async function rodarMonitorDJe() {
       const tipoDecisao = _extrairTipoDecisao(textoLimpo);
       const partes      = extrairPartes(textoLimpo);
       const matches = processos
-        .map(num => (window._processosDB || []).find(p => p.numero === num))
+        .map(_acharPorNumero)
         .filter(Boolean);
       return { ...item, textoLimpo, processos, tipoDecisao, partes, matches };
     });
@@ -6524,7 +6586,7 @@ async function importarProcessoDJe(docIndex) {
   const clienteManual = document.getElementById(`dje-cliente-manual-${docIndex}`)?.value.trim() || null;
   const clienteFinal  = clienteManual || (doc.partes?.cliente?.length > 2 ? doc.partes.cliente : null);
   const userId = window._escritorioId || window._user?.id;
-  const numero = doc.processos[0];
+  const numero = _numeroCNJ(doc.processos[0]);
   const novoMov = { data: (doc.data_disponibilizacao || '') + 'T00:00:00', nome: mov, _fonte: 'djen', _url: doc.link || null };
 
   // Checa direto no banco (não no cache local) se o processo já existe, para não duplicar
@@ -6567,12 +6629,13 @@ async function importarProcessoDJe(docIndex) {
   const { error } = await _supabase.from('processos').upsert({
     user_id:         userId,
     numero,
-    nome:            [doc.nomeClasse, doc.tipoDecisao].filter(Boolean).join(' · ') || doc.tipoComunicacao || 'Publicação DJEN',
+    nome:            _tituloProcesso(doc.nomeClasse, doc.tipoDecisao) || _tituloProcesso(doc.tipoComunicacao) || 'Publicação DJEN',
     tribunal:        doc.siglaTribunal    || '',
+    datajud_index:   _indiceDoNumero(numero),
     cliente:         clienteFinal,
     parte_contraria: doc.partes?.contrario?.length > 2 ? doc.partes.contrario : null,
     area:            _detectarArea(doc.siglaTribunal, doc.nomeClasse),
-    classe:          doc.nomeClasse  || null,
+    classe:          _tituloProcesso(doc.nomeClasse) || null,
     orgao_julgador:  doc.nomeOrgao   || null,
     movimentos_recentes: [novoMov],
     movimentos_hash:     null, // só o DataJud preenche o hash
@@ -6623,7 +6686,7 @@ async function _enriquecerComDatajud(numero) {
 
     // Se o detalhe deste processo estiver aberto, re-renderiza a timeline
     if (_processoAtual?.numero === numero) {
-      const proc = (window._processosDB || []).find(p => p.numero === numero);
+      const proc = _acharPorNumero(numero);
       if (proc) {
         _processoAtual = proc;
         popularDetalhe(proc);
@@ -6635,9 +6698,9 @@ async function _enriquecerComDatajud(numero) {
 }
 
 async function importarTodosDJe() {
-  const dbNums = new Set((window._processosDB || []).map(p => p.numero).filter(Boolean));
+  const dbNums = new Set((window._processosDB || []).map(p => _digitos(p.numero)).filter(Boolean));
   const pendentes = (window._djeResultados || []).filter(d =>
-    d.processos[0] && !d.matches?.length && !dbNums.has(d.processos[0])
+    d.processos[0] && !d.matches?.length && !dbNums.has(_digitos(d.processos[0]))
   );
   if (!pendentes.length) { showToast('Nenhum processo novo para importar.'); return; }
 
@@ -6645,18 +6708,19 @@ async function importarTodosDJe() {
   let ok = 0, erros = 0;
 
   for (const doc of pendentes) {
-    const numero = doc.processos[0];
-    if (dbNums.has(numero)) continue; // skip se chegou ao DB entre iterações
+    const numero = _numeroCNJ(doc.processos[0]);
+    if (dbNums.has(_digitos(numero))) continue; // skip se chegou ao DB entre iterações
     try {
       const { error } = await _supabase.from('processos').insert({
         user_id:         window._escritorioId || window._user?.id,
         numero,
-        nome:            [doc.nomeClasse, doc.tipoDecisao].filter(Boolean).join(' · ') || doc.tipoComunicacao || 'Publicação DJEN',
+        nome:            _tituloProcesso(doc.nomeClasse, doc.tipoDecisao) || _tituloProcesso(doc.tipoComunicacao) || 'Publicação DJEN',
         tribunal:        doc.siglaTribunal || '',
+        datajud_index:   _indiceDoNumero(numero),
         cliente:         doc.partes?.cliente   || null,
         parte_contraria: doc.partes?.contrario || null,
         area:            _detectarArea(doc.siglaTribunal, doc.nomeClasse),
-        classe:          doc.nomeClasse  || null,
+        classe:          _tituloProcesso(doc.nomeClasse) || null,
         orgao_julgador:  doc.nomeOrgao   || null,
         movimentos_recentes: [{
           data: (doc.data_disponibilizacao || '') + 'T00:00:00',
@@ -6668,7 +6732,7 @@ async function importarTodosDJe() {
       if (error) { erros++; }
       else {
         ok++;
-        dbNums.add(numero);        // evita re-inserir no próximo click
+        dbNums.add(_digitos(numero));  // evita re-inserir no próximo click
         doc.matches = [{ numero }]; // evita re-importar sem precisar recarregar resultados
       }
     } catch (_) { erros++; }
@@ -6676,9 +6740,9 @@ async function importarTodosDJe() {
 
   await carregarProcessos();
   // Atualiza matches em _djeResultados com base no DB já atualizado
-  const novosNums = new Set((window._processosDB || []).map(p => p.numero));
+  const novosNums = new Set((window._processosDB || []).map(p => _digitos(p.numero)));
   (window._djeResultados || []).forEach(d => {
-    if (!d.matches?.length && d.processos[0] && novosNums.has(d.processos[0])) {
+    if (!d.matches?.length && d.processos[0] && novosNums.has(_digitos(d.processos[0]))) {
       d.matches = [{ numero: d.processos[0] }];
     }
   });
