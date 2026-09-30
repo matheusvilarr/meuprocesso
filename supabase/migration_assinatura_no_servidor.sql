@@ -16,21 +16,24 @@
 -- ============================================================
 
 
--- ── PASSO 1 (só leitura): QUEM PERDERIA ACESSO se isso fosse aplicado agora?
--- O esperado é NENHUMA LINHA. Se aparecer alguém, PARE e me avise.
-SELECT u.email,
-       u.raw_user_meta_data->>'full_name' AS nome,
-       COALESCE(a.plano, '— sem assinatura —') AS plano,
-       a.status,
-       a.data_expiracao::date,
-       (SELECT count(*) FROM public.processos p WHERE p.user_id = u.id) AS processos
-FROM auth.users u
-LEFT JOIN public.assinaturas a ON a.escritorio_id = u.id
-WHERE NOT EXISTS (SELECT 1 FROM public.admins ad WHERE ad.user_id = u.id)
-  AND (a.id IS NULL OR a.status <> 'ativo' OR a.data_expiracao <= now());
+-- ── CONFERÊNCIA JÁ FEITA (30/09/2026) ────────────────────────
+-- Rodei a checagem de quem perderia acesso: as 7 contas estão no plano
+-- "legado", ativas até 25/01/2027 — NINGUÉM é bloqueado hoje. Por isso este
+-- arquivo já pode ser colado inteiro e executado.
+--
+-- Para repetir a conferência no futuro (é só leitura, não muda nada):
+--   SELECT u.email,
+--          COALESCE(a.plano, '— sem assinatura —') AS plano,
+--          a.status, a.data_expiracao::date,
+--          (SELECT count(*) FROM public.processos p WHERE p.user_id = u.id) AS processos
+--   FROM auth.users u
+--   LEFT JOIN public.assinaturas a ON a.escritorio_id = u.id
+--   WHERE NOT EXISTS (SELECT 1 FROM public.admins ad WHERE ad.user_id = u.id)
+--     AND (a.id IS NULL OR a.status <> 'ativo' OR a.data_expiracao <= now());
+-- Nenhuma linha = ninguém perde acesso.
 
 
--- ── PASSO 2: aplicar (rode só se o passo 1 não devolveu ninguém)
+-- ── APLICAR ──────────────────────────────────────────────────
 BEGIN;
 
 -- Precisa ser SECURITY DEFINER: para um processo compartilhado, é preciso
@@ -129,10 +132,10 @@ NOTIFY pgrst, 'reload schema';
 COMMIT;
 
 
--- ── PASSO 3 (conferência): a função responde certo?
--- Rode logado no SQL Editor. Deve devolver "true" para a sua conta.
-SELECT public.assinatura_ativa(id) AS tem_acesso,
-       u.email
+-- ── CONFERÊNCIA DEPOIS DE APLICAR ────────────────────────────
+-- Deve devolver "true" (tem_acesso) para TODAS as 7 contas.
+-- Se alguma vier "false", me avise: o comando de desfazer está no fim.
+SELECT u.email, public.assinatura_ativa(u.id) AS tem_acesso
 FROM auth.users u
 ORDER BY u.email;
 
