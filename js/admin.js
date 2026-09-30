@@ -126,9 +126,10 @@ function renderSaude(s) {
 
   document.getElementById('saude-cards').innerHTML = [
     card('ti-cloud-search', 'DataJud', `${pct}% em dia`, [
-      `${d.comIndice} monitorados · ${d.desatualizados} atrasados (48h+)${d.falhando ? ` · ${d.falhando} falhando` : ''}`,
-      `Última consulta ${tempoRelativo(d.ultimaVerificacao)}`,
-    ], pct >= 90 ? 'ok' : pct >= 60 ? 'atencao' : 'critico'),
+      `${d.comIndice} monitorados · ${d.desatualizados} atrasados (48h+)${d.atrasados7d ? ` · ${d.atrasados7d} há 7d+` : ''}`,
+      d.semIndice ? `<span style="color:#991b1b;font-weight:600">${d.semIndice} sem tribunal — fora da fila</span>` : 'Todos os processos estão na fila',
+      `Última consulta ${tempoRelativo(d.ultimaVerificacao)}${d.falhando ? ` · ${d.falhando} falhando` : ''}`,
+    ], d.semIndice || d.atrasados7d ? 'critico' : pct >= 90 ? 'ok' : pct >= 60 ? 'atencao' : 'critico'),
     card('ti-news', 'DJEN (cadernos)', `${dj.hoje.concluidos}/${dj.hoje.total} hoje`, [
       `Ontem: ${dj.ontem.concluidos}/${dj.ontem.total}${dj.anteriores?.pendentes ? ` · ${dj.anteriores.pendentes} atrasado(s) na fila` : ''}${dj.hoje.erros + dj.ontem.erros ? ` · ${dj.hoje.erros + dj.ontem.erros} com erro` : ''}`,
       `${dj.hoje.publicacoes + dj.ontem.publicacoes + (dj.anteriores?.publicacoes || 0)} publicação(ões) em 7 dias · último ${tempoRelativo(dj.ultimaConclusao)}`,
@@ -543,6 +544,7 @@ const FILTROS_ADV = {
   vencendo:       a => a.statusAssinatura === 'ativo' && diasAte(a.dataExpiracao) >= 0 && diasAte(a.dataExpiracao) <= 7,
   vencidos:       a => a.plano && (a.statusAssinatura !== 'ativo' || diasAte(a.dataExpiracao) < 0),
   desatualizados: a => a.numDesatualizados > 0,
+  semindice:      a => a.numSemIndice > 0,
   inativos:       a => !a.ultimoLogin || (Date.now() - new Date(a.ultimoLogin)) > 30 * 86400000,
   bloqueados:     a => a.bloqueado,
   oabdup:         a => a.oabDuplicado,
@@ -651,7 +653,7 @@ function renderFicha(d, resumo) {
   const dicas = [];
   if (!u.oabs.length) dicas.push('Sem OAB no perfil: o DJEN não consegue achar publicações nem importar processos novos.');
   if (p.desatualizados48h) dicas.push(`${p.desatualizados48h} processo(s) sem consulta ao DataJud há 48h+ — use "Sincronizar agora".`);
-  if (p.semNumeroCnj) dicas.push(`${p.semNumeroCnj} processo(s) sem número CNJ válido não são monitorados automaticamente.`);
+  if (p.semNumeroCnj) dicas.push(`${p.semNumeroCnj} processo(s) estão FORA da fila de sincronização (sem tribunal identificado) e nunca serão atualizados até o número ser corrigido.`);
   if (!u.ultimoLogin || (Date.now() - new Date(u.ultimoLogin)) > 30 * 86400000) dicas.push('Não abre o sistema há mais de 30 dias.');
   if (as && as.plano === 'trial' && dias !== null && dias >= 0 && dias <= 3) dicas.push('Teste grátis acabando — bom momento para contato.');
   if (!u.emailConfirmado) dicas.push('E-mail ainda não confirmado.');
@@ -684,6 +686,21 @@ function renderFicha(d, resumo) {
       <div class="ficha-secao-titulo"><i class="ti ti-activity"></i> Últimas movimentações</div>
       ${recentes}
     </div>
+
+    ${(d.semIndice || []).length ? `
+    <div class="ficha-secao">
+      <div class="ficha-secao-titulo" style="color:#991b1b"><i class="ti ti-plug-off"></i> Fora da fila — nunca são atualizados (${p.semNumeroCnj})</div>
+      <div class="ficha-linha" style="font-size:12px;color:#6b6b63;margin-bottom:6px">
+        Sem tribunal identificado a partir do número, o processo não pode ser consultado no DataJud. Corrija o número no cadastro (padrão CNJ, 20 dígitos) para ele voltar a ser monitorado.
+      </div>
+      ${d.semIndice.map(f => `
+        <div class="ficha-mov">
+          <div class="ficha-mov-data" style="font-family:monospace">${esc(f.numero) || '<span style="color:#c0392b">sem número</span>'}</div>
+          <div class="ficha-mov-txt"><div>${esc(f.nome)}</div>
+            <div class="ficha-mov-sub">cadastrado em ${fmtData(f.criadoEm)}</div></div>
+        </div>`).join('')}
+      ${p.semNumeroCnj > d.semIndice.length ? `<div class="ficha-vazio">+ ${p.semNumeroCnj - d.semIndice.length} outro(s)</div>` : ''}
+    </div>` : ''}
 
     ${(d.falhando || []).length ? `
     <div class="ficha-secao">

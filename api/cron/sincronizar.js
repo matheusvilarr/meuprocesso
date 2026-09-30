@@ -100,7 +100,7 @@ async function rodarDatajud(admin, res, hoje) {
     .neq('status', 'Arquivado')
     .or(`ultima_verificacao.is.null,ultima_verificacao.lte.${limite20h}`)
     .order('sync_ultima_tentativa', { ascending: true, nullsFirst: true })
-    .limit(300);
+    .limit(400);
 
   if (error) return res.status(500).json({ erro: error.message });
 
@@ -137,9 +137,14 @@ async function rodarDatajud(admin, res, hoje) {
 // consulta (é a fila interna do Elasticsearch deles, não a rede). De manhã a
 // mesma consulta levava 15-25s. Por isso a espera subiu pra 55s e o grosso
 // das execuções foi movido pra madrugada no vercel.json.
-const CONCORRENCIA_DATAJUD = 20;
-const JANELA_INICIAR_MS    = 45000;  // até quando novas consultas são iniciadas
+// Concorrência 40: com 20 e resposta de 20s (madrugada) davam ~40 processos
+// por execução — 555 processos levariam dias pra fechar um ciclo. A medição
+// mostrou 40 simultâneas com 100% de sucesso, então é daí que vem a vazão.
+const CONCORRENCIA_DATAJUD = 40;
+const JANELA_INICIAR_MS    = 55000;  // até quando novas consultas são iniciadas
 const ESPERA_DATAJUD_MS    = 55000;  // quanto esperamos cada resposta
+// 55s pra iniciar + 55s da última resposta + gravação = ~112s, dentro do
+// maxDuration de 120s do vercel.json.
 
 // Pool contínuo: assim que uma consulta termina, a próxima começa. Antes era
 // em lotes, e o lote inteiro ficava parado esperando a consulta mais lenta.

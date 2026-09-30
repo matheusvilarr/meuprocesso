@@ -101,9 +101,10 @@ async function acaoDados(req, res, admin, adminUser) {
   const syncStats = {};
   for (const p of processosRows || []) {
     contagemProcessos[p.user_id] = (contagemProcessos[p.user_id] || 0) + 1;
-    if (!syncStats[p.user_id]) syncStats[p.user_id] = { sincronizados: 0, comNotificacao: 0, desatualizados: 0, ultimaSync: null };
+    if (!syncStats[p.user_id]) syncStats[p.user_id] = { sincronizados: 0, semIndice: 0, comNotificacao: 0, desatualizados: 0, ultimaSync: null };
     const s = syncStats[p.user_id];
     if (p.datajud_index) s.sincronizados++;
+    else s.semIndice++;
     if (p.datajud_index && (!p.ultima_verificacao || p.ultima_verificacao < h48)) s.desatualizados++;
     if (p.notificacao_pendente) s.comNotificacao++;
     if (p.ultima_verificacao && (!s.ultimaSync || p.ultima_verificacao > s.ultimaSync)) s.ultimaSync = p.ultima_verificacao;
@@ -154,6 +155,7 @@ async function acaoDados(req, res, admin, adminUser) {
         numSincronizados: syncStats[u.id]?.sincronizados || 0,
         numNotificacoes:  syncStats[u.id]?.comNotificacao || 0,
         numDesatualizados: syncStats[u.id]?.desatualizados || 0,
+        numSemIndice:      syncStats[u.id]?.semIndice || 0,
         ultimaSync:       syncStats[u.id]?.ultimaSync || null,
         numTarefas:       contagemTarefas[u.id] || 0,
         numColaboradores: colaboradoresPorTitular[u.id] || 0,
@@ -690,10 +692,16 @@ async function acaoSaude(req, res, admin) {
   const base  = () => admin.from('processos').select('id', { count: 'exact', head: true }).neq('status', 'Arquivado');
 
   const seteDias = dataBrasilia(-6);
+  const h7d = new Date(agora - 7 * 86400000).toISOString();
   const [
+    semIndice, atrasados7d,
     totalAtivos, comIndice, desatualizados, nuncaVerificados, avisosSite, emailsPendentes, falhando,
     { data: ultimaVerif }, { data: fila }, { data: erros24h }, { data: ultimoEmail }, { data: assinaturas },
   ] = await Promise.all([
+    // Sem índice do tribunal = impossível consultar no DataJud. Fica fora da
+    // fila para sempre, então nunca atualiza — é a falha mais grave possível.
+    contar(base().is('datajud_index', null)),
+    contar(base().not('datajud_index', 'is', null).lt('ultima_verificacao', h7d)),
     contar(base()),
     contar(base().not('datajud_index', 'is', null)),
     contar(base().not('datajud_index', 'is', null).lt('ultima_verificacao', h48)),
@@ -760,6 +768,12 @@ async function acaoSaude(req, res, admin) {
     'A fila recupera atrasos em ordem (mais antigo primeiro), cerca de 14 por execução. Se o número não cair, o DJEN pode estar bloqueando — veja os erros.',
     { tipo: 'aba', aba: 'djen-cadernos', label: 'Ver fila' });
 
+  if (semIndice) add('critico', `${semIndice} processo(s) SEM tribunal identificado — nunca serão atualizados`,
+    'Sem o índice do DataJud o processo fica fora da fila de sincronização. Em geral é número de processo incompleto ou fora do padrão CNJ. O cron tenta preencher sozinho a cada execução; o que sobrar precisa do número corrigido no cadastro.',
+    { tipo: 'filtro', filtro: 'semindice', label: 'Ver advogados' });
+  if (atrasados7d) add('critico', `${atrasados7d} processo(s) sem atualização há mais de 7 dias`,
+    'A fila não está dando a volta completa. Veja a vazão por execução no card do DataJud.',
+    { tipo: 'aba', aba: 'sincronizacoes', label: 'Ver sincronizações' });
   if (desatualizados) add('atencao', `${desatualizados} processo(s) sem consulta bem-sucedida ao DataJud há mais de 48h`,
     'Eles continuam na fila e são tentados a cada execução. Se o número não cair, rode "DataJud agora" ou veja os erros.',
     { tipo: 'aba', aba: 'sincronizacoes', label: 'Ver sincronizações' });
@@ -792,7 +806,7 @@ async function acaoSaude(req, res, admin) {
     ok: true,
     geradoEm: new Date().toISOString(),
     config,
-    datajud: { totalAtivos, comIndice, desatualizados, nuncaVerificados, falhando, ultimaVerificacao: ultimaVerif?.[0]?.ultima_verificacao || null },
+    datajud: { totalAtivos, comIndice, semIndice, desatualizados, atrasados7d, nuncaVerificados, falhando, ultimaVerificacao: ultimaVerif?.[0]?.ultima_verificacao || null },
     djen,
     emails: { pendentes: emailsPendentes, avisosSite, ultimoEnvio: ultimoEmailData, ultimoTipo: ultimoEmail?.[0]?.tipo || null },
     erros24h: errosPorOrigem,
@@ -876,6 +890,11 @@ async function acaoDetalheUsuario(req, res, admin) {
     },
     ultimaPublicacaoDjen,
     recentes: recentes.slice(0, 8),
+    // Fora da fila: sem índice do tribunal, nunca são consultados
+    semIndice: ativos
+      .filter(p => !p.datajud_index)
+      .slice(0, 15)
+      .map(p => ({ numero: p.numero, nome: p.apelido || p.nome, criadoEm: p.created_at })),
     falhando: ativos
       .filter(p => p.datajud_index && (p.sync_falhas || 0) > 0)
       .sort((a, b) => (b.sync_falhas || 0) - (a.sync_falhas || 0))
