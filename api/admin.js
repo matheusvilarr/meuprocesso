@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
-import { repararDatajudIndex, sincronizarDatajudUm } from './cron/sincronizar.js';
+import { repararDatajudIndex, sincronizarDatajudUm, comPool } from './cron/sincronizar.js';
 import emailHandler from './cron/verificar-atualizacoes.js';
 import djenCadernosHandler from '../lib/djen-cadernos.js';
 import { ehMovDJEN } from '../lib/sync-comum.js';
@@ -571,19 +571,17 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
   const hoje = new Date().toISOString().slice(0, 10);
   let atualizados = 0, comNovidade = 0, semMudanca = 0, naoEncontrado = 0, erros = 0, parou = false;
 
-  for (let i = 0; i < processos.length; i += 10) {
-    // 70s + até 28s do último lote + disparo de e-mail cabem no maxDuration de 120s
-    if (Date.now() - startAt > 70000) { parou = true; break; }
-
-    const lote = processos.slice(i, i + 10);
-    const resultados = await Promise.all(lote.map(proc => sincronizarDatajudUm(proc, admin, hoje)));
-    for (const r of resultados) {
-      if (r === 'novos')               { atualizados++; comNovidade++; }
-      else if (r === 'atualizado')     atualizados++;
-      else if (r === 'sem-mudanca')    semMudanca++;
-      else if (r === 'nao-encontrado') naoEncontrado++;
-      else if (r === 'erro')           erros++;
-    }
+  // Mesmo pool contínuo do cron (api/cron/sincronizar.js): 20 em voo, novas
+  // consultas até 55s, cada uma esperando até 45s pela resposta do CNJ.
+  const resultados = await comPool(processos, 20, startAt + 55000,
+    proc => sincronizarDatajudUm(proc, admin, hoje));
+  parou = resultados.length < processos.length;
+  for (const r of resultados) {
+    if (r === 'novos')               { atualizados++; comNovidade++; }
+    else if (r === 'atualizado')     atualizados++;
+    else if (r === 'sem-mudanca')    semMudanca++;
+    else if (r === 'nao-encontrado') naoEncontrado++;
+    else if (r === 'erro')           erros++;
   }
 
   // Dispara e-mails imediatamente se houve novidades — sem esperar o próximo cron agendado

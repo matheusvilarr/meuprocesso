@@ -104,14 +104,14 @@ async function rodarDatajud(admin, res, hoje) {
 
   if (error) return res.status(500).json({ erro: error.message });
 
-  const atualizadosDatajud = await sincronizarDatajud(processos, admin, hoje, startAt);
+  const r = await sincronizarDatajud(processos, admin, hoje, startAt);
 
   // Dispara email imediato se houve movimentos novos — não bloqueia o response em caso de erro
-  if (atualizadosDatajud > 0) {
+  if (r.novos > 0) {
     try {
       await fetch('https://meuprocesso.app.br/api/cron/verificar-atualizacoes?tipo=instant', {
         headers: { 'Authorization': `Bearer ${CRON_SECRET || ''}` },
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(12000),
       });
     } catch (_) {}
   }
@@ -120,30 +120,50 @@ async function rodarDatajud(admin, res, hoje) {
     ok: true, tipo: 'datajud', hoje,
     reparados,
     processosNaFila: processos?.length || 0,
-    datajud: atualizadosDatajud,
-    emailInstant: atualizadosDatajud > 0,
+    datajud: r.novos,
+    tentados: r.tentados, verificados: r.verificados, falhas: r.falhas,
+    emailInstant: r.novos > 0,
     elapsed: Math.round((Date.now() - startAt) / 1000) + 's',
   });
 }
 
+// Medido em 30/09/2026 contra a API pública (amostras de 8, 20 e 40 paralelas):
+// o DataJud responde a todas, mas o tempo cresce com a concorrência —
+// mediana 20s com 8, 22s com 20, 36s com 40 (máx. 48s). Ou seja: ele enfileira
+// em vez de recusar. Por isso vale manter várias em voo e, principalmente,
+// ESPERAR a resposta: com timeout de 28s a gente desligava no meio de
+// respostas que estavam chegando.
+const CONCORRENCIA_DATAJUD = 20;
+const JANELA_INICIAR_MS    = 55000;  // até quando novas consultas são iniciadas
+
+// Pool contínuo: assim que uma consulta termina, a próxima começa. Antes era
+// em lotes, e o lote inteiro ficava parado esperando a consulta mais lenta.
+export async function comPool(itens, limite, prazoParaIniciar, tarefa) {
+  const resultados = [];
+  let proximo = 0;
+  const trabalhador = async () => {
+    while (proximo < itens.length && Date.now() < prazoParaIniciar) {
+      const item = itens[proximo++];
+      try { resultados.push(await tarefa(item)); }
+      catch { resultados.push('erro'); }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limite, itens.length) }, trabalhador));
+  return resultados;
+}
+
 async function sincronizarDatajud(processos, admin, hoje, startAt = Date.now()) {
-  let atualizados = 0;
   const com_datajud = processos.filter(p => p.datajud_index);
-
-  // 8 consultas simultâneas (eram 12): o DataJud já rejeita consultas por
-  // sobrecarga do lado deles — mandar menos de uma vez reduz as falhas.
-  for (let i = 0; i < com_datajud.length; i += 8) {
-    // 55s + até 28s do último lote (ou ~16s de retentativas) + disparo de
-    // e-mail (25s) cabe no maxDuration de 120s.
-    if (Date.now() - startAt > 55000) break;
-
-    const lote = com_datajud.slice(i, i + 8);
-    const resultados = await Promise.allSettled(
-      lote.map(proc => sincronizarDatajudUm(proc, admin, hoje))
-    );
-    atualizados += resultados.filter(r => r.status === 'fulfilled' && r.value === 'novos').length;
-  }
-  return atualizados;
+  const resultados = await comPool(
+    com_datajud, CONCORRENCIA_DATAJUD, startAt + JANELA_INICIAR_MS,
+    proc => sincronizarDatajudUm(proc, admin, hoje),
+  );
+  return {
+    novos:      resultados.filter(r => r === 'novos').length,
+    verificados: resultados.filter(r => r === 'novos' || r === 'atualizado' || r === 'sem-mudanca' || r === 'nao-encontrado').length,
+    falhas:     resultados.filter(r => r === 'erro').length,
+    tentados:   resultados.length,
+  };
 }
 
 // Usado pelo cron e pelo botão "DataJud agora" do painel admin (api/admin.js).
@@ -248,7 +268,10 @@ export async function sincronizarDatajudUm(proc, admin, hoje) {
 // crítico no painel admin).
 export function classificarErroDatajud(e) {
   const m = String(e?.message || e || '');
-  if (/aborted|timeout/i.test(m))           return { tipo: 'cnj-lento',     origem: 'cnj',     texto: 'DataJud não respondeu em 28s (lentidão do CNJ)' };
+  // Nossa consulta expirou antes de o CNJ responder. Pode ser lentidão deles,
+  // mas o limite é NOSSO — se acontecer muito, é sinal de aumentar o tempo de
+  // espera, não de culpar o CNJ.
+  if (/aborted|timeout/i.test(m))           return { tipo: 'espera-curta',  origem: 'sistema', texto: 'Desistimos antes de o DataJud responder (nosso limite é 45s)' };
   if (/respondeu 429/.test(m))              return { tipo: 'cnj-limite',    origem: 'cnj',     texto: 'DataJud limitou o número de consultas (429)' };
   if (/respondeu 5\d\d/.test(m))            return { tipo: 'cnj-fora',      origem: 'cnj',     texto: `DataJud com erro interno (${m.match(/respondeu (\d+)/)[1]})` };
   if (/respondeu 40[13]/.test(m))           return { tipo: 'cnj-bloqueio',  origem: 'cnj',     texto: 'DataJud recusou o acesso (chave pública trocada ou bloqueio de IP)' };
@@ -292,7 +315,10 @@ async function buscarNoDatajud(index, numero) {
   const r = await fetch(`https://api-publica.datajud.cnj.jus.br/${index}/_search`, {
     method: 'POST',
     headers: { 'Authorization': `ApiKey ${DATAJUD_KEY}`, 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(28000),
+    // 45s (era 28s): medição de 30/09/2026 mostrou mediana de 22s e máximo de
+    // 48s na API pública — com 28s a gente desistia de resposta que estava a
+    // caminho e registrava como "timeout do CNJ". Era falha nossa.
+    signal: AbortSignal.timeout(45000),
     // size 10: um mesmo número pode ter um documento por grau (G1, G2, JE...)
     body: JSON.stringify({ size: 10, query: { match: { numeroProcesso: numeroLimpo } } }),
   });
