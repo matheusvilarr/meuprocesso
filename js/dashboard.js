@@ -1154,7 +1154,7 @@ async function buscarProcesso() {
     if (!res.ok) { mostrarErroBusca(data.erro || 'Nenhum resultado.'); return; }
     exibirResultados(data.resultados || []);
   } catch {
-    mostrarErroBusca('Erro de conexão. Tente novamente.');
+    mostrarErroBusca('Não foi possível concluir a busca. O sistema do CNJ costuma ficar lento em horário comercial — tente de novo em alguns minutos.');
   } finally {
     btn.innerHTML = '<i class="ti ti-search"></i> Buscar';
     btn.disabled  = false;

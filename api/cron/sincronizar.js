@@ -133,8 +133,13 @@ async function rodarDatajud(admin, res, hoje) {
 // em vez de recusar. Por isso vale manter várias em voo e, principalmente,
 // ESPERAR a resposta: com timeout de 28s a gente desligava no meio de
 // respostas que estavam chegando.
+// Medido em 30/09/2026 à tarde: o próprio CNJ reportou "took" de 51-54s na
+// consulta (é a fila interna do Elasticsearch deles, não a rede). De manhã a
+// mesma consulta levava 15-25s. Por isso a espera subiu pra 55s e o grosso
+// das execuções foi movido pra madrugada no vercel.json.
 const CONCORRENCIA_DATAJUD = 20;
-const JANELA_INICIAR_MS    = 55000;  // até quando novas consultas são iniciadas
+const JANELA_INICIAR_MS    = 45000;  // até quando novas consultas são iniciadas
+const ESPERA_DATAJUD_MS    = 55000;  // quanto esperamos cada resposta
 
 // Pool contínuo: assim que uma consulta termina, a próxima começa. Antes era
 // em lotes, e o lote inteiro ficava parado esperando a consulta mais lenta.
@@ -272,8 +277,8 @@ export function classificarErroDatajud(e) {
   // Nossa consulta expirou antes de o CNJ responder. Pode ser lentidão deles,
   // mas o limite é NOSSO — se acontecer muito, é sinal de aumentar o tempo de
   // espera, não de culpar o CNJ.
-  if (/aborted|timeout/i.test(m))           return { tipo: 'espera-curta',  origem: 'sistema', texto: 'Desistimos antes de o DataJud responder (nosso limite é 45s)' };
-  if (/respondeu 429/.test(m))              return { tipo: 'cnj-limite',    origem: 'cnj',     texto: 'DataJud limitou o número de consultas (429)' };
+  if (/aborted|timeout/i.test(m))           return { tipo: 'espera-curta',  origem: 'sistema', texto: 'Desistimos antes de o DataJud responder (nosso limite é 55s)' };
+  if (/respondeu 429/.test(m))              return { tipo: 'cnj-saturado',  origem: 'cnj',     texto: 'Servidor do CNJ sem capacidade no momento (429 — fila interna cheia)' };
   if (/respondeu 5\d\d/.test(m))            return { tipo: 'cnj-fora',      origem: 'cnj',     texto: `DataJud com erro interno (${m.match(/respondeu (\d+)/)[1]})` };
   if (/respondeu 40[13]/.test(m))           return { tipo: 'cnj-bloqueio',  origem: 'cnj',     texto: 'DataJud recusou o acesso (chave pública trocada ou bloqueio de IP)' };
   if (/respondeu 404/.test(m))              return { tipo: 'indice',        origem: 'sistema', texto: 'Tribunal (índice DataJud) inexistente para este número — número do processo pode estar errado' };
@@ -298,7 +303,10 @@ async function buscarComRetentativa(index, numero) {
       return await buscarNoDatajud(index, numero);
     } catch (e) {
       const { tipo } = classificarErroDatajud(e);
-      const passageiro = tipo === 'cnj-fora' || tipo === 'cnj-limite' || tipo === 'rede';
+      // 429 fora da lista de propósito: é fila interna cheia no CNJ — insistir
+      // 2s depois só aumenta a fila deles. Esse processo volta na próxima
+      // execução do cron, que é o comportamento certo.
+      const passageiro = tipo === 'cnj-fora' || tipo === 'rede';
       const cabeNoTempo = Date.now() - inicio + esperas[tentativa] < TETO_RETENTATIVA_MS;
       if (!passageiro || tentativa >= esperas.length || !cabeNoTempo) throw e;
       await new Promise(r => setTimeout(r, esperas[tentativa]));
@@ -316,10 +324,7 @@ async function buscarNoDatajud(index, numero) {
   const r = await fetch(`https://api-publica.datajud.cnj.jus.br/${index}/_search`, {
     method: 'POST',
     headers: { 'Authorization': `ApiKey ${DATAJUD_KEY}`, 'Content-Type': 'application/json' },
-    // 45s (era 28s): medição de 30/09/2026 mostrou mediana de 22s e máximo de
-    // 48s na API pública — com 28s a gente desistia de resposta que estava a
-    // caminho e registrava como "timeout do CNJ". Era falha nossa.
-    signal: AbortSignal.timeout(45000),
+    signal: AbortSignal.timeout(ESPERA_DATAJUD_MS),
     // size 10: um mesmo número pode ter um documento por grau (G1, G2, JE...)
     body: JSON.stringify({ size: 10, query: { match: { numeroProcesso: numeroLimpo } } }),
   });

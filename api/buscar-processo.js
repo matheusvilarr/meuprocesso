@@ -146,6 +146,16 @@ export default async function handler(req, res) {
 
 function erroDetalhe(hits) {
   if (!hits) return 'Erro ao consultar o DataJud.';
+  // O CNJ fica saturado em horário comercial: devolve 429 ("rejected
+  // execution" = fila interna cheia) ou demora mais de 55s. Não é erro do
+  // Meu Processo, e insistir na hora não adianta.
+  const bruto = JSON.stringify(hits.detail || '');
+  if (hits.status === 429 || /rejected execution/i.test(bruto)) {
+    return 'O sistema do CNJ (DataJud) está sobrecarregado agora e recusou a consulta. Tente de novo em alguns minutos — o monitoramento automático continua tentando sozinho.';
+  }
+  if (hits.status === 0 && /timeout|aborted/i.test(bruto)) {
+    return 'O CNJ (DataJud) está muito lento agora e não respondeu a tempo. Tente de novo em alguns minutos — o monitoramento automático continua tentando sozinho.';
+  }
   const shardReason = hits.detail?.error?.failed_shards?.[0]?.reason?.reason;
   const rootReason  = hits.detail?.error?.root_cause?.[0]?.reason;
   const topReason   = hits.detail?.error?.reason;
