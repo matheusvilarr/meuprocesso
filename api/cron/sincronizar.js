@@ -261,15 +261,22 @@ export function classificarErroDatajud(e) {
 // Tenta de novo na hora as falhas rápidas e passageiras (5xx, 429, conexão),
 // com espera crescente. Timeout não é repetido aqui: já custou 28s e, se o CNJ
 // está lento, o processo volta na próxima execução da fila.
+// TETO_RETENTATIVA_MS garante que essas repetições nunca estourem o
+// maxDuration da function — se já gastou esse tempo, desiste e deixa a fila
+// tentar na próxima execução.
+const TETO_RETENTATIVA_MS = 15000;
+
 async function buscarComRetentativa(index, numero) {
   const esperas = [2000, 6000];
+  const inicio  = Date.now();
   for (let tentativa = 0; ; tentativa++) {
     try {
       return await buscarNoDatajud(index, numero);
     } catch (e) {
       const { tipo } = classificarErroDatajud(e);
       const passageiro = tipo === 'cnj-fora' || tipo === 'cnj-limite' || tipo === 'rede';
-      if (!passageiro || tentativa >= esperas.length) throw e;
+      const cabeNoTempo = Date.now() - inicio + esperas[tentativa] < TETO_RETENTATIVA_MS;
+      if (!passageiro || tentativa >= esperas.length || !cabeNoTempo) throw e;
       await new Promise(r => setTimeout(r, esperas[tentativa]));
     }
   }
