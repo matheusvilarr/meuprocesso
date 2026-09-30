@@ -124,6 +124,25 @@ function renderSaude(s) {
       ${linhas.map(l => `<div class="saude-card-linha">${l}</div>`).join('')}
     </div>`;
 
+  // "Quantos dias a fila leva para consultar TODOS os processos" — é a
+  // pergunta que diz se o monitoramento está de fato cobrindo todo mundo.
+  const cobertura = (c, d) => {
+    if (!c) return '';
+    if (!c.registroAtivo) return card('ti-gauge', 'Cobertura da fila',
+      c.verificados24h != null ? `${c.verificados24h}/${d.comIndice} em 24h` : '—',
+      ['Registro de execuções ainda não ativo.',
+       'Rode a migration migration_cron_execucoes.sql para acompanhar cada execução.'], 'atencao');
+    const volta = c.voltaDias == null ? '—'
+      : c.voltaDias <= 1.2 ? 'todo dia' : `a cada ${c.voltaDias} dias`;
+    return card('ti-gauge', 'Cobertura da fila', volta, [
+      `${c.verificados24h} de ${d.comIndice} processos consultados em 24h (${c.porcento24h ?? '—'}%) · ${c.verificados6h} nas últimas 6h`,
+      `${c.execucoes24h} execução(ões) em 24h${c.duracaoMediaS ? ` · ${c.duracaoMediaS}s em média` : ''}`,
+      c.morreram24h
+        ? `<span style="color:#991b1b;font-weight:600">${c.morreram24h} morreram no meio (estouro de tempo)</span>`
+        : 'Nenhuma execução morreu no meio',
+    ], c.morreram24h ? 'critico' : c.voltaDias == null ? 'atencao' : c.voltaDias <= 1.2 ? 'ok' : c.voltaDias <= 3 ? 'atencao' : 'critico');
+  };
+
   document.getElementById('saude-cards').innerHTML = [
     card('ti-cloud-search', 'DataJud', `${pct}% em dia`, [
       `${d.comIndice} monitorados · ${d.desatualizados} atrasados (48h+)${d.atrasados7d ? ` · ${d.atrasados7d} há 7d+` : ''}`,
@@ -134,6 +153,7 @@ function renderSaude(s) {
       `Ontem: ${dj.ontem.concluidos}/${dj.ontem.total}${dj.anteriores?.pendentes ? ` · ${dj.anteriores.pendentes} atrasado(s) na fila` : ''}${dj.hoje.erros + dj.ontem.erros ? ` · ${dj.hoje.erros + dj.ontem.erros} com erro` : ''}`,
       `${dj.hoje.publicacoes + dj.ontem.publicacoes + (dj.anteriores?.publicacoes || 0)} publicação(ões) em 7 dias · último ${tempoRelativo(dj.ultimaConclusao)}`,
     ], !dj.ultimaConclusao ? 'critico' : (dj.hoje.erros + dj.ontem.erros || dj.anteriores?.pendentes) ? 'atencao' : 'ok'),
+    cobertura(s.cobertura, d),
     card('ti-mail', 'E-mails', `${em.pendentes} na fila`, [
       `${em.avisosSite} aviso(s) aguardando leitura no site`,
       `Último envio: ${em.ultimoEnvio ? em.ultimoEnvio.split('-').reverse().join('/') + (em.ultimoTipo ? ' (' + esc(em.ultimoTipo) + ')' : '') : 'nunca'}`,
@@ -272,6 +292,7 @@ function setupTabs() {
       if (btn.dataset.tab === 'emails')        carregarEmails();
       if (btn.dataset.tab === 'pendentes')     carregarPendentes();
       if (btn.dataset.tab === 'djen-cadernos') carregarDjenCadernos();
+      if (btn.dataset.tab === 'execucoes')     carregarExecucoes();
     });
   });
 }
@@ -1195,6 +1216,116 @@ async function recarregarSyncStats() {
 }
 
 // ── CADERNOS DJEN ──────────────────────────────────────────────────────────────
+
+// ── EXECUÇÕES DOS CRONS ───────────────────────────────────────────────────────
+
+async function carregarExecucoes() {
+  const wrap = document.getElementById('exec-tabela-wrap');
+  wrap.innerHTML = '<p style="color:#9f9f98;padding:20px 0;">Carregando...</p>';
+  try {
+    const r = await fetch('/api/admin?acao=execucoes', { headers: { 'Authorization': `Bearer ${_adminToken}` } });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.erro || 'desconhecido');
+    renderExecucoes(d);
+  } catch (e) {
+    wrap.innerHTML = `<p style="color:#c0392b;">Erro ao carregar: ${esc(e.message)}</p>`;
+  }
+}
+
+const NOME_CRON = { datajud: 'DataJud', djen: 'DJEN (cadernos)', oab: 'Busca por OAB' };
+
+function renderExecucoes(d) {
+  const statsEl = document.getElementById('exec-stats-row');
+  const diasEl  = document.getElementById('exec-dias-wrap');
+  const wrap    = document.getElementById('exec-tabela-wrap');
+
+  if (d.indisponivel) {
+    statsEl.innerHTML = '';
+    diasEl.innerHTML  = '';
+    wrap.innerHTML = `<div class="saude-alerta alerta-atencao" style="margin:0"><i class="ti ti-database-off"></i><div>
+      <strong>Registro de execuções ainda não ativado</strong>
+      <div>Rode <code>supabase/migration_cron_execucoes.sql</code> no SQL Editor do Supabase. A partir daí toda execução automática passa a ficar registrada aqui.</div>
+      <div style="margin-top:6px;color:#6b7280;font-size:12px;">Detalhe técnico: ${esc(d.indisponivel)}</div></div></div>`;
+    return;
+  }
+
+  const r = d.resumo || {};
+  statsEl.innerHTML = `
+    <div class="sync-stat"><span class="sync-stat-val">${r.ultimas24h ?? 0}</span><span class="sync-stat-lbl">Execuções (24h)</span></div>
+    <div class="sync-stat sync-stat-blue"><span class="sync-stat-val">${r.processados24h ?? 0}</span><span class="sync-stat-lbl">Processos consultados</span></div>
+    <div class="sync-stat sync-stat-blue"><span class="sync-stat-val">${r.novos24h ?? 0}</span><span class="sync-stat-lbl">Movimentos novos</span></div>
+    <div class="sync-stat ${r.morreram24h ? 'sync-stat-orange' : ''}"><span class="sync-stat-val">${r.morreram24h ?? 0}</span><span class="sync-stat-lbl">Morreram no meio</span></div>
+    <div class="sync-stat"><span class="sync-stat-val">${r.duracaoMedia != null ? r.duracaoMedia + 's' : '—'}</span><span class="sync-stat-lbl">Duração média</span></div>
+  `;
+
+  const dias = d.porDia || [];
+  const maxProc = Math.max(1, ...dias.map(x => x.processados));
+  diasEl.innerHTML = !dias.length ? '' : `
+    <h3 style="font-size:14px;margin:0 0 4px;">Por dia (últimos 7 dias)</h3>
+    <p style="font-size:12px;color:#6b7280;margin:0 0 12px;">A barra é a quantidade de processos consultados. Se ela encolhe, a fila está demorando mais para dar a volta.</p>
+    <div class="adm-table-wrap"><table class="adm-table">
+      <thead><tr><th>Dia</th><th>Execuções</th><th>Processos consultados</th><th>Movimentos novos</th><th>Falhas</th><th>Publicações DJEN</th><th>Morreram</th></tr></thead>
+      <tbody>${dias.map(x => `
+        <tr>
+          <td style="font-size:12px;">${x.dia.split('-').reverse().join('/')}</td>
+          <td style="font-size:12px;">${x.execucoes}</td>
+          <td style="font-size:12px;min-width:180px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div style="flex:1;max-width:120px;height:8px;background:#f3f4f6;border-radius:4px;overflow:hidden;">
+                <div style="width:${Math.round((x.processados / maxProc) * 100)}%;height:100%;background:#3b82f6;"></div>
+              </div><span>${x.processados}</span>
+            </div>
+          </td>
+          <td style="font-size:12px;">${x.novos || '—'}</td>
+          <td style="font-size:12px;${x.falhas ? 'color:#92400e;' : ''}">${x.falhas || '—'}</td>
+          <td style="font-size:12px;">${x.publicacoes || '—'}</td>
+          <td style="font-size:12px;${x.morreram ? 'color:#991b1b;font-weight:600;' : ''}">${x.morreram || '—'}</td>
+        </tr>`).join('')}
+      </tbody></table></div>`;
+
+  const execs = d.execucoes || [];
+  if (!execs.length) {
+    wrap.innerHTML = '<p style="color:#9f9f98;text-align:center;padding:32px;">Nenhuma execução registrada ainda. A primeira aparece assim que um cron rodar.</p>';
+    return;
+  }
+
+  const situacao = e =>
+    e.rodando ? { txt: 'rodando', cor: '#1d4ed8', bg: '#eff6ff' }
+    : e.morreu ? { txt: 'morreu no meio', cor: '#991b1b', bg: '#fef2f2' }
+    : e.erro   ? { txt: 'erro', cor: '#991b1b', bg: '#fef2f2' }
+    : { txt: 'concluída', cor: '#166534', bg: '#f0fdf4' };
+
+  const resumoLinha = e => {
+    const x = e.resultados || {};
+    const partes = [];
+    if (x.novos != null)       partes.push(`${x.novos} novo(s)`);
+    if (x.verificados != null) partes.push(`${x.verificados} verificados`);
+    if (x.falhas)              partes.push(`${x.falhas} falha(s)`);
+    if (x.cadernos != null)    partes.push(`${x.cadernos} caderno(s)`);
+    if (x.publicacoes)         partes.push(`${x.publicacoes} publicação(ões)`);
+    if (x.reparados)           partes.push(`${x.reparados} tribunal(is) preenchido(s)`);
+    return partes.join(' · ') || '—';
+  };
+
+  wrap.innerHTML = `
+    <h3 style="font-size:14px;margin:0 0 4px;">Últimas execuções</h3>
+    <p style="font-size:12px;color:#6b7280;margin:0 0 12px;">"Morreu no meio" = a função começou e não chegou ao fim, quase sempre por estourar os 120s da Vercel. "Fila no fim" = quantos ainda restavam para consultar.</p>
+    <div class="adm-table-wrap"><table class="adm-table">
+      <thead><tr><th>Quando</th><th>Cron</th><th>Situação</th><th>Duração</th><th>Processados</th><th>Resultado</th><th>Fila no fim</th></tr></thead>
+      <tbody>${execs.map(e => {
+        const s = situacao(e);
+        return `<tr>
+          <td style="font-size:12px;white-space:nowrap;">${new Date(e.iniciado_em).toLocaleString('pt-BR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })}</td>
+          <td style="font-size:12px;">${esc(NOME_CRON[e.cron] || e.cron)}</td>
+          <td><span style="font-size:11px;background:${s.bg};color:${s.cor};padding:2px 8px;border-radius:6px;white-space:nowrap;">${s.txt}</span></td>
+          <td style="font-size:12px;">${e.duracao_ms != null ? Math.round(e.duracao_ms / 1000) + 's' : '—'}</td>
+          <td style="font-size:12px;">${e.processados ?? '—'}</td>
+          <td style="font-size:12px;color:#374151;">${e.erro ? `<span style="color:#991b1b;">${esc(e.erro)}</span>` : esc(resumoLinha(e))}</td>
+          <td style="font-size:12px;">${e.fila ?? '—'}</td>
+        </tr>`;
+      }).join('')}
+      </tbody></table></div>`;
+}
 
 async function carregarDjenCadernos() {
   const wrap = document.getElementById('djen-tabela-wrap');

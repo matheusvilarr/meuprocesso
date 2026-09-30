@@ -17,6 +17,7 @@ import {
   parsarData, decodificarBuffer, logErro, chaveMov, movimentosDosHits,
   ehMovDJEN, datajudIndexFromNumero, buscarOabsUsuarios, corrigirMojibake,
   normalizarNumeroCNJ, tituloProcesso, limparLogsAntigos,
+  abrirExecucao, fecharExecucao,
 } from '../../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
@@ -81,6 +82,7 @@ export async function repararDatajudIndex(admin) {
 
 async function rodarDatajud(admin, res, hoje) {
   const startAt = Date.now();
+  const execId  = await abrirExecucao(admin, 'datajud');
 
   // Backfill: preenche datajud_index para processos que têm numero mas não têm index
   const reparados = await repararDatajudIndex(admin);
@@ -106,9 +108,26 @@ async function rodarDatajud(admin, res, hoje) {
     .order('sync_ultima_tentativa', { ascending: true, nullsFirst: true })
     .limit(400);
 
-  if (error) return res.status(500).json({ erro: error.message });
+  if (error) {
+    await fecharExecucao(admin, execId, { inicioMs: startAt, erro: error.message });
+    return res.status(500).json({ erro: error.message });
+  }
 
   const r = await sincronizarDatajud(processos, admin, hoje, startAt);
+
+  // Fila total = quantos processos estariam elegíveis, não só os 400 que
+  // couberam nesta execução. É esse número que diz se a fila dá a volta.
+  const { count: filaTotal } = await admin.from('processos')
+    .select('id', { count: 'exact', head: true })
+    .not('numero', 'is', null).not('datajud_index', 'is', null).neq('status', 'Arquivado')
+    .or(`ultima_verificacao.is.null,ultima_verificacao.lte.${limite20h}`);
+
+  await fecharExecucao(admin, execId, {
+    inicioMs: startAt,
+    fila: filaTotal ?? null,
+    processados: r.tentados,
+    resultados: { novos: r.novos, verificados: r.verificados, falhas: r.falhas, reparados },
+  });
 
   // Dispara email imediato se houve movimentos novos — não bloqueia o response em caso de erro
   if (r.novos > 0) {
@@ -124,6 +143,7 @@ async function rodarDatajud(admin, res, hoje) {
     ok: true, tipo: 'datajud', hoje,
     reparados,
     processosNaFila: processos?.length || 0,
+    filaRestante: filaTotal ?? null,
     datajud: r.novos,
     tentados: r.tentados, verificados: r.verificados, falhas: r.falhas,
     emailInstant: r.novos > 0,

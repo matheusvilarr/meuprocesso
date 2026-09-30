@@ -646,6 +646,7 @@ export default async function handler(req, res) {
   const acao = req.method === 'GET' ? req.query?.acao : (req.body || {}).acao;
 
   if (acao === 'saude')            return acaoSaude(req, res, admin);
+  if (acao === 'execucoes')        return acaoExecucoes(req, res, admin);
   if (acao === 'detalhe-usuario')  return acaoDetalheUsuario(req, res, admin);
   if (acao === 'dados')         return acaoDados(req, res, admin, adminUser);
   if (acao === 'emails')        return acaoEmails(req, res, admin);
@@ -695,11 +696,17 @@ async function acaoSaude(req, res, admin) {
 
   const seteDias = dataBrasilia(-6);
   const h7d = new Date(agora - 7 * 86400000).toISOString();
+  const h6  = new Date(agora - 6 * 3600 * 1000).toISOString();
   const [
+    verificados6h, verificados24h,
     semIndice, atrasados7d,
     totalAtivos, comIndice, desatualizados, nuncaVerificados, avisosSite, emailsPendentes, falhando,
     { data: ultimaVerif }, { data: fila }, { data: erros24h }, { data: ultimoEmail }, { data: assinaturas },
+    execucoes24h,
   ] = await Promise.all([
+    // Vazão real: quantos processos tiveram consulta bem-sucedida na janela.
+    contar(base().gte('ultima_verificacao', h6)),
+    contar(base().gte('ultima_verificacao', h24)),
     // Sem índice do tribunal = impossível consultar no DataJud. Fica fora da
     // fila para sempre, então nunca atualiza — é a falha mais grave possível.
     contar(base().is('datajud_index', null)),
@@ -717,6 +724,9 @@ async function acaoSaude(req, res, admin) {
     admin.from('error_log').select('origem').gte('created_at', h24).limit(1000),
     admin.from('notif_log').select('tipo, data').order('data', { ascending: false }).limit(1),
     admin.from('assinaturas').select('escritorio_id, plano, status, data_expiracao'),
+    admin.from('cron_execucoes').select('cron, iniciado_em, terminou_em, duracao_ms, processados, resultados, erro')
+      .gte('iniciado_em', h24).order('iniciado_em', { ascending: false })
+      .then(r => r.data || [], () => []),   // tabela pode não existir ainda
   ]);
 
   const djen = {
@@ -737,6 +747,25 @@ async function acaoSaude(req, res, admin) {
 
   const errosPorOrigem = {};
   for (const e of erros24h || []) errosPorOrigem[e.origem] = (errosPorOrigem[e.origem] || 0) + 1;
+
+  // Cobertura: a pergunta que importa é "em quantos dias a fila dá a volta?".
+  // Com 439+ processos e o DataJud lento, não é 1 dia — e é melhor saber o
+  // número do que supor.
+  const limiteViva  = new Date(agora - 5 * 60000).toISOString();
+  const execs       = execucoes24h || [];
+  const morreram24h = execs.filter(e => !e.terminou_em && e.iniciado_em < limiteViva).length;
+  const voltaDias   = verificados24h > 0 ? +(comIndice / verificados24h).toFixed(1) : null;
+  const cobertura = {
+    verificados6h, verificados24h,
+    porcento24h: comIndice ? Math.round((verificados24h / comIndice) * 100) : null,
+    voltaDias,
+    execucoes24h: execs.length,
+    morreram24h,
+    duracaoMediaS: execs.filter(e => e.duracao_ms).length
+      ? Math.round(execs.filter(e => e.duracao_ms).reduce((s, e) => s + e.duracao_ms, 0) / execs.filter(e => e.duracao_ms).length / 1000)
+      : null,
+    registroAtivo: execs.length > 0,
+  };
 
   const vencendo7d = (assinaturas || []).filter(a => a.status === 'ativo' && a.data_expiracao >= new Date(agora).toISOString() && a.data_expiracao <= em7d).length;
   const vencidas   = (assinaturas || []).filter(a => a.status !== 'ativo' || a.data_expiracao < new Date(agora).toISOString()).length;
@@ -785,6 +814,15 @@ async function acaoSaude(req, res, admin) {
   if (nuncaVerificados) add('info', `${nuncaVerificados} processo(s) aguardando a primeira consulta ao DataJud`,
     'Normal logo após importação — o cron pega esses primeiro.');
 
+  if (morreram24h) add('critico', `${morreram24h} execução(ões) automática(s) morreram no meio nas últimas 24h`,
+    'A função começou e não chegou ao fim — quase sempre estouro do tempo máximo da Vercel (120s). Os processos que ficaram de fora voltam para a fila, mas a vazão cai.',
+    { tipo: 'aba', aba: 'execucoes', label: 'Ver execuções' });
+
+  if (cobertura.voltaDias && cobertura.voltaDias > 2) add('atencao',
+    `No ritmo atual a fila leva ${cobertura.voltaDias} dias para consultar todos os processos`,
+    `Nas últimas 24h foram ${verificados24h} de ${comIndice} processos. Enquanto isso, um movimento novo pode demorar esse tempo para aparecer. A saída estrutural é usar o DJEN como detector principal.`,
+    { tipo: 'aba', aba: 'execucoes', label: 'Ver vazão' });
+
   const errosNossos = errosPorOrigem['cron:datajud-sistema'] || 0;
   if (errosNossos) add('critico', `${errosNossos} falha(s) do nosso sistema na sincronização (24h)`,
     'Não é instabilidade do CNJ — é algo que precisa ser corrigido no código ou nos dados (ex: número de processo inválido, erro ao gravar). Veja os erros.',
@@ -809,11 +847,71 @@ async function acaoSaude(req, res, admin) {
     geradoEm: new Date().toISOString(),
     config,
     datajud: { totalAtivos, comIndice, semIndice, desatualizados, atrasados7d, nuncaVerificados, falhando, ultimaVerificacao: ultimaVerif?.[0]?.ultima_verificacao || null },
+    cobertura,
     djen,
     emails: { pendentes: emailsPendentes, avisosSite, ultimoEnvio: ultimoEmailData, ultimoTipo: ultimoEmail?.[0]?.tipo || null },
     erros24h: errosPorOrigem,
     assinaturas: { vencendo7d, vencidas, emTrial },
     alertas,
+  });
+}
+
+// ── HISTÓRICO DAS EXECUÇÕES AUTOMÁTICAS ──────────────────────────────────────
+// Responde às perguntas que a fotografia do momento não responde: o cron
+// rodou? rendeu quanto? morreu no meio? está melhorando ou piorando?
+
+async function acaoExecucoes(req, res, admin) {
+  const agora = Date.now();
+  const d7    = new Date(agora - 7 * 86400000).toISOString();
+
+  const { data: execs, error } = await admin
+    .from('cron_execucoes').select('*')
+    .gte('iniciado_em', d7)
+    .order('iniciado_em', { ascending: false })
+    .limit(400);
+
+  // Tabela recém-criada (migration ainda não rodou) não pode derrubar o painel.
+  if (error) return res.json({ ok: true, indisponivel: error.message, execucoes: [], porDia: [], resumo: null });
+
+  // Execução sem terminou_em e iniciada há mais de 5 min = morreu no meio.
+  // Abaixo disso pode ser uma que está rodando agora.
+  const limiteViva = new Date(agora - 5 * 60000).toISOString();
+  const lista = (execs || []).map(e => ({
+    ...e,
+    morreu: !e.terminou_em && e.iniciado_em < limiteViva,
+    rodando: !e.terminou_em && e.iniciado_em >= limiteViva,
+  }));
+
+  const porDia = {};
+  for (const e of lista) {
+    const dia = new Date(new Date(e.iniciado_em).getTime() - 3 * 3600000).toISOString().slice(0, 10);
+    const d = (porDia[dia] ||= { dia, execucoes: 0, morreram: 0, comErro: 0, processados: 0, novos: 0, falhas: 0, publicacoes: 0 });
+    d.execucoes++;
+    if (e.morreu) d.morreram++;
+    if (e.erro) d.comErro++;
+    d.processados += e.processados || 0;
+    d.novos       += e.resultados?.novos || 0;
+    d.falhas      += e.resultados?.falhas || 0;
+    d.publicacoes += e.resultados?.publicacoes || 0;
+  }
+
+  const ult24 = lista.filter(e => e.iniciado_em >= new Date(agora - 86400000).toISOString());
+  const resumo = {
+    ultimas24h:   ult24.length,
+    morreram24h:  ult24.filter(e => e.morreu).length,
+    processados24h: ult24.reduce((s, e) => s + (e.processados || 0), 0),
+    novos24h:     ult24.reduce((s, e) => s + (e.resultados?.novos || 0), 0),
+    duracaoMedia: ult24.filter(e => e.duracao_ms).length
+      ? Math.round(ult24.filter(e => e.duracao_ms).reduce((s, e) => s + e.duracao_ms, 0) / ult24.filter(e => e.duracao_ms).length / 1000)
+      : null,
+    ultima: lista[0]?.iniciado_em || null,
+  };
+
+  return res.json({
+    ok: true,
+    execucoes: lista.slice(0, 60),
+    porDia: Object.values(porDia).sort((a, b) => b.dia.localeCompare(a.dia)),
+    resumo,
   });
 }
 
