@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { repararDatajudIndex, sincronizarDatajudUm, comPool } from './cron/sincronizar.js';
 import emailHandler from './cron/verificar-atualizacoes.js';
 import djenCadernosHandler from '../lib/djen-cadernos.js';
-import { ehMovDJEN } from '../lib/sync-comum.js';
+import { ehMovDJEN, abrirExecucao, fecharExecucao } from '../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
 const SUPA_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -560,6 +560,9 @@ async function acaoRodarDjenCadernos(req, res) {
 async function acaoSincronizarProcessos(req, res, admin, adminUser) {
   const { userId } = req.body || {};
   const startAt = Date.now();
+  // O que roda pelo botão também entra no histórico — senão o painel mostra
+  // uma vazão menor do que a real.
+  const execId  = await abrirExecucao(admin, userId ? 'datajud-manual-usuario' : 'datajud-manual');
 
   // Backfill: preenche datajud_index para processos que têm numero mas não têm index
   const reparados = await repararDatajudIndex(admin);
@@ -573,7 +576,10 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
   if (userId) q = q.eq('user_id', userId);
 
   const { data: processos, error } = await q;
-  if (error) return res.status(500).json({ erro: error.message });
+  if (error) {
+    await fecharExecucao(admin, execId, { inicioMs: startAt, erro: error.message });
+    return res.status(500).json({ erro: error.message });
+  }
 
   const hoje = new Date().toISOString().slice(0, 10);
   let atualizados = 0, comNovidade = 0, semMudanca = 0, naoEncontrado = 0, erros = 0, parou = false;
@@ -606,6 +612,13 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
       emailsDisparados = emailResult?.emailsEnviados ?? 0;
     } catch (_) {}
   }
+
+  await fecharExecucao(admin, execId, {
+    inicioMs: startAt,
+    fila: processos.length,
+    processados: resultados.length,
+    resultados: { novos: comNovidade, verificados: atualizados + semMudanca + naoEncontrado, falhas: erros, reparados },
+  });
 
   return res.json({
     ok: true,

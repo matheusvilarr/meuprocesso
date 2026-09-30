@@ -1232,7 +1232,13 @@ async function carregarExecucoes() {
   }
 }
 
-const NOME_CRON = { datajud: 'DataJud', djen: 'DJEN (cadernos)', oab: 'Busca por OAB' };
+const NOME_CRON = {
+  datajud: 'DataJud (automático)',
+  djen: 'DJEN (cadernos)',
+  oab: 'Busca por OAB',
+  'datajud-manual': 'DataJud (botão do painel)',
+  'datajud-manual-usuario': 'DataJud (um advogado)',
+};
 
 function renderExecucoes(d) {
   const statsEl = document.getElementById('exec-stats-row');
