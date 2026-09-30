@@ -16,7 +16,7 @@ import djenCadernos from '../../lib/djen-cadernos.js';
 import {
   parsarData, decodificarBuffer, logErro, chaveMov, movimentosDosHits,
   ehMovDJEN, datajudIndexFromNumero, buscarOabsUsuarios, corrigirMojibake,
-  normalizarNumeroCNJ, tituloProcesso,
+  normalizarNumeroCNJ, tituloProcesso, limparLogsAntigos,
 } from '../../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
@@ -84,6 +84,9 @@ async function rodarDatajud(admin, res, hoje) {
 
   // Backfill: preenche datajud_index para processos que têm numero mas não têm index
   const reparados = await repararDatajudIndex(admin);
+
+  // Descarta log com mais de 30 dias — sem isso a tabela cresce pra sempre
+  await limparLogsAntigos(admin);
 
   // Fila: todo processo cuja última consulta BEM-SUCEDIDA tem 20h+ (ou nunca
   // teve) entra, e a ordem é pela última TENTATIVA — quem nunca foi tentado
