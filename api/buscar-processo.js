@@ -3,12 +3,34 @@
 // (OAB/nome/CPF dependem de "partes", que a API pública do DataJud não expõe —
 // na prática só a busca por número retorna resultado)
 
+import { createClient } from '@supabase/supabase-js';
 import { movimentosDosHits, corrigirMojibake as mj } from '../lib/sync-comum.js';
+
+const SUPA_URL      = 'https://ctsjhsdblallguftycqs.supabase.co';
+const SUPA_ANON_KEY = 'sb_publishable_i2UzINt5Xv1QthMl1M0Tgw_iNkiO0K1';
+
+// Sem login, esta rota era um atalho público pro DataJud: qualquer um podia
+// consumir a cota da chave do CNJ e as execuções grátis da Vercel.
+async function exigirLogin(req, res) {
+  const auth = req.headers.authorization;
+  if (!auth?.startsWith('Bearer ')) {
+    res.status(401).json({ erro: 'Não autenticado' });
+    return false;
+  }
+  const { data, error } = await createClient(SUPA_URL, SUPA_ANON_KEY).auth.getUser(auth.slice(7));
+  if (error || !data?.user) {
+    res.status(401).json({ erro: 'Sessão expirada. Entre novamente.' });
+    return false;
+  }
+  return true;
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ erro: 'Método não permitido' });
   }
+
+  if (!(await exigirLogin(req, res))) return;
 
   const { tipo = 'numero', numero, q, tribunal, uf } = req.query;
 

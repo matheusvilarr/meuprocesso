@@ -1149,7 +1149,7 @@ async function buscarProcesso() {
   btn.disabled  = true;
 
   try {
-    const res  = await fetch(url);
+    const res  = await _apiFetch(url);
     const data = await res.json();
     if (!res.ok) { mostrarErroBusca(data.erro || 'Nenhum resultado.'); return; }
     exibirResultados(data.resultados || []);
@@ -1260,7 +1260,7 @@ async function _buscarLoteInterno(numerosValidos, btn) {
     renderizarLoteResultados();
 
     try {
-      const res  = await fetch(`/api/buscar-processo?tipo=numero&numero=${encodeURIComponent(numFormatado)}`);
+      const res  = await _apiFetch(`/api/buscar-processo?tipo=numero&numero=${encodeURIComponent(numFormatado)}`);
       const json = await res.json();
       if (res.ok && json.resultados?.length) {
         item.status = 'encontrado';
@@ -2110,7 +2110,7 @@ async function verificarProcessoAgora(evt, id, datajudIndex, numero) {
   try {
     const params = new URLSearchParams({ tipo: 'numero', numero });
     if (datajudIndex && datajudIndex !== 'null') params.set('tribunal', datajudIndex);
-    const res  = await fetch(`/api/buscar-processo?${params}`);
+    const res  = await _apiFetch(`/api/buscar-processo?${params}`);
     const data = await res.json();
     if (!res.ok) throw new Error(data.erro || 'erro api');
     if (!data.resultados?.length) throw new Error('não encontrado');
@@ -2643,6 +2643,17 @@ function _indiceDoNumero(numero) {
   return null;
 }
 
+// Chamada à nossa API já com o login do advogado. A busca no DataJud passou
+// a exigir sessão — sem isso qualquer um usava o site como atalho pro CNJ e
+// gastava a cota da Vercel.
+async function _apiFetch(url, opcoes = {}) {
+  const { data: { session } } = await _supabase.auth.getSession();
+  return fetch(url, {
+    ...opcoes,
+    headers: { ...(opcoes.headers || {}), 'Authorization': `Bearer ${session?.access_token || ''}` },
+  });
+}
+
 // Comparação de número sempre pelos dígitos: o mesmo processo pode estar
 // gravado com e sem pontuação, e a comparação por texto dava "não encontrado",
 // o que gerava cadastro duplicado.
@@ -2755,15 +2766,20 @@ async function uploadDocumento(file) {
   if (!_processoAtual || !file) return;
   if (file.size > 2 * 1024 * 1024) { showToast('Arquivo muito grande. Limite: 2 MB.'); return; }
 
+  // O documento pertence ao escritório DONO do processo, não a quem enviou.
+  // Antes, um parceiro que subia arquivo num processo compartilhado gravava
+  // com o id do próprio escritório, e o dono nunca via o arquivo.
+  const donoDoProcesso = _processoAtual.user_id || window._escritorioId;
+
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const path     = `${window._escritorioId}/${_processoAtual.id}/${Date.now()}_${safeName}`;
+  const path     = `${donoDoProcesso}/${_processoAtual.id}/${Date.now()}_${safeName}`;
 
   const { error: upErr } = await _supabase.storage.from('documentos').upload(path, file, { contentType: file.type });
   if (upErr) { showToast('Erro no upload: ' + upErr.message); return; }
 
   const { error: insErr } = await _supabase.from('documentos').insert({
     processo_id:   _processoAtual.id,
-    escritorio_id: window._escritorioId,
+    escritorio_id: donoDoProcesso,
     nome:          file.name,
     storage_path:  path,
     tamanho:       file.size,
@@ -2832,7 +2848,7 @@ async function sincronizarDetalhe() {
   if (btn) { btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Sincronizando...'; btn.disabled = true; }
 
   try {
-    const res  = await fetch(`/api/buscar-processo?tipo=numero&numero=${encodeURIComponent(_processoAtual.numero)}`);
+    const res  = await _apiFetch(`/api/buscar-processo?tipo=numero&numero=${encodeURIComponent(_processoAtual.numero)}`);
     const data = await res.json();
     if (!res.ok || !data.resultados?.length) throw new Error();
 
@@ -3308,7 +3324,7 @@ async function sincronizarTodos() {
 
   for (const p of procs) {
     try {
-      const res  = await fetch(`/api/buscar-processo?tipo=numero&numero=${encodeURIComponent(p.numero)}`);
+      const res  = await _apiFetch(`/api/buscar-processo?tipo=numero&numero=${encodeURIComponent(p.numero)}`);
       const data = await res.json();
       if (!res.ok || !data.resultados?.length) continue;
 
@@ -6677,7 +6693,7 @@ async function importarProcessoDJe(docIndex) {
 // Busca movimentos completos no DataJud e atualiza o processo recém-importado
 async function _enriquecerComDatajud(numero) {
   try {
-    const r = await fetch(`/api/buscar-processo?tipo=numero&numero=${encodeURIComponent(numero)}`);
+    const r = await _apiFetch(`/api/buscar-processo?tipo=numero&numero=${encodeURIComponent(numero)}`);
     if (!r.ok) return;
     const d = await r.json();
     const p = d.resultados?.[0];

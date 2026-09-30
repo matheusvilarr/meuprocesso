@@ -80,9 +80,9 @@ async function convidar(req, res) {
     if (error) return res.status(500).json({ erro: 'Erro ao criar convite: ' + error.message });
   }
 
-  const baseUrl = process.env.VERCEL_URL
-    ? `https://${process.env.VERCEL_URL}`
-    : 'http://localhost:3002';
+  // VERCEL_URL é o endereço interno do deploy (muda a cada publicação e não
+  // aceita login), então o link do convite tem que usar o domínio de verdade.
+  const baseUrl = process.env.VERCEL ? 'https://meuprocesso.app.br' : 'http://localhost:3002';
 
   return res.status(200).json({
     ok:   true,
