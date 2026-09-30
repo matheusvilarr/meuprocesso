@@ -3,7 +3,7 @@
 // (OAB/nome/CPF dependem de "partes", que a API pública do DataJud não expõe —
 // na prática só a busca por número retorna resultado)
 
-import { movimentosDosHits } from '../lib/sync-comum.js';
+import { movimentosDosHits, corrigirMojibake as mj } from '../lib/sync-comum.js';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -190,16 +190,16 @@ function decodificarBuffer(buffer) {
 function normalizarProcesso(p, index) {
   return {
     numero:          formatarNumero(p.numeroProcesso),
-    tribunal:        p.tribunal,
+    tribunal:        mj(p.tribunal),
     _datajudIndex:   index || null,
-    classe:          p.classe?.nome        || null,
-    assuntos:        (p.assuntos || []).map(a => a.nome),
-    orgaoJulgador:   p.orgaoJulgador?.nome || null,
+    classe:          p.classe?.nome ? mj(p.classe.nome) : null,
+    assuntos:        (p.assuntos || []).map(a => mj(a.nome)),
+    orgaoJulgador:   p.orgaoJulgador?.nome ? mj(p.orgaoJulgador.nome) : null,
     dataAjuizamento: parsarData(p.dataAjuizamento),
     grau:            p.grau                || null,
     nivelSigilo:     p.nivelSigilo ?? null,
     partes:          (p.partes || []).map(parte => ({
-      nome:  parte.nome,
+      nome:  mj(parte.nome),
       tipo:  parte.tipoParte?.descricao || parte.tipoParte?.nome || parte.tipo || '',
       oab:   parte.advogados?.[0]?.OAB || parte.advogados?.[0]?.oab || parte.oab || null
     })),

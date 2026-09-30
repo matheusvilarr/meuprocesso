@@ -1,4 +1,14 @@
 // Caches globais — declarados aqui para evitar TDZ em chamadas síncronas de inicialização
+
+// Tabela usada por _corrigirMojibake (ver adiante): texto do CNJ que chegou
+// (ou foi salvo antes de 30/09/2026) como UTF-8 lido em windows-1252 —
+// "PRESIDÊNCIA" virava "PRESIDÃŠNCIA".
+const _WIN1252_ALTOS = {
+  '€':0x80,'‚':0x82,'ƒ':0x83,'„':0x84,'…':0x85,'†':0x86,'‡':0x87,'ˆ':0x88,'‰':0x89,
+  'Š':0x8A,'‹':0x8B,'Œ':0x8C,'Ž':0x8E,'‘':0x91,'’':0x92,'“':0x93,'”':0x94,'•':0x95,
+  '–':0x96,'—':0x97,'˜':0x98,'™':0x99,'š':0x9A,'›':0x9B,'œ':0x9C,'ž':0x9E,'Ÿ':0x9F,
+};
+
 let _clientesDB   = [];
 let _honorariosDB = [];
 // Tarefas com prazo, de QUALQUER quadro/pasta — _tarefasDB só tem as do
@@ -2573,8 +2583,23 @@ function comentTecla(event) {
   }
 }
 
+// Desfaz a conversão só quando o resultado é UTF-8 válido, então "SÃO PAULO" e
+// "JOÃO" passam intactos. Mesma lógica do servidor (lib/sync-comum.js).
+function _corrigirMojibake(texto) {
+  const s = String(texto ?? '');
+  if (!/[ÃÂ]./.test(s)) return s;
+  const bytes = [];
+  for (const c of s) {
+    const cp = _WIN1252_ALTOS[c] ?? c.codePointAt(0);
+    if (cp > 0xFF) return s;
+    bytes.push(cp);
+  }
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(bytes)); }
+  catch { return s; }
+}
+
 function _esc(s) {
-  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return _corrigirMojibake(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // Para valores dentro de string JS entre aspas simples num atributo onclick="..."
@@ -6002,7 +6027,7 @@ async function importarLoteSelecionados() {
 let _descobertosCache = [];
 
 function escHtml(s) {
-  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  return _corrigirMojibake(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 }
 
 async function carregarDescobertos() {

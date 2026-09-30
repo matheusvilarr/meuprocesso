@@ -144,7 +144,10 @@ async function acaoDados(req, res, admin, adminUser) {
         oab:            u.user_metadata?.oab || '—',
         oabDuplicado:   oabNorm ? contagemOab[oabNorm] > 1 : false,
         criadoEm:       u.created_at,
-        ultimoLogin:    u.last_sign_in_at || null,
+        // ultimo_acesso (gravado pelo auth-guard a cada dia de uso) reflete o
+        // uso real; last_sign_in_at só muda quando a pessoa digita a senha de novo.
+        ultimoLogin:    u.user_metadata?.ultimo_acesso || u.last_sign_in_at || null,
+        ultimoSignIn:   u.last_sign_in_at || null,
         emailConfirmado: !!u.email_confirmed_at,
         bloqueado:      !!(u.banned_until && new Date(u.banned_until) > new Date()),
         numProcessos:     contagemProcessos[u.id] || 0,
@@ -852,7 +855,9 @@ async function acaoDetalheUsuario(req, res, admin) {
       nome: meta.full_name || meta.nome || '—',
       oabs: String(meta.oab || '').split(',').map(s => s.trim()).filter(Boolean),
       telefone: meta.telefone || null,
-      criadoEm: u.created_at, ultimoLogin: u.last_sign_in_at || null,
+      criadoEm: u.created_at,
+      ultimoLogin: meta.ultimo_acesso || u.last_sign_in_at || null,
+      ultimoSignIn: u.last_sign_in_at || null,
       emailConfirmado: !!u.email_confirmed_at,
       bloqueado: !!(u.banned_until && new Date(u.banned_until) > new Date()),
       provider: u.app_metadata?.provider || 'email',

@@ -15,7 +15,7 @@ import { createClient } from '@supabase/supabase-js';
 import djenCadernos from '../../lib/djen-cadernos.js';
 import {
   parsarData, decodificarBuffer, logErro, chaveMov, movimentosDosHits,
-  ehMovDJEN, datajudIndexFromNumero, buscarOabsUsuarios,
+  ehMovDJEN, datajudIndexFromNumero, buscarOabsUsuarios, corrigirMojibake,
 } from '../../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
@@ -227,9 +227,10 @@ export async function sincronizarDatajudUm(proc, admin, hoje) {
     // os dados do DataJud (só nesse caso — nunca sobrescreve o que o advogado editou).
     const src = hits[0]._source || {};
     if (proc.nome && proc.nome === proc.numero) {
-      if (src.classe?.nome)        { update.nome = src.classe.nome; update.classe = src.classe.nome; }
-      if (src.orgaoJulgador?.nome) update.orgao_julgador = src.orgaoJulgador.nome;
-      if (src.tribunal)            update.tribunal = src.tribunal;
+      const classe = corrigirMojibake(src.classe?.nome);
+      if (src.classe?.nome)        { update.nome = classe; update.classe = classe; }
+      if (src.orgaoJulgador?.nome) update.orgao_julgador = corrigirMojibake(src.orgaoJulgador.nome);
+      if (src.tribunal)            update.tribunal = corrigirMojibake(src.tribunal);
     }
     if (novosRecentes.length) {
       // Mantém novidades ainda não notificadas (ex: publicação DJEN pendente de e-mail)

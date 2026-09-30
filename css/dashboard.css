@@ -53,7 +53,7 @@ body {
 }
 
 .sidebar-logo {
-  padding: 14px 20px 10px;
+  padding: 12px 20px 8px;
   border-bottom: 1px solid rgba(255,255,255,0.08);
   flex-shrink: 0;
 }
@@ -68,7 +68,7 @@ body {
 }
 
 .sidebar-logo-img {
-  height: 110px;
+  height: 78px;
   width: auto;
   flex-shrink: 0;
   border-radius: 8px;
@@ -100,12 +100,19 @@ body {
 
 .sidebar-nav {
   flex: 1;
-  padding: 12px 0;
+  padding: 8px 0;
+  /* Rede de segurança: em tela muito baixa ainda rola, mas com barra discreta
+     em vez da barra larga do sistema (ver @media max-height no fim do arquivo). */
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,.18) transparent;
 }
+.sidebar-nav::-webkit-scrollbar { width: 5px; }
+.sidebar-nav::-webkit-scrollbar-track { background: transparent; }
+.sidebar-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 3px; }
 
 .nav-section {
-  padding: 16px 16px 4px;
+  padding: 12px 16px 3px;
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.1em;
@@ -117,13 +124,13 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 16px;
+  padding: 7px 16px;
   color: rgba(255,255,255,0.65);
   cursor: pointer;
   transition: all 0.15s;
   font-size: 13.5px;
   border-left: 3px solid transparent;
-  margin: 1px 0;
+  margin: 0;
 }
 
 .nav-item:hover {
@@ -157,7 +164,7 @@ body {
 .sidebar-assinatura-badge.urgente { background: #dc2626; color: #fff; }
 
 .sidebar-user {
-  padding: 16px;
+  padding: 12px 16px;
   border-top: 1px solid rgba(255,255,255,0.08);
   display: flex;
   align-items: center;
@@ -2099,4 +2106,27 @@ body.kanban-dragging .task-col-body {
   .modal-footer { padding: 12px 18px; flex-wrap: wrap; }
   .modal-footer .btn-primary,
   .modal-footer .btn-secondary { flex: 1; justify-content: center; }
+}
+
+/* ── SIDEBAR EM TELA BAIXA ──
+   O menu tem 13 itens + 5 títulos de seção + logo + cartão do usuário. Em
+   notebook (altura útil ~700px) isso não cabia e aparecia barra de rolagem.
+   Aqui o conteúdo aperta conforme a altura da janela, sem esconder nenhum
+   item nem os badges de notificação. */
+@media (max-height: 860px) {
+  .sidebar-logo-img { height: 58px; }
+  .sidebar-logo     { padding: 10px 20px 6px; }
+  .nav-section      { padding: 9px 16px 2px; }
+  .nav-item         { padding: 6px 16px; font-size: 13px; }
+  .nav-item .ti     { font-size: 16px; }
+  .sidebar-user     { padding: 10px 16px; }
+}
+@media (max-height: 730px) {
+  .sidebar-logo-img { height: 44px; }
+  .logo-sub         { display: none; }
+  .nav-section      { padding: 7px 16px 2px; font-size: 9px; }
+  .nav-item         { padding: 5px 16px; font-size: 12.5px; }
+  .nav-item .ti     { font-size: 15px; }
+  .user-avatar      { width: 32px; height: 32px; font-size: 12px; }
+  .sidebar-user     { padding: 8px 16px; }
 }

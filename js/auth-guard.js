@@ -19,6 +19,16 @@
   window._colaboradorInfo = colab || null;
   window._user            = session.user;
 
+  // O Supabase só atualiza last_sign_in_at num login de verdade — quem fica
+  // semanas logado (a sessão renova sozinha) aparecia no painel admin como se
+  // nunca tivesse entrado. Registra a data de acesso uma vez por dia; o
+  // updateUser mescla o user_metadata, não sobrescreve os outros campos.
+  const hojeBR = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
+  if ((session.user.user_metadata?.ultimo_acesso || '').slice(0, 10) !== hojeBR) {
+    _supabase.auth.updateUser({ data: { ultimo_acesso: new Date().toISOString() } })
+      .then(() => {}, () => {});   // não bloqueia a abertura do dashboard
+  }
+
   // Verifica se o usuário logado é admin (RLS só deixa ele ver a própria linha)
   const { data: adminRow } = await _supabase
     .from('admins')

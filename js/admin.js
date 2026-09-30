@@ -4,8 +4,28 @@ let _adminData  = null;
 // Nome/email/OAB vêm de user_metadata, que o próprio usuário controla — nunca
 // injetar sem escapar, senão é XSS direto na sessão do admin.
 const ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+// Mesma correção do dashboard: texto do CNJ salvo como UTF-8 lido em
+// windows-1252 ("PRESIDÃŠNCIA" → "PRESIDÊNCIA"). Só mexe quando a conversão
+// de volta dá UTF-8 válido, então "SÃO PAULO" passa intacto.
+const WIN1252_ALTOS = {
+  '€':0x80,'‚':0x82,'ƒ':0x83,'„':0x84,'…':0x85,'†':0x86,'‡':0x87,'ˆ':0x88,'‰':0x89,
+  'Š':0x8A,'‹':0x8B,'Œ':0x8C,'Ž':0x8E,'‘':0x91,'’':0x92,'“':0x93,'”':0x94,'•':0x95,
+  '–':0x96,'—':0x97,'˜':0x98,'™':0x99,'š':0x9A,'›':0x9B,'œ':0x9C,'ž':0x9E,'Ÿ':0x9F,
+};
+function corrigirMojibake(texto) {
+  const s = String(texto ?? '');
+  if (!/[ÃÂ]./.test(s)) return s;
+  const bytes = [];
+  for (const c of s) {
+    const cp = WIN1252_ALTOS[c] ?? c.codePointAt(0);
+    if (cp > 0xFF) return s;
+    bytes.push(cp);
+  }
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(bytes)); }
+  catch { return s; }
+}
 function esc(s) {
-  return String(s ?? '').replace(/[&<>"']/g, c => ESCAPE_MAP[c]);
+  return corrigirMojibake(s).replace(/[&<>"']/g, c => ESCAPE_MAP[c]);
 }
 
 async function init() {
@@ -556,7 +576,7 @@ function renderAdvogados() {
       <td>${esc(a.email)}${a.emailConfirmado ? '' : ' <span class="adm-status-pill adm-status-pendente" style="font-size:9px;">não confirmado</span>'}</td>
       <td>${esc(a.oab)}${a.oabDuplicado ? ' <span class="adm-status-pill adm-status-bloqueado" title="Outra conta usa a mesma OAB" style="font-size:9px;"><i class="ti ti-alert-triangle"></i> duplicada</span>' : ''}</td>
       <td>${fmtData(a.criadoEm)}</td>
-      <td>${a.ultimoLogin ? fmtData(a.ultimoLogin) : 'Nunca'}</td>
+      <td title="${a.ultimoSignIn ? 'Último login com senha: ' + fmtData(a.ultimoSignIn) : 'Nunca fez login com senha'}">${a.ultimoLogin ? fmtData(a.ultimoLogin) : '<span style="color:#9f9f98">—</span>'}</td>
       <td>${a.numProcessos}</td>
       <td>${a.numTarefas}</td>
       <td>${a.numColaboradores}</td>
@@ -632,7 +652,7 @@ function renderFicha(d, resumo) {
   if (!u.oabs.length) dicas.push('Sem OAB no perfil: o DJEN não consegue achar publicações nem importar processos novos.');
   if (p.desatualizados48h) dicas.push(`${p.desatualizados48h} processo(s) sem consulta ao DataJud há 48h+ — use "Sincronizar agora".`);
   if (p.semNumeroCnj) dicas.push(`${p.semNumeroCnj} processo(s) sem número CNJ válido não são monitorados automaticamente.`);
-  if (!u.ultimoLogin || (Date.now() - new Date(u.ultimoLogin)) > 30 * 86400000) dicas.push('Não entra no sistema há mais de 30 dias.');
+  if (!u.ultimoLogin || (Date.now() - new Date(u.ultimoLogin)) > 30 * 86400000) dicas.push('Não abre o sistema há mais de 30 dias.');
   if (as && as.plano === 'trial' && dias !== null && dias >= 0 && dias <= 3) dicas.push('Teste grátis acabando — bom momento para contato.');
   if (!u.emailConfirmado) dicas.push('E-mail ainda não confirmado.');
 
@@ -685,7 +705,7 @@ function renderFicha(d, resumo) {
 
     <div class="ficha-secao ficha-rodape">
       <div class="ficha-linha" style="color:#9f9f98;font-size:12px;">
-        Cadastro ${fmtData(u.criadoEm)} · último login ${u.ultimoLogin ? tempoRelativo(u.ultimoLogin) : 'nunca'} · via ${esc(u.provider)}
+        Cadastro ${fmtData(u.criadoEm)} · última atividade ${u.ultimoLogin ? tempoRelativo(u.ultimoLogin) : 'nunca registrada'} · via ${esc(u.provider)}
         ${u.telefone ? ` · tel. ${esc(u.telefone)}` : ''}
         ${d.colaboradores.length ? ` · ${d.colaboradores.length} colaborador(es)` : ''}
         ${d.ultimosEmails.length ? ` · último e-mail ${d.ultimosEmails[0].data.split('-').reverse().join('/')} (${esc(d.ultimosEmails[0].tipo)})` : ' · nenhum e-mail enviado'}
