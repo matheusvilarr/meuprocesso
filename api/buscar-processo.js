@@ -163,7 +163,9 @@ async function chamarDatajud(index, body, key) {
           'Authorization': `ApiKey ${key}`,
           'Content-Type':  'application/json'
         },
-        signal: AbortSignal.timeout(28000),
+        // 45s como no cron: o DataJud leva de 20 a 48s pra responder, e com
+        // 28s a busca do advogado falhava com "erro de conexão" à toa.
+        signal: AbortSignal.timeout(45000),
         body: JSON.stringify(body)
       }
     );
