@@ -1657,7 +1657,7 @@ function atualizarDashboard(processos, totalArquivados) {
     <div class="process-row" onclick="abrirProcesso('${p.id}')">
       <div class="process-num">${_esc(p.numero) || '—'}</div>
       <div class="process-info">
-        <div class="process-name">${_esc(p.apelido || p.nome)}${p.notificacao_pendente ? ` <span title="Nova movimentação" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--amber);vertical-align:middle"></span>` : ''}</div>
+        <div class="process-name">${_esc(_nomeProc(p))}${p.notificacao_pendente ? ` <span title="Nova movimentação" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--amber);vertical-align:middle"></span>` : ''}</div>
         <div class="process-meta">
           ${p.datajud_index
             ? `<i class="ti ti-cloud-check" style="font-size:10px;color:var(--green)"></i> CNJ DataJud`
@@ -1684,7 +1684,7 @@ function atualizarTimelineDash(processos) {
       ? p.novos_movimentos
       : (p.movimentos_recentes || []).slice(0, 1);
     for (const m of movs.slice(0, 2)) {
-      atualizacoes.push({ processo: p.apelido || p.nome, texto: m.nome, data: m.data, novo: !!p.novos_movimentos?.length });
+      atualizacoes.push({ processo: _nomeProc(p), texto: m.nome, data: m.data, novo: !!p.novos_movimentos?.length });
     }
   }
   atualizacoes.sort((a, b) => new Date(b.data) - new Date(a.data));
@@ -1904,7 +1904,7 @@ function renderizarListaProcessos(lista) {
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:4px;min-width:0" class="pc-title-row">
-        <div class="pc-title" style="flex:1;min-width:0" id="pc-title-${p.id}">${_esc(p.apelido || p.nome)}</div>
+        <div class="pc-title" style="flex:1;min-width:0" id="pc-title-${p.id}">${_esc(_nomeProc(p))}</div>
         ${!isShared ? `<button onclick="editarApelidoCard(event,'${p.id}')" title="Editar apelido"
           style="background:none;border:none;padding:2px 4px;cursor:pointer;color:var(--gray-400);font-size:12px;flex-shrink:0;opacity:0;transition:opacity .15s"
           class="btn-edit-apelido-card">
@@ -2023,7 +2023,7 @@ function topbarSearch(q) {
     <div onmousedown="topbarSearchSelect('${p.id}')"
       style="padding:10px 16px;cursor:pointer;border-bottom:1px solid var(--gray-100);display:flex;flex-direction:column;gap:2px"
       onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background=''">
-      <div style="font-size:13px;font-weight:600;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(p.apelido || p.nome)}</div>
+      <div style="font-size:13px;font-weight:600;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(_nomeProc(p))}</div>
       <div style="font-size:11px;color:var(--gray-400)">${_esc(p.numero) || '—'}${p.cliente ? ' · ' + _esc(p.cliente) : ''}</div>
     </div>
   `).join('');
@@ -2041,7 +2041,7 @@ function topbarSearchSelect(id) {
 function filtrarTarefas(q) {
   const term = (q || '').toLowerCase().trim();
   const procMap = {};
-  for (const p of (window._processosDB || [])) procMap[p.id] = p.apelido || p.nome;
+  for (const p of (window._processosDB || [])) procMap[p.id] = _nomeProc(p);
 
   const lista = term
     ? (_tarefasDB || []).filter(t =>
@@ -2176,7 +2176,7 @@ async function abrirProcesso(id) {
 }
 
 function popularDetalhe(proc) {
-  document.getElementById('topbar-title').textContent = proc.apelido || proc.nome || 'Processo';
+  document.getElementById('topbar-title').textContent = _nomeProc(proc) || 'Processo';
 
   // Tags (área + status)
   const areaMap = { 'Cível':'civil','Trabalhista':'trabalhista','Criminal':'criminal','Tributário':'tributario','Família':'familia','Previdenciário':'previdenciario' };
@@ -2674,6 +2674,24 @@ function _titleCase(str) {
   return _tituloProcesso(str);
 }
 
+// Caixa padronizada só para texto que veio do tribunal em CAIXA ALTA
+// ("PROCEDIMENTO COMUM CíVEL · ACÓRDÃO"). Texto que o advogado escreveu fica
+// intacto, inclusive siglas como "Processo INSS" — por isso a checagem de
+// proporção de maiúsculas em vez de padronizar tudo.
+function _caixaPadrao(texto) {
+  const s = _corrigirMojibake(texto);
+  const letras = s.replace(/[^A-Za-zÀ-ÿ]/g, '');
+  if (letras.length < 8) return s;
+  const maiusculas = (s.match(/[A-ZÀ-Þ]/g) || []).length;
+  return maiusculas / letras.length >= 0.6 ? _tituloProcesso(s) : s;
+}
+
+// Nome do processo como deve aparecer na tela: o apelido do advogado tem
+// prioridade e nunca é alterado; o título do tribunal é padronizado.
+function _nomeProc(p) {
+  return p?.apelido ? String(p.apelido) : _caixaPadrao(p?.nome);
+}
+
 // Label padrão para seletores de processo: "Nome do Cliente · número"
 function _labelProcesso(p) {
   const nome = _titleCase(p.cliente || p.apelido || p.nome || '');
@@ -3117,7 +3135,7 @@ function _renderNotifPanel() {
       html: p => `<div onclick="abrirProcesso('${p.id}');toggleNotifPanel()" style="padding:6px 16px 6px 36px;cursor:pointer;display:flex;align-items:center;gap:8px;border-radius:6px;margin:0 8px 2px;transition:background .12s" onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background='transparent'">
         <i class="ti ti-point-filled" style="font-size:8px;color:#3b82f6;flex-shrink:0"></i>
         <div style="min-width:0">
-          <div style="font-size:12.5px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(p.apelido || p.nome)}</div>
+          <div style="font-size:12.5px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(_nomeProc(p))}</div>
           <div style="font-size:11px;color:var(--gray-400)">Nova movimentação</div>
         </div>
       </div>`,
@@ -3456,7 +3474,7 @@ async function carregarArquivados() {
           <span class="pc-status" style="background:var(--gray-200);color:var(--gray-600)">Arquivado</span>
         </div>
       </div>
-      <div class="pc-title">${_esc(p.apelido || p.nome)}</div>
+      <div class="pc-title">${_esc(_nomeProc(p))}</div>
       ${p.apelido ? `<div style="font-size:11px;color:var(--gray-400);margin-top:-2px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(p.nome)}</div>` : ''}
       <div class="pc-client">
         <i class="ti ti-user" style="font-size:12px"></i>
@@ -3577,7 +3595,7 @@ async function carregarColaboradores() {
         ? (window._processosDB || []).find(p => p.id === m.processo_id)
         : null;
       const escopoLabel = proc
-        ? `Processo: ${(proc.apelido || proc.nome || proc.numero || '').slice(0, 38)}`
+        ? `Processo: ${(_nomeProc(proc) || proc.numero || '').slice(0, 38)}`
         : 'Escritório completo';
       const dataLabel = m.created_at ? `Desde ${new Date(m.created_at).toLocaleDateString('pt-BR')}` : '';
       const nomeM  = m.nome  || m.email?.split('@')[0] || m.cargo || 'Colaborador';
@@ -3800,7 +3818,7 @@ async function carregarParceiros() {
   if (listaComigo) {
     listaComigo.innerHTML = comigo.length ? comigo.map(s => {
       const proc = (window._processosDB || []).find(p => p.id === s.processo_id);
-      const nomeProcesso = proc ? (proc.apelido || proc.nome) : `Processo ${s.processo_id.slice(0, 8)}…`;
+      const nomeProcesso = proc ? _nomeProc(proc) : `Processo ${s.processo_id.slice(0, 8)}…`;
       return `
         <div class="share-item">
           <div class="pc-avatar-dot nivel-${s.nivel_acesso}" style="width:36px;height:36px;font-size:13px;flex-shrink:0">
@@ -3826,7 +3844,7 @@ async function carregarParceiros() {
     } else {
       const renderItem = (s, pendente) => {
         const proc        = (window._processosDB || []).find(p => p.id === s.processo_id);
-        const nomeProcesso = proc ? (proc.apelido || proc.nome) : `Processo ${s.processo_id.slice(0, 8)}…`;
+        const nomeProcesso = proc ? _nomeProc(proc) : `Processo ${s.processo_id.slice(0, 8)}…`;
         const iniciais    = s.shared_with_nome.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
         const clickProc   = proc ? `style="cursor:pointer;color:var(--navy)" onclick="showPage('processos');abrirProcesso('${proc.id}')"` : '';
         return `
@@ -3923,7 +3941,7 @@ function abrirModalCompartilhar(event, processoId) {
   _resetModalShare();
 
   const proc       = (window._processosDB || []).find(p => p.id === processoId);
-  const nome       = proc ? (proc.apelido || proc.nome) : '';
+  const nome       = proc ? _nomeProc(proc) : '';
   const info       = document.getElementById('share-processo-info');
   const selectWrap = document.getElementById('share-processo-select-wrap');
   if (info)        { info.style.display = 'block'; info.innerHTML = `<i class="ti ti-briefcase" style="margin-right:6px;color:var(--navy)"></i><b>${_esc(nome)}</b>`; }
@@ -4854,7 +4872,7 @@ function filtrarVincularTarefa() {
 
   lista.innerHTML = filtrados.slice(0, 20).map(p => {
     const isShared = shared[p.id];
-    const label    = p.apelido || p.nome;
+    const label    = _nomeProc(p);
     const num      = p.numero ? `<span style="color:var(--gray-400);font-size:10px">${p.numero}</span>` : '';
     const tag      = isShared ? `<span style="font-size:10px;color:#7c3aed;margin-left:4px"><i class="ti ti-handshake"></i> compartilhado</span>` : '';
     return `<button onclick="vincularTarefaProcesso('${p.id}');fecharVincularTarefa()"
@@ -6440,7 +6458,7 @@ async function rodarMonitorDJe() {
               </div>
               <span style="font-size:10px;color:var(--gray-400);white-space:nowrap">${dataFmt}</span>
             </div>
-            <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:2px">${proc.apelido || proc.nome}</div>
+            <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:2px">${_esc(_nomeProc(proc))}</div>
             <div style="font-size:11px;color:var(--gray-500);margin-bottom:4px">${numPrincipal} · ${orgao}</div>
             <div style="font-size:11px;color:var(--gray-700);line-height:1.6;max-height:60px;overflow:hidden;margin-bottom:10px">${preview}</div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
@@ -6571,7 +6589,7 @@ async function salvarAtualizacaoDJe(docIndex, processoId, btn) {
   btn.style.background = 'var(--green)';
 
   carregarProcessos();
-  showToast(`Atualização salva em "${proc.apelido || proc.nome}"`);
+  showToast(`Atualização salva em "${_esc(_nomeProc(proc))}"`);
 }
 
 async function importarProcessoDJe(docIndex) {

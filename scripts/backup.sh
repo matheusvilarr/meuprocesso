@@ -30,9 +30,12 @@ HOJE="$(date +%F)"
 DESTINO="$RAIZ/backups/$HOJE"
 
 # ── chave ────────────────────────────────────────────────────
-if [ -z "${SUPABASE_SERVICE_KEY:-}" ] && [ -f "$RAIZ/.env.backup" ]; then
-  SUPABASE_SERVICE_KEY="$(grep -E '^SUPABASE_SERVICE_KEY=' "$RAIZ/.env.backup" | head -1 | cut -d= -f2- | tr -d '"'"'"' \r\n')"
-fi
+# Aceita o arquivo na raiz do projeto ou dentro de scripts/
+for LOCAL in "$RAIZ/.env.backup" "$RAIZ/scripts/.env.backup"; do
+  if [ -z "${SUPABASE_SERVICE_KEY:-}" ] && [ -s "$LOCAL" ]; then
+    SUPABASE_SERVICE_KEY="$(grep -E '^SUPABASE_SERVICE_KEY=' "$LOCAL" | head -1 | cut -d= -f2- | tr -d '"'"'"' \r\n')"
+  fi
+done
 if [ -z "${SUPABASE_SERVICE_KEY:-}" ]; then
   echo "ERRO: chave não encontrada."
   echo "Crie o arquivo .env.backup na raiz do projeto com:"
@@ -104,8 +107,12 @@ for T in $TABELAS; do
       N=$(( FIM - INI + 1 ))
     fi
 
-    cat "$CORPO" >> "$ARQ.partes"
-    echo >> "$ARQ.partes"
+    # O PostgREST devolve o array quebrado em várias linhas ("}, \n {"), então
+    # NÃO dá pra juntar linha a linha — tira só o colchete da borda da página.
+    if [ "$N" -gt 0 ]; then
+      [ -s "$ARQ.partes" ] && printf ',\n' >> "$ARQ.partes"
+      sed -e '1s/^\[//' -e "\$s/\]\$//" "$CORPO" >> "$ARQ.partes"
+    fi
     rm -f "$CAB" "$CORPO"
 
     BAIXADAS=$(( BAIXADAS + N ))
@@ -114,14 +121,15 @@ for T in $TABELAS; do
     [ "$OFFSET" -gt 500000 ] && { ERRO="passou de 500 mil linhas"; break; }
   done
 
-  # junta as páginas num único array JSON
+  # junta as páginas num único array JSON, um registro por linha
   if [ -z "$ERRO" ]; then
-    { printf '['
-      awk 'BEGIN{p=0} {gsub(/^\[/,"");gsub(/\]$/,""); if(length($0)>0){ if(p==1) printf ","; printf "%s",$0; p=1 }}' "$ARQ.partes"
-      printf ']\n'
-    } > "$ARQ"
+    { printf '[\n'; [ -s "$ARQ.partes" ] && cat "$ARQ.partes"; printf '\n]\n'; } > "$ARQ"
   fi
   rm -f "$ARQ.partes"
+
+  # Conferência estrutural: conta os registros DENTRO do arquivo salvo, e não
+  # o que o servidor disse ter mandado. É o que pega arquivo mal montado.
+  NO_ARQUIVO=$(grep -c '^ *{"' "$ARQ" 2>/dev/null || echo 0)
 
   ESPERADO="${ESPERADO:-0}"
   case "$ESPERADO" in ''|*[!0-9]*) ESPERADO=0 ;; esac
@@ -132,6 +140,8 @@ for T in $TABELAS; do
     SIT="DIVERGENTE (servidor diz $ESPERADO)"; FALHAS=$(( FALHAS + 1 ))
   elif [ ! -s "$ARQ" ]; then
     SIT="ARQUIVO VAZIO"; FALHAS=$(( FALHAS + 1 ))
+  elif [ "$NO_ARQUIVO" -ne "$ESPERADO" ]; then
+    SIT="ARQUIVO MAL MONTADO ($NO_ARQUIVO no arquivo x $ESPERADO baixadas)"; FALHAS=$(( FALHAS + 1 ))
   else
     SIT="ok"; TOTAL_LINHAS=$(( TOTAL_LINHAS + BAIXADAS ))
   fi
