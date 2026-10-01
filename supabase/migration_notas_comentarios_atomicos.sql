@@ -78,15 +78,22 @@ AS $$
      SET comentarios = COALESCE((
            SELECT jsonb_agg(item)
              FROM jsonb_array_elements(COALESCE(comentarios, '[]'::jsonb)) AS item
+            -- Os COALESCE aqui não são enfeite. Um comentário que não é
+            -- resposta tem reply_to_id nulo, e em SQL "nulo = texto" devolve
+            -- NULO (não falso). Como NOT nulo também é nulo, a linha caía fora
+            -- do resultado: apagar um comentário levava TODOS os outros junto.
+            -- Pego pelo teste antes de ir para produção.
             WHERE NOT (
               -- o próprio comentário, se quem pede for o autor
-              (item->>'id' = p_comentario_id AND item->>'autor_id' = auth.uid()::text)
-              -- e as respostas a ele, desde que o autor realmente possa apagá-lo
-              OR (item->>'reply_to_id' = p_comentario_id AND EXISTS (
-                   SELECT 1
-                     FROM jsonb_array_elements(COALESCE(comentarios, '[]'::jsonb)) AS pai
-                    WHERE pai->>'id' = p_comentario_id
-                      AND pai->>'autor_id' = auth.uid()::text))
+              COALESCE(item->>'id' = p_comentario_id
+                       AND item->>'autor_id' = auth.uid()::text, false)
+              -- e as respostas a ele, desde que o autor possa apagá-lo
+              OR (COALESCE(item->>'reply_to_id' = p_comentario_id, false)
+                  AND EXISTS (
+                    SELECT 1
+                      FROM jsonb_array_elements(COALESCE(comentarios, '[]'::jsonb)) AS pai
+                     WHERE pai->>'id' = p_comentario_id
+                       AND pai->>'autor_id' = auth.uid()::text))
             )
          ), '[]'::jsonb)
    WHERE id = p_processo

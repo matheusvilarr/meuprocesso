@@ -2651,16 +2651,27 @@ function _indiceDoNumero(numero) {
 // outra. Se a função ainda não existir no banco (migration não rodada), cai no
 // jeito antigo em vez de deixar o advogado sem salvar nada.
 async function _jsonbRpc(fn, args, coluna, aplicarLocal) {
+  const esperado = aplicarLocal();
   const { data, error } = await _supabase.rpc(fn, args);
-  if (!error) return { lista: data || [], error: null };
+
+  if (!error) {
+    const lista = data || [];
+    // Rede de segurança: se a função do banco devolver MENOS itens do que
+    // deveria, algo está errado nela e o texto de alguém acabou de sumir.
+    // Em vez de aceitar a perda, regrava o resultado correto.
+    if (lista.length < esperado.length) {
+      await _supabase.from('processos').update({ [coluna]: esperado }).eq('id', args.p_processo);
+      return { lista: esperado, error: null };
+    }
+    return { lista, error: null };
+  }
 
   const faltaFuncao = /(could not find|does not exist|schema cache|404)/i.test(error.message || '');
   if (!faltaFuncao) return { lista: null, error };
 
-  const lista = aplicarLocal();
   const { error: err2 } = await _supabase.from('processos')
-    .update({ [coluna]: lista }).eq('id', args.p_processo);
-  return { lista, error: err2 || null };
+    .update({ [coluna]: esperado }).eq('id', args.p_processo);
+  return { lista: esperado, error: err2 || null };
 }
 
 function _jsonbAnexar(fn, args, coluna, item) {
