@@ -172,11 +172,13 @@ document.getElementById('registroForm').addEventListener('submit', async functio
     return;
   }
 
-  // Registra o uso do código (não bloqueia o fluxo se falhar)
+  // Registra o uso do código (não bloqueia o fluxo se falhar).
+  // O e-mail vai junto porque o servidor confere que a conta existe antes de
+  // consumir o convite — sem isso, qualquer um queimava convite alheio.
   fetch('/api/codigo-acesso?acao=registrar', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ codigo }),
+    body: JSON.stringify({ codigo, email }),
   }).catch(() => {});
 
   // Sucesso — mostra caixa de confirmação
