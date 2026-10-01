@@ -660,6 +660,7 @@ export default async function handler(req, res) {
 
   if (acao === 'saude')            return acaoSaude(req, res, admin);
   if (acao === 'execucoes')        return acaoExecucoes(req, res, admin);
+  if (acao === 'licencas')         return acaoLicencas(req, res, admin);
   if (acao === 'detalhe-usuario')  return acaoDetalheUsuario(req, res, admin);
   if (acao === 'dados')         return acaoDados(req, res, admin, adminUser);
   if (acao === 'emails')        return acaoEmails(req, res, admin);
@@ -680,6 +681,7 @@ export default async function handler(req, res) {
   if (acao === 'aprovar-usuario')       return acaoAprovarUsuario(req, res, admin);
   if (acao === 'rejeitar-usuario')      return acaoRejeitarUsuario(req, res, admin);
   if (acao === 'atualizar-assinatura')  return acaoAtualizarAssinatura(req, res, admin, adminUser);
+  if (acao === 'atender-pedido')        return acaoAtenderPedido(req, res, admin, adminUser);
 
   return res.status(400).json({ erro: 'acao inválida.' });
 }
@@ -715,7 +717,7 @@ async function acaoSaude(req, res, admin) {
     semIndice, atrasados7d,
     totalAtivos, comIndice, desatualizados, nuncaVerificados, avisosSite, emailsPendentes, falhando,
     { data: ultimaVerif }, { data: fila }, { data: erros24h }, { data: ultimoEmail }, { data: assinaturas },
-    execucoes24h,
+    execucoes24h, pedidosLicenca,
   ] = await Promise.all([
     // Vazão real: quantos processos tiveram consulta bem-sucedida na janela.
     contar(base().gte('ultima_verificacao', h6)),
@@ -740,6 +742,8 @@ async function acaoSaude(req, res, admin) {
     admin.from('cron_execucoes').select('cron, iniciado_em, terminou_em, duracao_ms, processados, resultados, erro')
       .gte('iniciado_em', h24).order('iniciado_em', { ascending: false })
       .then(r => r.data || [], () => []),   // tabela pode não existir ainda
+    admin.from('solicitacoes_licenca').select('id, valor', { count: 'exact' }).eq('status', 'pendente')
+      .then(r => r.data || [], () => []),
   ]);
 
   const djen = {
@@ -827,6 +831,16 @@ async function acaoSaude(req, res, admin) {
   if (nuncaVerificados) add('info', `${nuncaVerificados} processo(s) aguardando a primeira consulta ao DataJud`,
     'Normal logo após importação — o cron pega esses primeiro.');
 
+  // Vende primeiro, conserta depois: pedido de licença esperando vai no topo,
+  // porque é dinheiro parado e depende só de você responder.
+  const pedidos = pedidosLicenca || [];
+  if (pedidos.length) {
+    const total = pedidos.reduce((s, p) => s + Number(p.valor || 0), 0);
+    add('critico', `${pedidos.length} advogado(s) pedindo licença — R$ ${total} esperando`,
+      'Eles escolheram o plano e estão aguardando você passar o Pix. Combine o pagamento e libere na aba Licenças.',
+      { tipo: 'aba', aba: 'licencas', label: 'Ver pedidos' });
+  }
+
   if (morreram24h) add('critico', `${morreram24h} execução(ões) automática(s) morreram no meio nas últimas 24h`,
     'A função começou e não chegou ao fim — quase sempre estouro do tempo máximo da Vercel (120s). Os processos que ficaram de fora voltam para a fila, mas a vazão cai.',
     { tipo: 'aba', aba: 'execucoes', label: 'Ver execuções' });
@@ -864,9 +878,119 @@ async function acaoSaude(req, res, admin) {
     djen,
     emails: { pendentes: emailsPendentes, avisosSite, ultimoEnvio: ultimoEmailData, ultimoTipo: ultimoEmail?.[0]?.tipo || null },
     erros24h: errosPorOrigem,
-    assinaturas: { vencendo7d, vencidas, emTrial },
+    assinaturas: { vencendo7d, vencidas, emTrial, pedidosPendentes: (pedidosLicenca || []).length },
     alertas,
   });
+}
+
+// ── LICENÇAS ─────────────────────────────────────────────────────────────────
+// Uma tela só para a parte comercial: quem pediu licença e está esperando,
+// quem vence nos próximos dias e quem já venceu.
+
+const DIAS_DO_PLANO = { mensal: 30, semestral: 182, anual: 365 };
+
+async function acaoLicencas(req, res, admin) {
+  const agora = Date.now();
+
+  const [{ data: pedidos, error: errPed }, { data: assinaturas }, usuarios] = await Promise.all([
+    admin.from('solicitacoes_licenca').select('*').order('criado_em', { ascending: false }).limit(200),
+    admin.from('assinaturas').select('*'),
+    todosOsUsuarios(admin),
+  ]);
+
+  // Tabela recém-criada (migration ainda não rodou) não pode derrubar a aba.
+  const indisponivel = errPed ? errPed.message : null;
+
+  const porId = {};
+  for (const u of usuarios || []) {
+    porId[u.id] = {
+      nome:     u.user_metadata?.full_name || u.user_metadata?.nome || '',
+      email:    u.email || '',
+      telefone: u.user_metadata?.telefone || '',
+      oab:      u.user_metadata?.oab || '',
+    };
+  }
+
+  const comDono = (p) => ({ ...p, ...(porId[p.escritorio_id] || {}) });
+
+  const lista = (pedidos || []).map(comDono);
+  const assinaturasComDono = (assinaturas || []).map(a => {
+    const dias = Math.ceil((new Date(a.data_expiracao) - agora) / 86400000);
+    const vencida = a.status !== 'ativo' || dias < 0;
+    return { ...a, ...(porId[a.escritorio_id] || {}), diasRestantes: dias, vencida };
+  }).sort((x, y) => x.diasRestantes - y.diasRestantes);
+
+  return res.json({
+    ok: true,
+    indisponivel,
+    pedidos: {
+      pendentes: lista.filter(p => p.status === 'pendente'),
+      historico: lista.filter(p => p.status !== 'pendente').slice(0, 60),
+    },
+    assinaturas: assinaturasComDono,
+    resumo: {
+      pedindo:    lista.filter(p => p.status === 'pendente').length,
+      emTeste:    assinaturasComDono.filter(a => a.plano === 'trial' && !a.vencida).length,
+      pagantes:   assinaturasComDono.filter(a => ['mensal','semestral','anual'].includes(a.plano) && !a.vencida).length,
+      vencendo7d: assinaturasComDono.filter(a => !a.vencida && a.diasRestantes <= 7).length,
+      vencidas:   assinaturasComDono.filter(a => a.vencida).length,
+      receberNoAno: lista.filter(p => p.status === 'pago').reduce((s, p) => s + Number(p.valor || 0), 0),
+    },
+  });
+}
+
+// Marca o pedido como pago e, de uma vez, estende a licença — são as duas
+// metades da mesma ação, e separá-las deixaria pedido pago sem licença ativa.
+async function acaoAtenderPedido(req, res, admin, adminUser) {
+  const { id, decisao, notaInterna } = req.body || {};
+  if (!id) return res.status(400).json({ erro: 'id do pedido é obrigatório.' });
+  if (!['pago', 'cancelada'].includes(decisao)) {
+    return res.status(400).json({ erro: 'decisao deve ser "pago" ou "cancelada".' });
+  }
+
+  const { data: pedido, error: errBusca } = await admin
+    .from('solicitacoes_licenca').select('*').eq('id', id).maybeSingle();
+  if (errBusca) return res.status(500).json({ erro: errBusca.message });
+  if (!pedido)  return res.status(404).json({ erro: 'Pedido não encontrado.' });
+  if (pedido.status !== 'pendente') {
+    return res.status(422).json({ erro: `Este pedido já foi marcado como "${pedido.status}".` });
+  }
+
+  if (decisao === 'pago') {
+    const dias = DIAS_DO_PLANO[pedido.plano];
+    if (!dias) return res.status(422).json({ erro: `Plano "${pedido.plano}" sem duração definida.` });
+
+    // Se a licença atual ainda está válida, soma a partir dela — quem renova
+    // antes de vencer não perde os dias que já pagou.
+    const { data: atual } = await admin.from('assinaturas')
+      .select('data_expiracao, status').eq('escritorio_id', pedido.escritorio_id).maybeSingle();
+    const base = (atual?.status === 'ativo' && new Date(atual.data_expiracao) > new Date())
+      ? new Date(atual.data_expiracao)
+      : new Date();
+    const expiracao = new Date(base.getTime() + dias * 86400000);
+
+    const { error: errAssin } = await admin.from('assinaturas').upsert({
+      escritorio_id:   pedido.escritorio_id,
+      plano:           pedido.plano,
+      status:          'ativo',
+      data_expiracao:  expiracao.toISOString(),
+      valor_pago:      pedido.valor,
+      forma_pagamento: 'pix',
+      observacoes:     notaInterna || `Pedido de ${new Date(pedido.criado_em).toLocaleDateString('pt-BR')} liberado pelo painel`,
+      atualizado_por:  adminUser.user.id,
+    }, { onConflict: 'escritorio_id' });
+    if (errAssin) return res.status(500).json({ erro: 'Erro ao liberar a licença: ' + errAssin.message });
+  }
+
+  const { error: errPedido } = await admin.from('solicitacoes_licenca').update({
+    status:       decisao,
+    atendido_em:  new Date().toISOString(),
+    atendido_por: adminUser.user.id,
+    nota_interna: notaInterna || null,
+  }).eq('id', id);
+  if (errPedido) return res.status(500).json({ erro: errPedido.message });
+
+  return res.json({ ok: true, decisao });
 }
 
 // ── HISTÓRICO DAS EXECUÇÕES AUTOMÁTICAS ──────────────────────────────────────

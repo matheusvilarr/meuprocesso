@@ -17,6 +17,14 @@ function switchTab(tab) {
   document.getElementById('signupForm').style.display = isSignup ? 'flex' : 'none';
   document.getElementById('tabLogin').classList.toggle('active', !isSignup);
   document.getElementById('tabSignup').classList.toggle('active', isSignup);
+
+  // O mesmo botão do Google serve para entrar e para criar conta (o OAuth
+  // cria a conta sozinho na primeira vez). Só o texto muda, para quem está
+  // na aba de cadastro entender que não precisa preencher o formulário.
+  document.getElementById('btnGoogleTxt').textContent =
+    isSignup ? 'Criar conta com Google' : 'Entrar com Google';
+  document.getElementById('googleHint').style.display = isSignup ? 'block' : 'none';
+  document.getElementById('trialBanner').style.display = isSignup ? 'block' : 'none';
 }
 
 if (new URLSearchParams(window.location.search).get('tab') === 'signup') {
@@ -27,10 +35,12 @@ if (new URLSearchParams(window.location.search).get('tab') === 'signup') {
 
 document.getElementById('btnGoogle').addEventListener('click', async function () {
   this.disabled = true;
-  this.textContent = 'Redirecionando...';
+  // Trocar o textContent do botão apagaria o ícone do Google junto.
+  document.getElementById('btnGoogleTxt').textContent = 'Redirecionando...';
+  const destino = new URLSearchParams(window.location.search).get('redirect') || '/dashboard';
   await _supabase.auth.signInWithOAuth({
     provider: 'google',
-    options: { redirectTo: window.location.origin + '/dashboard' },
+    options: { redirectTo: window.location.origin + destino },
   });
 });
 

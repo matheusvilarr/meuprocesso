@@ -239,7 +239,14 @@ footer{background:var(--g900);padding:48px 6% 28px}
   nav{padding:0 4%}
   .feat-grid{grid-template-columns:1fr}
   .lista-box{padding:28px 20px}
-  .nav-link{display:none}
+  /* No celular não cabe o menu inteiro e não há hambúrguer. Em vez de sumir
+     com tudo, some só com as âncoras e mantém Preços — sem ele, a única
+     forma de ver os planos era rolar a página inteira até o rodapé. */
+  .nav-link:not(.nav-precos){display:none}
+  .nav-logo-name{display:none}
+  .nav-precos{padding:7px 9px}
+  .nav-login{padding:8px 13px}
+  .nav-cta{padding:9px 15px;font-size:13.5px}
   .monitoring-highlight{padding:64px 4%}
   .mh-sub{font-size:15px}
   .mh-pill{font-size:13px;padding:8px 16px}

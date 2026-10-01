@@ -4,53 +4,329 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Preços — Meu Processo</title>
-<meta name="description" content="Nossa página de preços está em atualização. Fale com a gente para saber mais sobre os planos do Meu Processo.">
-<meta name="robots" content="noindex">
+<meta name="description" content="7 dias grátis, sem cartão de crédito. Depois, a partir de R$ 29/mês — ou R$ 97 no plano anual, com monitoramento automático em mais de 90 tribunais.">
 <link rel="canonical" href="https://meuprocesso.app.br/precos">
 <link rel="icon" type="image/png" href="/img/images/logo.png">
 <link rel="apple-touch-icon" href="/img/images/logo.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/css/login.css">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
 <style>
-  .manut-card { text-align: center; padding: 48px 40px; }
-  .manut-icon { font-size: 44px; margin-bottom: 16px; }
-  .manut-title { font-size: 22px; font-weight: 700; color: #1a2e6b; margin-bottom: 10px; }
-  .manut-sub { font-size: 14px; color: #6b7280; line-height: 1.7; margin-bottom: 28px; }
-  .manut-email {
-    display: inline-flex; align-items: center; gap: 8px;
-    background: #f3f4f6; border-radius: 8px; padding: 10px 18px;
-    font-size: 14px; color: #1a2e6b; font-weight: 600;
-    text-decoration: none; margin-bottom: 20px;
+  /* ── Fundo ─────────────────────────────────────────────── */
+  .pr-fundo{
+    position:relative;
+    background:
+      radial-gradient(900px 420px at 50% -120px, rgba(29,78,216,.10), transparent 70%),
+      radial-gradient(600px 300px at 88% 8%, rgba(59,130,246,.07), transparent 70%),
+      linear-gradient(180deg, var(--bluepale) 0%, var(--white) 46%);
+    overflow:hidden;
   }
-  .manut-email:hover { background: #e5e7eb; }
-  .manut-voltar { display: block; font-size: 13px; color: #6b7280; text-decoration: none; }
-  .manut-voltar:hover { color: #1a2e6b; }
+  .pr-fundo::before{
+    content:'';position:absolute;inset:0;pointer-events:none;
+    background-image:linear-gradient(var(--g200) 1px,transparent 1px),linear-gradient(90deg,var(--g200) 1px,transparent 1px);
+    background-size:64px 64px;
+    -webkit-mask-image:radial-gradient(700px 340px at 50% 0,#000,transparent 75%);
+            mask-image:radial-gradient(700px 340px at 50% 0,#000,transparent 75%);
+    opacity:.5;
+  }
+  .pr-wrap{position:relative;max-width:1080px;margin:0 auto;padding:116px 6% 10px}
+
+  /* ── Cabeçalho ─────────────────────────────────────────── */
+  .pr-head{text-align:center;margin-bottom:52px}
+  .pr-pill{
+    display:inline-flex;align-items:center;gap:8px;background:var(--white);
+    border:1px solid var(--bluering);border-radius:100px;padding:7px 18px 7px 8px;
+    font-size:12.5px;font-weight:600;color:var(--bluedark);margin-bottom:22px;
+    box-shadow:0 2px 10px rgba(29,78,216,.08);
+  }
+  .pr-pill-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(22,163,74,.16);flex-shrink:0;margin-left:6px}
+  .pr-h1{font-size:clamp(32px,5.2vw,50px);font-weight:800;color:var(--g900);letter-spacing:-.028em;line-height:1.12;margin-bottom:16px}
+  .pr-h1 .accent{background:linear-gradient(135deg,#1e3a5f 0%,#1d4ed8 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:var(--bluedark)}
+  .pr-sub{font-size:17px;color:var(--g500);max-width:560px;margin:0 auto;line-height:1.7;text-wrap:balance}
+
+  /* ── Cards ─────────────────────────────────────────────── */
+  .pr-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;align-items:stretch}
+  .pr-card{
+    position:relative;display:flex;flex-direction:column;text-align:center;
+    background:var(--white);border:1.5px solid var(--g200);border-radius:18px;
+    padding:32px 26px 28px;transition:transform .2s,box-shadow .2s,border-color .2s;
+    box-shadow:0 1px 3px rgba(16,24,40,.04);
+  }
+  .pr-card:hover{transform:translateY(-4px);box-shadow:0 14px 36px rgba(16,24,40,.10);border-color:var(--bluering)}
+  .pr-card.destaque{
+    border:2px solid transparent;
+    background:
+      linear-gradient(var(--white),var(--white)) padding-box,
+      linear-gradient(135deg,#1e3a5f 0%,#1d4ed8 100%) border-box;
+    box-shadow:0 16px 44px rgba(29,78,216,.18);
+  }
+  .pr-card.destaque:hover{transform:translateY(-6px);box-shadow:0 22px 56px rgba(29,78,216,.26)}
+  .pr-selo{
+    position:absolute;top:-13px;left:50%;transform:translateX(-50%);
+    background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 55%,#1d4ed8 100%);color:var(--white);
+    font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+    padding:6px 16px;border-radius:100px;white-space:nowrap;
+    box-shadow:0 4px 14px rgba(29,78,216,.35);
+  }
+
+  /* Alturas fixas por faixa: é o que mantém nome, preço, nota, selo e botão
+     na mesma linha nos três cards, mesmo com textos de tamanhos diferentes. */
+  .pr-nome{min-height:20px;font-size:12.5px;font-weight:700;color:var(--g500);letter-spacing:.1em;text-transform:uppercase;margin-bottom:16px}
+  .pr-preco{min-height:46px;display:flex;align-items:baseline;justify-content:center;gap:5px}
+  .pr-valor{font-size:44px;font-weight:800;color:var(--g900);letter-spacing:-.035em;line-height:1;font-variant-numeric:tabular-nums}
+  .pr-periodo{font-size:15px;color:var(--g500);font-weight:500}
+  .pr-equiv{min-height:21px;font-size:13.5px;color:var(--bluedark);font-weight:600;margin-top:9px;font-variant-numeric:tabular-nums}
+  .pr-nota{min-height:38px;font-size:13px;color:var(--g500);margin-top:8px;line-height:1.55;display:flex;align-items:center;justify-content:center}
+  .pr-chip-area{min-height:32px;display:flex;align-items:center;justify-content:center;margin-top:6px}
+  .pr-chip{display:inline-block;font-size:12px;font-weight:700;padding:5px 12px;border-radius:7px}
+  .pr-chip.verde{background:var(--greenbg);color:#15803d}
+  .pr-chip.cinza{background:var(--g100);color:var(--g500)}
+
+  .pr-btn-area{margin-top:22px}
+  .pr-btn{
+    display:flex;align-items:center;justify-content:center;gap:8px;width:100%;
+    padding:14px 20px;border-radius:11px;font-size:15px;font-weight:700;
+    text-decoration:none;transition:all .18s;font-family:'Inter',sans-serif;
+  }
+  .pr-btn.cheio{background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 55%,#1d4ed8 100%);color:var(--white);box-shadow:0 4px 16px rgba(29,78,216,.28)}
+  .pr-btn.cheio:hover{box-shadow:0 10px 30px rgba(29,78,216,.42)}
+  .pr-btn.vazio{background:var(--white);color:var(--g800);border:1.5px solid var(--g200)}
+  .pr-btn.vazio:hover{border-color:var(--bluedark);color:var(--bluedark);background:var(--bluelight)}
+  .pr-btn span{transition:transform .18s}
+  .pr-btn:hover span{transform:translateX(3px)}
+
+  /* ── Separador ─────────────────────────────────────────── */
+  .pr-sep{display:flex;align-items:center;gap:16px;margin:56px 0 0;color:var(--g400)}
+  .pr-sep::before,.pr-sep::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,transparent,var(--g200),transparent)}
+  .pr-sep span{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap}
+
+  /* ── Recursos ──────────────────────────────────────────── */
+  .pr-inclui{margin-top:34px}
+  .pr-inclui-head{text-align:center;margin-bottom:30px}
+  .pr-inclui-head h2{font-size:23px;font-weight:800;color:var(--g900);letter-spacing:-.022em;margin-bottom:8px}
+  .pr-inclui-head p{font-size:14.5px;color:var(--g500);max-width:460px;margin:0 auto;line-height:1.6}
+  .pr-cols{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .pr-bloco{background:var(--white);border:1.5px solid var(--g200);border-radius:16px;padding:26px 26px 24px}
+  .pr-grupo{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:700;color:var(--g400);letter-spacing:.08em;text-transform:uppercase;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--g100)}
+  .pr-grupo-ic{width:26px;height:26px;border-radius:7px;background:var(--bluelight);color:var(--bluedark);display:flex;align-items:center;justify-content:center;font-size:13px;flex-shrink:0}
+  .pr-lista{list-style:none;display:flex;flex-direction:column;gap:11px}
+  .pr-lista li{display:grid;grid-template-columns:18px 1fr;gap:10px;align-items:start;font-size:14.5px;color:var(--g700);line-height:1.55;text-align:left}
+  .pr-check{color:var(--green);font-weight:800;line-height:1.55}
+
+  /* ── Garantias ─────────────────────────────────────────── */
+  .pr-garantias{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-top:30px}
+  .pr-garantia{display:flex;align-items:center;gap:7px;font-size:13.5px;color:var(--g600);background:var(--white);border:1.5px solid var(--g200);border-radius:100px;padding:8px 16px}
+  .pr-garantia b{color:var(--green);font-weight:800}
+
+  /* ── FAQ ───────────────────────────────────────────────── */
+  .pr-faq{max-width:700px;margin:64px auto 0}
+  .pr-faq h2{font-size:24px;font-weight:800;color:var(--g900);text-align:center;margin-bottom:28px;letter-spacing:-.022em}
+  .pr-faq dl{background:var(--white);border:1.5px solid var(--g200);border-radius:16px;padding:6px 28px}
+  .pr-q{border-bottom:1px solid var(--g100);padding:20px 0}
+  .pr-q:last-child{border-bottom:none}
+  .pr-q dt{font-size:15.5px;font-weight:700;color:var(--g900);margin-bottom:8px;line-height:1.45}
+  .pr-q dd{font-size:14.5px;color:var(--g600);line-height:1.72;margin:0}
+  .pr-q a{color:var(--bluedark);font-weight:600;text-decoration:none;border-bottom:1px solid var(--bluering)}
+
+  /* ── Chamada final ─────────────────────────────────────── */
+  .pr-final{
+    max-width:700px;margin:56px auto 0;text-align:center;
+    background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 55%,#1d4ed8 100%);
+    border-radius:18px;padding:40px 32px;color:var(--white);
+    box-shadow:0 16px 44px rgba(29,78,216,.22);
+  }
+  .pr-final h2{font-size:25px;font-weight:800;letter-spacing:-.022em;margin-bottom:10px;color:var(--white)}
+  .pr-final p{font-size:14.5px;color:rgba(255,255,255,.82);margin-bottom:24px;line-height:1.65}
+  .pr-final a{
+    display:inline-flex;align-items:center;gap:9px;background:var(--white);color:#1e3a5f;
+    padding:15px 34px;border-radius:11px;font-size:16px;font-weight:700;text-decoration:none;transition:all .18s;
+  }
+  .pr-final a:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(0,0,0,.22)}
+
+  .pr-rodape{text-align:center;margin:56px 0 0;padding:26px 0 48px;border-top:1px solid var(--g200);font-size:13px;color:var(--g400)}
+  .pr-rodape a{color:var(--g500);text-decoration:none}
+  .pr-rodape a:hover{color:var(--g900)}
+
+  /* ── Telas menores ─────────────────────────────────────── */
+  @media (max-width:900px){
+    .pr-grid{grid-template-columns:1fr;max-width:400px;margin:0 auto;gap:18px}
+    .pr-cols{grid-template-columns:1fr}
+    .pr-wrap{padding-top:96px}
+    /* empilhado, a altura fixa por faixa não serve pra mais nada e só deixa
+       buraco entre os textos */
+    .pr-nome,.pr-preco,.pr-equiv,.pr-nota,.pr-chip-area{min-height:0}
+    .pr-card.destaque{order:-1}
+    .pr-selo{top:-12px}
+  }
+  @media (max-width:620px){
+    .pr-wrap{padding-left:5%;padding-right:5%}
+    .pr-faq dl{padding:6px 20px}
+    .pr-final{padding:32px 22px}
+  }
 </style>
 </head>
 <body>
-<div class="page">
-  <div class="card">
-    <div class="card-top">
-      <a href="/" class="logo">
-        <img src="/img/images/logo.png" alt="Meu Processo">
-      </a>
+
+<nav>
+  <a href="/" class="nav-logo">
+    <img src="img/images/logo.png" alt="Meu Processo">
+    <span class="nav-logo-name">MEU PROCESSO</span>
+  </a>
+  <div class="nav-right">
+    <a href="/#showcase" class="nav-link">Funcionalidades</a>
+    <a href="/#faq" class="nav-link">Dúvidas</a>
+    <a href="/blog/" class="nav-link">Blog</a>
+    <a href="/login" class="nav-login">Entrar</a>
+    <a href="/login?tab=signup" class="nav-cta">Começar grátis <span>→</span></a>
+  </div>
+</nav>
+
+<div class="pr-fundo">
+<div class="pr-wrap">
+
+  <div class="pr-head">
+    <div class="pr-pill"><span class="pr-pill-dot"></span> 7 dias grátis · sem cartão de crédito</div>
+    <h1 class="pr-h1">Teste antes.<br><span class="accent">Decide depois.</span></h1>
+    <p class="pr-sub">
+      Você cria a conta, cadastra seus processos e vê o monitoramento rodando por 7 dias.
+      Só escolhe um plano se fizer sentido — nada é cobrado automaticamente.
+    </p>
+  </div>
+
+  <div class="pr-grid">
+
+    <!-- MENSAL -->
+    <div class="pr-card">
+      <div class="pr-nome">Mensal</div>
+      <div class="pr-preco">
+        <span class="pr-valor">R$ 29</span>
+        <span class="pr-periodo">/mês</span>
+      </div>
+      <div class="pr-equiv">R$ 29,00 por mês</div>
+      <p class="pr-nota">Para usar sem compromisso de prazo.</p>
+      <div class="pr-chip-area"><span class="pr-chip cinza">Renove quando quiser</span></div>
+      <div class="pr-btn-area">
+        <a href="/login?tab=signup" class="pr-btn vazio">Começar grátis</a>
+      </div>
     </div>
 
-    <div class="card-body manut-card">
-      <div class="manut-icon">🛠️</div>
-      <div class="manut-title">Página em atualização</div>
-      <p class="manut-sub">
-        Estamos ajustando nossos planos e formas de pagamento.<br>
-        Fale com a gente para saber mais sobre preços e condições.
-      </p>
-      <a class="manut-email" href="mailto:contato@meuprocesso.app.br">
-        ✉️ contato@meuprocesso.app.br
-      </a>
-      <a class="manut-voltar" href="/">← Voltar para o início</a>
+    <!-- SEMESTRAL -->
+    <div class="pr-card">
+      <div class="pr-nome">Semestral</div>
+      <div class="pr-preco">
+        <span class="pr-valor">R$ 69</span>
+        <span class="pr-periodo">/6 meses</span>
+      </div>
+      <div class="pr-equiv">R$ 11,50 por mês</div>
+      <p class="pr-nota">Pagamento único, vale por 6 meses.</p>
+      <div class="pr-chip-area"><span class="pr-chip verde">Economize R$ 105</span></div>
+      <div class="pr-btn-area">
+        <a href="/login?tab=signup" class="pr-btn vazio">Começar grátis</a>
+      </div>
+    </div>
+
+    <!-- ANUAL -->
+    <div class="pr-card destaque">
+      <div class="pr-selo">Melhor preço</div>
+      <div class="pr-nome">Anual</div>
+      <div class="pr-preco">
+        <span class="pr-valor">R$ 97</span>
+        <span class="pr-periodo">/ano</span>
+      </div>
+      <div class="pr-equiv">R$ 8,08 por mês</div>
+      <p class="pr-nota">Pagamento único, vale por 12 meses.</p>
+      <div class="pr-chip-area"><span class="pr-chip verde">Economize R$ 251</span></div>
+      <div class="pr-btn-area">
+        <a href="/login?tab=signup" class="pr-btn cheio">Começar grátis <span>→</span></a>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="pr-sep"><span>O que vem em todos os planos</span></div>
+
+  <div class="pr-inclui">
+    <div class="pr-inclui-head">
+      <h2>Nenhum recurso fica bloqueado</h2>
+      <p>Os três planos entregam exatamente a mesma coisa. O que muda é só por quanto tempo você paga de uma vez.</p>
+    </div>
+
+    <div class="pr-cols">
+      <div class="pr-bloco">
+        <div class="pr-grupo"><span class="pr-grupo-ic">⚖️</span> Monitoramento</div>
+        <ul class="pr-lista">
+          <li><span class="pr-check">✓</span><span>Processos ilimitados</span></li>
+          <li><span class="pr-check">✓</span><span>Acompanhamento automático em mais de 90 tribunais, via CNJ DataJud</span></li>
+          <li><span class="pr-check">✓</span><span>Intimações do Diário Eletrônico (DJEN) pela sua OAB</span></li>
+          <li><span class="pr-check">✓</span><span>Aviso por e-mail quando o processo anda</span></li>
+          <li><span class="pr-check">✓</span><span>Busca por número CNJ, OAB, nome ou CPF</span></li>
+        </ul>
+      </div>
+      <div class="pr-bloco">
+        <div class="pr-grupo"><span class="pr-grupo-ic">📅</span> Organização</div>
+        <ul class="pr-lista">
+          <li><span class="pr-check">✓</span><span>Prazos com aviso de 1, 3 ou 7 dias de antecedência</span></li>
+          <li><span class="pr-check">✓</span><span>Agenda e quadro de tarefas da equipe</span></li>
+          <li><span class="pr-check">✓</span><span>Até 3 colaboradores no mesmo escritório</span></li>
+          <li><span class="pr-check">✓</span><span>Documentos e anotações dentro de cada processo</span></li>
+          <li><span class="pr-check">✓</span><span>Histórico completo de movimentações</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="pr-garantias">
+      <div class="pr-garantia"><b>✓</b> Sem fidelidade</div>
+      <div class="pr-garantia"><b>✓</b> Sem cobrança automática</div>
+      <div class="pr-garantia"><b>✓</b> Pix ou cartão</div>
+      <div class="pr-garantia"><b>✓</b> Dados protegidos pela LGPD</div>
     </div>
   </div>
-  <p class="footer-copy">© 2026 · Meu Processo</p>
+
+  <div class="pr-faq">
+    <h2>Dúvidas sobre o pagamento</h2>
+    <dl>
+      <div class="pr-q">
+        <dt>Preciso cadastrar cartão para testar?</dt>
+        <dd>Não. Você cria a conta com e-mail e já entra. Durante os 7 dias de teste não pedimos nenhum meio de pagamento.</dd>
+      </div>
+      <div class="pr-q">
+        <dt>O que acontece quando os 7 dias terminam?</dt>
+        <dd>O acesso é pausado e aparece a tela para escolher um plano — nada é cobrado sozinho. Seus processos, prazos e documentos continuam guardados e voltam exatamente como estavam quando você assinar.</dd>
+      </div>
+      <div class="pr-q">
+        <dt>Como funciona o pagamento?</dt>
+        <dd>É pagamento único por período, por Pix ou cartão, combinado direto com a gente em <a href="mailto:contato@meuprocesso.app.br">contato@meuprocesso.app.br</a>. Não existe débito recorrente: quando o período acaba, você decide se renova.</dd>
+      </div>
+      <div class="pr-q">
+        <dt>Posso cancelar quando quiser?</dt>
+        <dd>Pode. Não há fidelidade nem multa. Como a cobrança não é automática, cancelar é simplesmente não renovar.</dd>
+      </div>
+      <div class="pr-q">
+        <dt>Os colaboradores pagam à parte?</dt>
+        <dd>Não. O plano é por escritório e inclui até 3 colaboradores com acesso compartilhado aos processos.</dd>
+      </div>
+      <div class="pr-q">
+        <dt>Dá para trocar de plano depois?</dt>
+        <dd>Dá. É só nos avisar quando for renovar — como cada período é pago uma vez só, a troca acontece naturalmente na renovação.</dd>
+      </div>
+    </dl>
+  </div>
+
+  <div class="pr-final">
+    <h2>Comece hoje, decida em 7 dias</h2>
+    <p>Cadastre seus processos e veja o monitoramento funcionando antes de pagar qualquer coisa.</p>
+    <a href="/login?tab=signup">Criar minha conta grátis <span>→</span></a>
+  </div>
+
+  <div class="pr-rodape">
+    © 2026 · Meu Processo ·
+    <a href="/termos">Termos</a> ·
+    <a href="/privacidade">Privacidade</a> ·
+    <a href="/">Início</a>
+  </div>
+
+</div>
 </div>
 
 </body>

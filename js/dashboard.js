@@ -54,6 +54,13 @@ let _navStack           = ['dashboard'];
 let _navegandoPorHistorico = false; // true durante popstate, pra não empilhar de novo
 
 function showPage(id) {
+  // Sem OAB o DJEN não acha nada dessa pessoa — ela usaria o sistema achando
+  // que está monitorada. Por isso o primeiro acesso fica preso no perfil.
+  if (window._oabPendente && id !== 'configuracoes' && id !== 'assinatura') {
+    showPage('configuracoes');
+    showToast('Cadastre sua OAB para liberar o sistema.', 'warning');
+    return;
+  }
   closeSidebar();
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -3374,6 +3381,8 @@ window.addEventListener('DOMContentLoaded', () => {
     if (window._user !== undefined) {
       clearInterval(aguardar);
       if (window._user) {
+        // Primeiro acesso por Google cai aqui: sem OAB, vai direto ao perfil.
+        if (window._oabPendente) showPage('configuracoes');
         carregarProcessos().then(() => {
           iniciarSyncAutomatico();
           sincronizarTodos();
@@ -4235,26 +4244,139 @@ async function carregarAssinatura() {
     ? `<div style="margin-top:16px;font-size:12px;color:var(--gray-400)"><i class="ti ti-info-circle"></i> Esta é a assinatura do escritório — só o titular pode alterá-la.</div>`
     : '';
 
-  const ctaRenovar = window._isColaborador ? '' : `
-    <a href="/precos" target="_blank" class="btn-primary" style="margin-top:20px;display:inline-flex;text-decoration:none">
-      <i class="ti ti-external-link"></i> Ver planos e preços
-    </a>`;
+  // Pedido de licença em aberto: o advogado precisa ver que já pediu, senão
+  // pede de novo achando que não foi.
+  const { data: pedido } = await _supabase
+    .from('solicitacoes_licenca')
+    .select('plano, valor, status, criado_em')
+    .eq('escritorio_id', window._escritorioId)
+    .eq('status', 'pendente')
+    .maybeSingle();
+  window._pedidoLicenca = pedido || null;
 
   wrap.innerHTML = `
-    <div style="background:#fff;border:1px solid var(--gray-200);border-radius:14px;padding:28px;max-width:480px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
-        <div style="font-size:18px;font-weight:700;color:var(--navy)">${planoLabel[assinatura.plano] || assinatura.plano}</div>
-        <span class="tc-prazo-badge tc-prazo-${nivel}"><i class="ti ti-calendar-due"></i> ${diasTxt}</span>
+    <div style="display:flex;flex-direction:column;gap:20px;max-width:720px">
+
+      <div style="background:#fff;border:1px solid var(--gray-200);border-radius:14px;padding:28px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px">
+          <div style="font-size:18px;font-weight:700;color:var(--navy)">${planoLabel[assinatura.plano] || assinatura.plano}</div>
+          <span class="tc-prazo-badge tc-prazo-${nivel}"><i class="ti ti-calendar-due"></i> ${diasTxt}</span>
+        </div>
+        <div style="font-size:13px;color:var(--gray-500);line-height:1.8">
+          <div>Início: <strong style="color:var(--gray-700)">${fmtData(assinatura.data_inicio)}</strong></div>
+          <div>Validade até: <strong style="color:var(--gray-700)">${fmtData(assinatura.data_expiracao)}</strong></div>
+          ${assinatura.valor_pago ? `<div>Valor pago: <strong style="color:var(--gray-700)">R$ ${Number(assinatura.valor_pago).toFixed(2).replace('.', ',')}</strong></div>` : ''}
+          ${assinatura.forma_pagamento ? `<div>Forma de pagamento: <strong style="color:var(--gray-700)">${assinatura.forma_pagamento === 'pix' ? 'Pix' : 'Cartão'}</strong></div>` : ''}
+        </div>
+        ${notaColaborador}
       </div>
-      <div style="font-size:13px;color:var(--gray-500);line-height:1.8">
-        <div>Início: <strong style="color:var(--gray-700)">${fmtData(assinatura.data_inicio)}</strong></div>
-        <div>Validade até: <strong style="color:var(--gray-700)">${fmtData(assinatura.data_expiracao)}</strong></div>
-        ${assinatura.valor_pago ? `<div>Valor pago: <strong style="color:var(--gray-700)">R$ ${Number(assinatura.valor_pago).toFixed(2).replace('.', ',')}</strong></div>` : ''}
-        ${assinatura.forma_pagamento ? `<div>Forma de pagamento: <strong style="color:var(--gray-700)">${assinatura.forma_pagamento === 'pix' ? 'Pix' : 'Cartão'}</strong></div>` : ''}
-      </div>
-      ${ctaRenovar}
-      ${notaColaborador}
+
+      ${window._isColaborador ? '' : (pedido ? _blocoPedidoEnviado(pedido) : _blocoEscolherPlano(assinatura, vencida))}
     </div>`;
+}
+
+const PLANOS_LICENCA = [
+  { id: 'mensal',    nome: 'Mensal',    valor: 29, periodo: '1 mês',   porMes: 'R$ 29,00/mês', economia: null },
+  { id: 'semestral', nome: 'Semestral', valor: 69, periodo: '6 meses', porMes: 'R$ 11,50/mês', economia: 'Economize R$ 105' },
+  { id: 'anual',     nome: 'Anual',     valor: 97, periodo: '12 meses', porMes: 'R$ 8,08/mês', economia: 'Economize R$ 251' },
+];
+
+function _blocoPedidoEnviado(p) {
+  const plano = PLANOS_LICENCA.find(x => x.id === p.plano);
+  const quando = new Date(p.criado_em).toLocaleDateString('pt-BR');
+  return `
+    <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:14px;padding:24px 26px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <i class="ti ti-circle-check" style="color:#16a34a;font-size:22px"></i>
+        <div style="font-size:16px;font-weight:700;color:#166534">Pedido enviado</div>
+      </div>
+      <div style="font-size:13.5px;color:#15803d;line-height:1.75">
+        Você pediu o plano <strong>${plano?.nome || p.plano}</strong>
+        (R$ ${Number(p.valor).toFixed(2).replace('.', ',')}) em ${quando}.<br>
+        Vamos entrar em contato pelo seu e-mail ou telefone com os dados para pagamento.
+        Assim que confirmarmos, sua licença é liberada aqui mesmo.
+      </div>
+      <div style="margin-top:16px;font-size:12.5px;color:#166534">
+        Qualquer dúvida: <a href="mailto:contato@meuprocesso.app.br" style="color:#15803d;font-weight:600">contato@meuprocesso.app.br</a>
+      </div>
+    </div>`;
+}
+
+function _blocoEscolherPlano(assinatura, vencida) {
+  const titulo = vencida
+    ? 'Sua licença venceu — escolha um plano para continuar'
+    : assinatura.plano === 'trial'
+      ? 'Gostou? Escolha seu plano'
+      : 'Renovar ou trocar de plano';
+  const sub = vencida
+    ? 'Seus processos, prazos e documentos estão todos guardados — voltam exatamente como estavam.'
+    : 'Você escolhe o plano aqui e a gente combina o pagamento por Pix. Nada é cobrado automaticamente.';
+
+  const cards = PLANOS_LICENCA.map(p => `
+    <div style="flex:1;min-width:170px;background:#fff;border:${p.id === 'anual' ? '2px solid var(--navy)' : '1.5px solid var(--gray-200)'};border-radius:12px;padding:20px 18px;text-align:center;position:relative">
+      ${p.id === 'anual' ? `<div style="position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:4px 12px;border-radius:100px;white-space:nowrap">Melhor preço</div>` : ''}
+      <div style="font-size:11.5px;font-weight:700;color:var(--gray-400);letter-spacing:.09em;text-transform:uppercase;margin-bottom:12px">${p.nome}</div>
+      <div style="font-size:30px;font-weight:800;color:var(--navy);line-height:1;letter-spacing:-.03em">R$ ${p.valor}</div>
+      <div style="font-size:12px;color:var(--gray-400);margin-top:4px">por ${p.periodo}</div>
+      <div style="font-size:12.5px;color:var(--navy);font-weight:600;margin-top:8px">${p.porMes}</div>
+      <div style="min-height:24px;margin-top:8px">${p.economia ? `<span style="display:inline-block;background:#f0fdf4;color:#15803d;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:6px">${p.economia}</span>` : ''}</div>
+      <button class="${p.id === 'anual' ? 'btn-primary' : 'btn-secondary'}" style="width:100%;margin-top:14px;justify-content:center" onclick="solicitarLicenca('${p.id}')">Quero este</button>
+    </div>`).join('');
+
+  return `
+    <div style="background:#fff;border:1px solid var(--gray-200);border-radius:14px;padding:28px">
+      <div style="font-size:16px;font-weight:700;color:var(--navy);margin-bottom:5px">${titulo}</div>
+      <div style="font-size:13px;color:var(--gray-500);line-height:1.6;margin-bottom:24px">${sub}</div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap">${cards}</div>
+      <div style="margin-top:20px;font-size:12px;color:var(--gray-400);line-height:1.6">
+        <i class="ti ti-info-circle"></i> Todos os planos têm os mesmos recursos — muda só por quanto tempo você paga de uma vez.
+        Sem fidelidade e sem cobrança automática.
+      </div>
+    </div>`;
+}
+
+async function solicitarLicenca(planoId) {
+  const plano = PLANOS_LICENCA.find(p => p.id === planoId);
+  if (!plano) return;
+
+  const telefone = window._user?.user_metadata?.telefone || '';
+  const ok = await _confirmar(
+    `R$ ${plano.valor},00 por ${plano.periodo}. Vamos entrar em contato com os dados para pagamento por Pix — nada é cobrado agora.`,
+    `Pedir o plano ${plano.nome}?`,
+    { textoOk: 'Enviar pedido', icone: '📄' },
+  );
+  if (!ok) return;
+
+  const { error } = await _supabase.from('solicitacoes_licenca').insert({
+    escritorio_id: window._escritorioId,
+    plano: plano.id,
+    valor: plano.valor,
+    telefone: telefone || null,
+  });
+
+  if (error) {
+    // O índice único deixa só um pedido pendente por escritório.
+    const jaTem = (error.message || '').includes('solicitacoes_licenca_um_pendente');
+    showToast(jaTem
+      ? 'Você já tem um pedido em andamento. Vamos te contatar em breve.'
+      : 'Não conseguimos registrar o pedido: ' + error.message, 'warning');
+    if (jaTem) carregarAssinatura();
+    return;
+  }
+
+  // Aviso para o escritório não perder a venda. Se o e-mail falhar, o pedido
+  // já está salvo e aparece no painel — então não desfaz nada.
+  try {
+    const { data: { session } } = await _supabase.auth.getSession();
+    await fetch('/api/email-transacional', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session?.access_token || ''}` },
+      body: JSON.stringify({ tipo: 'licenca-solicitada', plano: plano.id }),
+    });
+  } catch (_) {}
+
+  showToast('Pedido enviado! Vamos entrar em contato.', 'success');
+  carregarAssinatura();
 }
 
 function carregarConfiguracoes() {
@@ -4281,9 +4403,35 @@ function carregarConfiguracoes() {
 
   _oabRenderChips();
 
-  // Mostra alerta se OAB não preenchida
+  // Boas-vindas: só enquanto o trial está travado na OAB. Depois de liberado
+  // some, para não virar enfeite permanente na tela de configurações.
+  const boas = document.getElementById('config-trial-boasvindas');
+  if (boas) {
+    const a = window._assinatura;
+    const emTrial = a?.plano === 'trial' && a?.status === 'ativo';
+    boas.style.display = (window._oabPendente && emTrial) ? 'block' : 'none';
+    if (window._oabPendente && emTrial) {
+      const dias = Math.max(Math.ceil((new Date(a.data_expiracao) - new Date()) / 86400000), 0);
+      const el = document.getElementById('trial-dias');
+      if (el) el.textContent = dias;
+    }
+  }
+
+  // O alerta fica mais forte quando a OAB está bloqueando o sistema — e vale
+  // também para OAB cadastrada sem UF ("59360"), que o DJEN não consegue usar.
   const alertaOAB = document.getElementById('config-oab-alerta');
-  if (alertaOAB) alertaOAB.style.display = (meta.oab || '').trim() ? 'none' : 'flex';
+  if (alertaOAB) {
+    const valida = (window._oabsValidas?.(meta.oab) || []).length > 0;
+    alertaOAB.style.display = valida ? 'none' : 'flex';
+    if (!valida) {
+      const temAlgo = (meta.oab || '').trim();
+      alertaOAB.querySelector('div > div:first-child').textContent =
+        temAlgo ? 'OAB cadastrada sem o estado' : 'Cadastre sua OAB para começar';
+      alertaOAB.querySelector('div > div:last-child').textContent = temAlgo
+        ? `"${temAlgo}" não tem o estado, e sem ele o DJEN não consegue localizar suas publicações. Selecione a UF e informe o número de novo abaixo.`
+        : 'É por ela que encontramos suas intimações no Diário Eletrônico. Selecione o estado, informe o número e clique em Adicionar.';
+    }
+  }
 
   const picker = document.getElementById('config-color-picker');
   if (picker) {
@@ -4441,8 +4589,18 @@ async function salvarPerfil() {
 
 async function salvarEscritorio() {
   const escritorio = document.getElementById('config-escritorio')?.value.trim() || '';
-  const oab        = document.getElementById('config-oab')?.value.trim()        || '';
+  const oabBruta   = document.getElementById('config-oab')?.value.trim()        || '';
   const telefone   = document.getElementById('config-telefone')?.value.trim()   || '';
+
+  // Formato único "UF NUM", igual ao do número do processo: antes cada
+  // cadastro gravava de um jeito ("DF111111", "df 59360", "59360") e o DJEN
+  // só consegue usar o que tem estado e número.
+  const validas = window._oabsValidas?.(oabBruta) || [];
+  if (oabBruta && !validas.length) {
+    showToast('OAB sem o estado. Selecione a UF e clique em Adicionar.', 'warning');
+    return;
+  }
+  const oab = validas.map(o => `${o.uf} ${o.num}`).join(', ');
 
   const { error } = await _supabase.auth.updateUser({
     data: { escritorio, oab, telefone }
@@ -4457,6 +4615,19 @@ async function salvarEscritorio() {
     };
   }
 
+  const estavaBloqueado = window._oabPendente;
+  window._oabPendente = !window._isColaborador && validas.length === 0;
+
+  const oabEl = document.getElementById('config-oab');
+  if (oabEl) oabEl.value = oab;
+  _oabRenderChips();
+  carregarConfiguracoes();
+
+  if (estavaBloqueado && !window._oabPendente) {
+    showToast('OAB cadastrada! Sistema liberado.', 'success');
+    setTimeout(() => showPage('dashboard'), 900);
+    return;
+  }
   showToast('Dados do escritório salvos!');
 }
 

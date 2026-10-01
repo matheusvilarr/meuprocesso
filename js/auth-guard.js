@@ -1,3 +1,14 @@
+// Mesma regra que o servidor usa para casar as publicações do DJEN
+// (buscarOabsUsuarios em lib/sync-comum.js). Precisa de UF + número: uma OAB
+// gravada só como "59360" não casa com nada, e o advogado fica sem receber
+// intimação nenhuma sem entender por quê.
+window._oabsValidas = function (raw) {
+  return String(raw || '').split(',').map(s => s.trim()).filter(Boolean).map(o => {
+    const m = o.toUpperCase().replace(/[.\-]/g, '').match(/^(?:OAB[/ ]?)?([A-Z]{2})[/ ]?(\d{3,7})$/);
+    return m ? { uf: m[1], num: m[2].replace(/^0+/, '') } : null;
+  }).filter(Boolean);
+};
+
 (async () => {
   const { data: { session } } = await _supabase.auth.getSession();
   if (!session) {
@@ -55,6 +66,13 @@
     window.location.href = assinatura ? '/assinatura-vencida' : '/aguardando';
     return;
   }
+
+  // Quem entra pelo Google não traz OAB (o Google só devolve nome e e-mail),
+  // e sem OAB o monitoramento do DJEN não encontra nada dessa pessoa. Então o
+  // primeiro acesso vai direto para o perfil e só sai de lá depois de
+  // preencher. Colaborador não precisa: ele acompanha a OAB do titular.
+  window._oabPendente = !window._isColaborador &&
+    window._oabsValidas(session.user.user_metadata?.oab).length === 0;
 
   const aplicarUI = () => {
     const meta    = session.user.user_metadata || {};

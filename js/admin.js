@@ -162,10 +162,12 @@ function renderSaude(s) {
       `CRON_SECRET ${s.config.cronSecret ? '✓' : '✗ faltando'} · Resend ${s.config.resend ? '✓' : '✗ faltando'}`,
       `Região ${esc(s.config.regiao || '—')}${s.config.regiao === 'gru1' ? ' (São Paulo) ✓' : ''}`,
     ], s.config.cronSecret && s.config.resend ? 'ok' : 'critico'),
-    card('ti-receipt', 'Assinaturas', `${s.assinaturas.emTrial} em teste`, [
-      `${s.assinaturas.vencendo7d} vencem em 7 dias`,
-      `${s.assinaturas.vencidas} vencida(s)`,
-    ], s.assinaturas.vencendo7d ? 'atencao' : 'ok'),
+    card('ti-receipt', 'Licenças', `${s.assinaturas.emTrial} em teste`, [
+      s.assinaturas.pedidosPendentes
+        ? `<span style="color:#166534;font-weight:600">${s.assinaturas.pedidosPendentes} pedido(s) de licença esperando você</span>`
+        : 'Nenhum pedido de licença em aberto',
+      `${s.assinaturas.vencendo7d} vencem em 7 dias · ${s.assinaturas.vencidas} vencida(s)`,
+    ], s.assinaturas.pedidosPendentes ? 'critico' : s.assinaturas.vencendo7d ? 'atencao' : 'ok'),
   ].join('');
 }
 
@@ -293,6 +295,7 @@ function setupTabs() {
       if (btn.dataset.tab === 'pendentes')     carregarPendentes();
       if (btn.dataset.tab === 'djen-cadernos') carregarDjenCadernos();
       if (btn.dataset.tab === 'execucoes')     carregarExecucoes();
+      if (btn.dataset.tab === 'licencas')      carregarLicencas();
     });
   });
 }
@@ -1216,6 +1219,139 @@ async function recarregarSyncStats() {
 }
 
 // ── CADERNOS DJEN ──────────────────────────────────────────────────────────────
+
+// ── LICENÇAS ──────────────────────────────────────────────────────────────────
+// PLANO_LABEL já está declarado mais acima, junto da aba de advogados.
+
+async function carregarLicencas() {
+  const wrap = document.getElementById('lic-pedidos-wrap');
+  wrap.innerHTML = '<p style="color:#9f9f98;padding:20px 0;">Carregando...</p>';
+  try {
+    const r = await fetch('/api/admin?acao=licencas', { headers: { 'Authorization': `Bearer ${_adminToken}` } });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.erro || 'desconhecido');
+    renderLicencas(d);
+  } catch (e) {
+    wrap.innerHTML = `<p style="color:#c0392b;">Erro ao carregar: ${esc(e.message)}</p>`;
+  }
+}
+
+function renderLicencas(d) {
+  const statsEl = document.getElementById('lic-stats-row');
+  const pedEl   = document.getElementById('lic-pedidos-wrap');
+  const assEl   = document.getElementById('lic-assinaturas-wrap');
+  const histEl  = document.getElementById('lic-historico-wrap');
+
+  const r = d.resumo || {};
+  statsEl.innerHTML = `
+    <div class="sync-stat ${r.pedindo ? 'sync-stat-orange' : ''}"><span class="sync-stat-val">${r.pedindo ?? 0}</span><span class="sync-stat-lbl">Esperando você</span></div>
+    <div class="sync-stat sync-stat-blue"><span class="sync-stat-val">${r.pagantes ?? 0}</span><span class="sync-stat-lbl">Pagantes ativos</span></div>
+    <div class="sync-stat"><span class="sync-stat-val">${r.emTeste ?? 0}</span><span class="sync-stat-lbl">Em teste grátis</span></div>
+    <div class="sync-stat ${r.vencendo7d ? 'sync-stat-orange' : ''}"><span class="sync-stat-val">${r.vencendo7d ?? 0}</span><span class="sync-stat-lbl">Vencem em 7 dias</span></div>
+    <div class="sync-stat"><span class="sync-stat-val">${r.vencidas ?? 0}</span><span class="sync-stat-lbl">Vencidas</span></div>
+    <div class="sync-stat sync-stat-blue"><span class="sync-stat-val">R$ ${Number(r.receberNoAno || 0).toFixed(0)}</span><span class="sync-stat-lbl">Já recebido</span></div>
+  `;
+
+  const badge = document.getElementById('badge-licencas');
+  if (badge) {
+    badge.textContent   = r.pedindo || '';
+    badge.style.display = r.pedindo ? 'inline-block' : 'none';
+  }
+
+  // ── pedidos esperando ──
+  if (d.indisponivel) {
+    pedEl.innerHTML = `<div class="saude-alerta alerta-atencao" style="margin:0"><i class="ti ti-database-off"></i><div>
+      <strong>Os pedidos de licença ainda não estão ativados</strong>
+      <div>Rode <code>supabase/migration_solicitacoes_licenca.sql</code> no SQL Editor do Supabase. Depois disso, o que o advogado pedir pela tela dele aparece aqui.</div>
+      <div style="margin-top:6px;color:#6b7280;font-size:12px;">Detalhe técnico: ${esc(d.indisponivel)}</div></div></div>`;
+  } else {
+    const pend = d.pedidos?.pendentes || [];
+    pedEl.innerHTML = `
+      <h3 style="font-size:15px;margin:0 0 4px;">Pedidos esperando você${pend.length ? ` (${pend.length})` : ''}</h3>
+      <p style="font-size:12px;color:#6b7280;margin:0 0 12px;">Combine o Pix com a pessoa e depois clique em "Recebi o pagamento" — a licença é liberada na hora, somando ao tempo que ainda resta.</p>
+      ${!pend.length
+        ? '<p style="color:#9f9f98;padding:20px;text-align:center;background:#fafafa;border-radius:8px;">Nenhum pedido no momento.</p>'
+        : `<div class="adm-table-wrap"><table class="adm-table">
+            <thead><tr><th>Advogado</th><th>Contato</th><th>Plano</th><th>Valor</th><th>Pedido em</th><th style="text-align:right">Ação</th></tr></thead>
+            <tbody>${pend.map(p => {
+              const zap = String(p.telefone || '').replace(/\D/g, '');
+              return `<tr>
+                <td><div style="font-weight:600;font-size:13px;">${esc(p.nome || '—')}</div>
+                    <div style="font-size:11.5px;color:#6b7280;">${esc(p.oab || 'OAB não informada')}</div></td>
+                <td style="font-size:12px;">
+                  <div>${esc(p.email || '—')}</div>
+                  <div style="color:#6b7280;">${esc(p.telefone || 'sem telefone')}</div>
+                  ${zap.length >= 10 ? `<a href="https://wa.me/55${zap}" target="_blank" style="font-size:11.5px;color:#16a34a;font-weight:600;text-decoration:none;">Abrir WhatsApp</a>` : ''}
+                </td>
+                <td style="font-size:12px;">${esc(PLANO_LABEL[p.plano] || p.plano)}</td>
+                <td style="font-size:13px;font-weight:700;">R$ ${Number(p.valor).toFixed(0)}</td>
+                <td style="font-size:12px;color:#6b7280;">${new Date(p.criado_em).toLocaleDateString('pt-BR')}</td>
+                <td style="text-align:right;white-space:nowrap;">
+                  <button class="adm-btn-primary" style="font-size:12px;padding:6px 12px;" onclick="atenderPedido('${p.id}','pago','${esc(p.nome || '')}')">Recebi o pagamento</button>
+                  <button class="adm-btn-small" style="margin-left:6px;" onclick="atenderPedido('${p.id}','cancelada','${esc(p.nome || '')}')">Cancelar</button>
+                </td>
+              </tr>`;
+            }).join('')}</tbody></table></div>`}`;
+  }
+
+  // ── todas as licenças ──
+  const ass = d.assinaturas || [];
+  assEl.innerHTML = `
+    <h3 style="font-size:15px;margin:0 0 4px;">Todas as licenças (${ass.length})</h3>
+    <p style="font-size:12px;color:#6b7280;margin:0 0 12px;">Ordenadas por quem vence primeiro. Clique em "Editar" para mudar plano, validade ou valor na mão.</p>
+    <div class="adm-table-wrap"><table class="adm-table">
+      <thead><tr><th>Advogado</th><th>Plano</th><th>Situação</th><th>Vence em</th><th>Validade</th><th>Valor pago</th><th style="text-align:right">Ação</th></tr></thead>
+      <tbody>${ass.map(a => {
+        const cor = a.vencida ? '#991b1b' : a.diasRestantes <= 7 ? '#92400e' : '#166534';
+        const bg  = a.vencida ? '#fef2f2' : a.diasRestantes <= 7 ? '#fffbeb' : '#f0fdf4';
+        const txt = a.vencida ? 'vencida' : a.diasRestantes === 0 ? 'vence hoje' : `${a.diasRestantes} dia(s)`;
+        return `<tr>
+          <td><div style="font-weight:600;font-size:13px;">${esc(a.nome || '—')}</div>
+              <div style="font-size:11.5px;color:#6b7280;">${esc(a.email || '')}</div></td>
+          <td style="font-size:12px;">${esc(PLANO_LABEL[a.plano] || a.plano)}</td>
+          <td><span style="font-size:11px;background:${bg};color:${cor};padding:2px 8px;border-radius:6px;">${esc(a.status)}</span></td>
+          <td><span style="font-size:11.5px;color:${cor};font-weight:600;">${txt}</span></td>
+          <td style="font-size:12px;color:#6b7280;">${a.data_expiracao ? new Date(a.data_expiracao).toLocaleDateString('pt-BR') : '—'}</td>
+          <td style="font-size:12px;">${a.valor_pago ? 'R$ ' + Number(a.valor_pago).toFixed(0) : '—'}</td>
+          <td style="text-align:right;"><button class="adm-btn-small" onclick="abrirAssinatura('${a.escritorio_id}')">Editar</button></td>
+        </tr>`;
+      }).join('')}</tbody></table></div>`;
+
+  // ── histórico ──
+  const hist = d.pedidos?.historico || [];
+  histEl.innerHTML = !hist.length ? '' : `
+    <h3 style="font-size:15px;margin:0 0 12px;">Pedidos já atendidos</h3>
+    <div class="adm-table-wrap"><table class="adm-table">
+      <thead><tr><th>Advogado</th><th>Plano</th><th>Valor</th><th>Situação</th><th>Atendido em</th><th>Nota</th></tr></thead>
+      <tbody>${hist.map(p => `
+        <tr>
+          <td style="font-size:12.5px;">${esc(p.nome || '—')}</td>
+          <td style="font-size:12px;">${esc(PLANO_LABEL[p.plano] || p.plano)}</td>
+          <td style="font-size:12px;">R$ ${Number(p.valor).toFixed(0)}</td>
+          <td><span style="font-size:11px;background:${p.status === 'pago' ? '#f0fdf4' : '#f3f4f6'};color:${p.status === 'pago' ? '#166534' : '#6b7280'};padding:2px 8px;border-radius:6px;">${esc(p.status)}</span></td>
+          <td style="font-size:12px;color:#6b7280;">${p.atendido_em ? new Date(p.atendido_em).toLocaleDateString('pt-BR') : '—'}</td>
+          <td style="font-size:11.5px;color:#6b7280;max-width:220px;">${esc(p.nota_interna || '')}</td>
+        </tr>`).join('')}
+      </tbody></table></div>`;
+}
+
+async function atenderPedido(id, decisao, nome) {
+  const ehPago = decisao === 'pago';
+  const pergunta = ehPago
+    ? `Confirmar que recebeu o pagamento de ${nome || 'este advogado'}?\n\nA licença é liberada na hora.`
+    : `Cancelar o pedido de ${nome || 'este advogado'}?\n\nA licença NÃO será liberada.`;
+  if (!confirm(pergunta)) return;
+
+  const nota = prompt(ehPago
+    ? 'Observação (opcional) — ex: "Pix recebido 01/10, comprovante no WhatsApp"'
+    : 'Motivo do cancelamento (opcional)') ?? '';
+
+  const r = await chamarAdmin('atender-pedido', { id, decisao, notaInterna: nota || null });
+  if (!r?.ok) { alert('Não foi possível: ' + (r?.erro || 'erro desconhecido')); return; }
+
+  await carregarLicencas();
+  await recarregarDados();
+}
 
 // ── EXECUÇÕES DOS CRONS ───────────────────────────────────────────────────────
 
