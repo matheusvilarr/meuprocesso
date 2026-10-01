@@ -599,7 +599,7 @@ function renderAdvogados() {
   document.getElementById('adv-tbody').innerHTML = lista.map(a => `
     <tr class="adv-linha" onclick="abrirFicha('${a.id}')" title="Ver ficha completa">
       <td><span class="adv-nome">${esc(a.nome)}</span>${a.nivelAdmin ? ' <span class="adm-badge" style="font-size:9px;vertical-align:middle;">' + esc(a.nivelAdmin.toUpperCase()) + '</span>' : ''}${a.numDesatualizados ? ` <span class="adm-status-pill adm-status-pendente" style="font-size:9px;" title="Processos sem consulta ao DataJud há 48h+">${a.numDesatualizados} atrasado(s)</span>` : ''}</td>
-      <td>${esc(a.email)}${a.emailConfirmado ? '' : ' <span class="adm-status-pill adm-status-pendente" style="font-size:9px;">não confirmado</span>'}</td>
+      <td>${esc(a.email)}${a.emailConfirmado ? '' : ` <span class="adm-status-pill adm-status-pendente" style="font-size:9px;">não confirmado</span> <button class="adm-btn-small ok" style="font-size:10px;padding:2px 7px;" onclick="event.stopPropagation();confirmarEmailManual('${a.id}','${esc(a.email)}')" title="A pessoa não recebeu o e-mail de confirmação? Libere o acesso por aqui.">liberar</button>`}</td>
       <td>${esc(a.oab)}${a.oabDuplicado ? ' <span class="adm-status-pill adm-status-bloqueado" title="Outra conta usa a mesma OAB" style="font-size:9px;"><i class="ti ti-alert-triangle"></i> duplicada</span>' : ''}</td>
       <td>${fmtData(a.criadoEm)}</td>
       <td title="${a.ultimoSignIn ? 'Último login com senha: ' + fmtData(a.ultimoSignIn) : 'Nunca fez login com senha'}">${a.ultimoLogin ? fmtData(a.ultimoLogin) : '<span style="color:#9f9f98">—</span>'}</td>
@@ -1630,6 +1630,19 @@ async function rodarDjenCadernos() {
   carregarSaude();
 
   await carregarDjenCadernos();
+}
+
+// Para quem cadastrou mas não recebeu o e-mail de confirmação e está travado
+// na tela de login. Confirma pelo painel e a pessoa entra na hora.
+async function confirmarEmailManual(userId, email) {
+  if (!confirm(`Liberar o acesso de ${email} sem esperar o e-mail de confirmação?\n\n`
+    + 'Use quando a pessoa cadastrou e não recebeu o e-mail (costuma cair em lixo eletrônico).\n'
+    + 'Confirme que o e-mail é realmente dela antes de liberar.')) return;
+
+  const r = await chamarAdmin('confirmar-email', { userId });
+  if (r?.erro) { alert('Não foi possível: ' + r.erro); return; }
+  alert(`Acesso liberado. ${email} já consegue entrar com a senha que cadastrou.`);
+  await init();
 }
 
 async function reenviarConvite(id) {

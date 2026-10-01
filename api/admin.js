@@ -711,6 +711,7 @@ export default async function handler(req, res) {
   if (acao === 'rejeitar-usuario')      return acaoRejeitarUsuario(req, res, admin);
   if (acao === 'atualizar-assinatura')  return acaoAtualizarAssinatura(req, res, admin, adminUser);
   if (acao === 'atender-pedido')        return acaoAtenderPedido(req, res, admin, adminUser);
+  if (acao === 'confirmar-email')       return acaoConfirmarEmail(req, res, admin);
 
   return res.status(400).json({ erro: 'acao inválida.' });
 }
@@ -910,6 +911,26 @@ async function acaoSaude(req, res, admin) {
     assinaturas: { vencendo7d, vencidas, emTrial, pedidosPendentes: (pedidosLicenca || []).length },
     alertas,
   });
+}
+
+// Libera quem ficou travado esperando o e-mail de confirmação.
+// Acontece de verdade: o Supabase manda esse e-mail pelo servidor dele (3 por
+// hora no plano grátis) e Hotmail/Outlook jogam em lixo eletrônico. Sem isso,
+// a pessoa cadastra e não consegue entrar, e você não tem o que fazer.
+async function acaoConfirmarEmail(req, res, admin) {
+  const { userId } = req.body || {};
+  if (!userId) return res.status(400).json({ erro: 'userId é obrigatório.' });
+
+  const { data: alvo, error: errBusca } = await admin.auth.admin.getUserById(userId);
+  if (errBusca || !alvo?.user) return res.status(404).json({ erro: 'Conta não encontrada.' });
+  if (alvo.user.email_confirmed_at) {
+    return res.status(422).json({ erro: `O e-mail de ${alvo.user.email} já estava confirmado.` });
+  }
+
+  const { error } = await admin.auth.admin.updateUserById(userId, { email_confirm: true });
+  if (error) return res.status(500).json({ erro: error.message });
+
+  return res.json({ ok: true, email: alvo.user.email });
 }
 
 // ── LICENÇAS ─────────────────────────────────────────────────────────────────
