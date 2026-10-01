@@ -2422,12 +2422,11 @@ async function adicionarNota() {
     created_at: new Date().toISOString(),
   };
 
-  const notas = [...(_processoAtual.notas_manuais || []), nota];
-
-  const { error } = await _supabase
-    .from('processos')
-    .update({ notas_manuais: notas })
-    .eq('id', _processoAtual.id);
+  // Acréscimo feito no banco, sobre o valor que está lá agora. Gravar a lista
+  // inteira a partir da cópia da tela apagava o que o colaborador tivesse
+  // escrito enquanto este processo estava aberto.
+  const { lista: notas, error } = await _jsonbAnexar('anexar_nota_processo',
+    { p_processo: _processoAtual.id, p_nota: nota }, 'notas_manuais', nota);
 
   if (error) { showToast('Erro ao salvar anotação.'); return; }
 
@@ -2440,12 +2439,8 @@ async function adicionarNota() {
 
 async function excluirNota(notaId) {
   if (!_processoAtual) return;
-  const notas = (_processoAtual.notas_manuais || []).filter(n => n.id !== notaId);
-
-  const { error } = await _supabase
-    .from('processos')
-    .update({ notas_manuais: notas })
-    .eq('id', _processoAtual.id);
+  const { lista: notas, error } = await _jsonbRemover('remover_nota_processo',
+    { p_processo: _processoAtual.id, p_nota_id: notaId }, 'notas_manuais', notaId);
 
   if (error) { showToast('Erro ao remover anotação.'); return; }
 
@@ -2536,10 +2531,9 @@ async function adicionarComentario() {
     reply_to_id: window._replyToId || null,
     created_at:  new Date().toISOString(),
   };
-  const comentarios = [...(_processoAtual.comentarios || []), entry];
-  _processoAtual.comentarios = comentarios;
-
-  const { error } = await _supabase.from('processos').update({ comentarios }).eq('id', _processoAtual.id);
+  const { lista: comentarios, error } = await _jsonbAnexar('anexar_comentario_processo',
+    { p_processo: _processoAtual.id, p_comentario: entry }, 'comentarios', entry);
+  if (!error) _processoAtual.comentarios = comentarios;
 
   if (sendBtn) { sendBtn.disabled = false; sendBtn.innerHTML = '<i class="ti ti-send"></i>'; }
 
@@ -2558,13 +2552,15 @@ async function excluirComentario(id) {
   const alvo  = todos.find(c => c.id === id);
   if (!alvo || alvo.autor_id !== window._user?.id) return;
 
-  const { error } = await _supabase.rpc('excluir_comentario', {
-    p_processo_id: _processoAtual.id,
-    p_comment_id:  id,
-  });
+  // Antes chamava 'excluir_comentario', que nunca existiu no banco — por isso
+  // excluir comentário sempre dava erro. Agora usa a função certa, que remove
+  // o comentário e as respostas dele numa só operação.
+  const { lista, error } = await _jsonbRpc('remover_comentario_processo',
+    { p_processo: _processoAtual.id, p_comentario_id: id }, 'comentarios',
+    () => todos.filter(c => c.id !== id && c.reply_to_id !== id));
   if (error) { showToast('Erro ao excluir comentário.', 'error'); return; }
 
-  _processoAtual.comentarios = todos.filter(c => c.id !== id && c.reply_to_id !== id);
+  _processoAtual.comentarios = lista;
   popularComentarios(_processoAtual);
   await logHistorico('coment_remove', 'Removeu um comentário');
 }
@@ -2648,6 +2644,33 @@ function _indiceDoNumero(numero) {
   if (seg === '8') return _UF_TJ[tr] ? (_UF_TJ[tr] === 'dft' ? 'api_publica_tjdft' : `api_publica_tj${_UF_TJ[tr]}`) : null;
   if (seg === '9') return { 13: 'api_publica_tjmmg', 21: 'api_publica_tjmrs', 26: 'api_publica_tjmsp' }[tr] || null;
   return null;
+}
+
+// Acréscimo/remoção em lista jsonb (anotações, comentários) feito pelo banco,
+// para duas pessoas editando o mesmo processo não apagarem o texto uma da
+// outra. Se a função ainda não existir no banco (migration não rodada), cai no
+// jeito antigo em vez de deixar o advogado sem salvar nada.
+async function _jsonbRpc(fn, args, coluna, aplicarLocal) {
+  const { data, error } = await _supabase.rpc(fn, args);
+  if (!error) return { lista: data || [], error: null };
+
+  const faltaFuncao = /(could not find|does not exist|schema cache|404)/i.test(error.message || '');
+  if (!faltaFuncao) return { lista: null, error };
+
+  const lista = aplicarLocal();
+  const { error: err2 } = await _supabase.from('processos')
+    .update({ [coluna]: lista }).eq('id', args.p_processo);
+  return { lista, error: err2 || null };
+}
+
+function _jsonbAnexar(fn, args, coluna, item) {
+  return _jsonbRpc(fn, args, coluna,
+    () => [...(_processoAtual?.[coluna] || []), item]);
+}
+
+function _jsonbRemover(fn, args, coluna, id) {
+  return _jsonbRpc(fn, args, coluna,
+    () => (_processoAtual?.[coluna] || []).filter(x => x.id !== id));
 }
 
 // Chamada à nossa API já com o login do advogado. A busca no DataJud passou
