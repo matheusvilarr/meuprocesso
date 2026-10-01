@@ -160,10 +160,18 @@ async function buscarUsuario(req, res) {
 
   const supaAdmin = createClient(SUPA_URL, SUPA_SVC_KEY);
 
-  const { data: { users }, error } = await supaAdmin.auth.admin.listUsers({ page: 1, perPage: 1000 });
-  if (error) return res.status(500).json({ erro: error.message });
-
-  const found = (users || []).find(u => u.email?.toLowerCase() === email.toLowerCase().trim());
+  // listUsers devolve no máximo 1000 por página. Sem paginar, passando de 1000
+  // contas o compartilhamento passaria a dizer "usuário não encontrado" para
+  // quem está cadastrado.
+  const alvo = email.toLowerCase().trim();
+  let found = null;
+  for (let page = 1; page <= 50 && !found; page++) {
+    const { data, error } = await supaAdmin.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) return res.status(500).json({ erro: error.message });
+    const lote = data?.users || [];
+    found = lote.find(u => u.email?.toLowerCase() === alvo) || null;
+    if (lote.length < 1000) break;
+  }
 
   if (!found) {
     return res.status(404).json({ erro: 'Usuário não encontrado. Verifique se o e-mail está cadastrado na plataforma.' });

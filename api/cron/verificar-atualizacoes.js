@@ -11,6 +11,14 @@ const CRON_SECRET      = process.env.CRON_SECRET;
 
 export default async function handler(req, res) {
   const authHeader = req.headers['authorization'];
+  // Fecha por padrão: se a variável CRON_SECRET desaparecer da Vercel (num
+  // deploy novo, um erro de digitação), antes isso liberava o cron para
+  // qualquer pessoa da internet disparar. Agora falta de segredo em produção
+  // é motivo para recusar, não para abrir. Fora da Vercel (localhost) segue
+  // liberado, senão não dá para testar.
+  if (process.env.VERCEL && !CRON_SECRET) {
+    return res.status(503).json({ erro: 'CRON_SECRET não configurado no servidor.' });
+  }
   if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}`) {
     return res.status(401).json({ erro: 'Não autorizado.' });
   }

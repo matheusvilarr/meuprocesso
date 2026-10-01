@@ -185,23 +185,28 @@ function acaoAlerta(i) {
 
 // ── CRON SCHEDULE ──────────────────────────────────────────────────────────────
 
-// Espelho do vercel.json (plano Hobby: cada cron dispara 1x/dia, em algum
-// momento dentro da hora marcada — não no minuto exato).
+// Espelho do vercel.json. Gerado a partir dele e conferido por teste
+// (teste_crons.mjs) — antes esta lista estava desatualizada e o painel
+// mostrava uma agenda que nao existia mais.
+// No plano Hobby cada cron dispara 1x/dia em algum momento DENTRO da hora
+// marcada, nao no minuto exato.
 const CRON_DEFS = [
-  // dias úteis
-  { name: 'Sincronizar DataJud', utcH: 8,  utcM: 0,  days: [1,2,3,4,5], icon: 'ti-refresh',    color: '#3b82f6', label: '5h BRT · seg–sex (e 7h, 9h, 11h, 13h, 15h, 17h, 19h)' },
-  { name: 'E-mail Morning',      utcH: 10, utcM: 30, days: [1,2,3,4,5], icon: 'ti-sun',        color: '#f59e0b', label: '7h30 BRT · seg–sex' },
-  { name: 'E-mail Tarde',        utcH: 16, utcM: 30, days: [1,2,3,4,5], icon: 'ti-mail',       color: '#f97316', label: '13h30 BRT · seg–sex' },
-  { name: 'E-mail Noite',        utcH: 21, utcM: 0,  days: [1,2,3,4,5], icon: 'ti-moon',       color: '#8b5cf6', label: '18h BRT · seg–sex (prazos urgentes)' },
-  // fins de semana
-  { name: 'Sincronizar DataJud', utcH: 10, utcM: 0,  days: [0,6],       icon: 'ti-refresh',    color: '#3b82f6', label: '7h BRT · fim de semana (e 11h, 15h)' },
-  { name: 'E-mail Morning',      utcH: 10, utcM: 30, days: [0,6],       icon: 'ti-sun',        color: '#f59e0b', label: '7h30 BRT · fim de semana' },
-  { name: 'E-mail Tarde',        utcH: 18, utcM: 30, days: [0,6],       icon: 'ti-mail',       color: '#f97316', label: '15h30 BRT · fim de semana' },
-  // todos os dias
-  { name: 'DJEN (cadernos)',     utcH: 9,  utcM: 0,  days: [0,1,2,3,4,5,6], icon: 'ti-news',   color: '#10b981', label: '6h BRT · todo dia' },
-  { name: 'DJEN (cadernos)',     utcH: 15, utcM: 0,  days: [0,1,2,3,4,5,6], icon: 'ti-news',   color: '#10b981', label: '12h BRT · todo dia' },
-  { name: 'DJEN (cadernos)',     utcH: 22, utcM: 0,  days: [0,1,2,3,4,5,6], icon: 'ti-news',   color: '#10b981', label: '19h BRT · todo dia' },
-  { name: 'Prazo fatal',         utcH: 12, utcM: 0,  days: [0,1,2,3,4,5,6], icon: 'ti-alarm',  color: '#be123c', label: '9h BRT · todo dia' },
+  { name: 'DJEN (cadernos)', utcH: 15, utcM: 0, days: [0,1,2,3,4,5,6], icon: 'ti-news', color: '#10b981', label: '12h BRT - todo dia' },
+  { name: 'DJEN (cadernos)', utcH: 22, utcM: 0, days: [0,1,2,3,4,5,6], icon: 'ti-news', color: '#10b981', label: '19h BRT - todo dia' },
+  { name: 'DJEN (cadernos)', utcH: 9, utcM: 0, days: [0,1,2,3,4,5,6], icon: 'ti-news', color: '#10b981', label: '06h BRT - todo dia' },
+  { name: 'E-mail manha', utcH: 10, utcM: 30, days: [0,1,2,3,4,5,6], icon: 'ti-sun', color: '#f59e0b', label: '07h30 BRT - todo dia' },
+  { name: 'E-mail noite', utcH: 21, utcM: 0, days: [1,2,3,4,5], icon: 'ti-moon', color: '#8b5cf6', label: '18h BRT - seg-sex' },
+  { name: 'E-mail tarde', utcH: 16, utcM: 30, days: [1,2,3,4,5], icon: 'ti-mail', color: '#f97316', label: '13h30 BRT - seg-sex' },
+  { name: 'E-mail tarde', utcH: 18, utcM: 30, days: [0,6], icon: 'ti-mail', color: '#f97316', label: '15h30 BRT - fim de semana' },
+  { name: 'Prazo fatal', utcH: 12, utcM: 0, days: [0,1,2,3,4,5,6], icon: 'ti-alarm', color: '#be123c', label: '09h BRT - todo dia' },
+  { name: 'Sincronizar DataJud', utcH: 11, utcM: 0, days: [0,1,2,3,4,5,6], icon: 'ti-refresh', color: '#3b82f6', label: '08h BRT - todo dia' },
+  { name: 'Sincronizar DataJud', utcH: 13, utcM: 0, days: [0,1,2,3,4,5,6], icon: 'ti-refresh', color: '#3b82f6', label: '10h BRT - todo dia' },
+  { name: 'Sincronizar DataJud', utcH: 17, utcM: 0, days: [0,1,2,3,4,5,6], icon: 'ti-refresh', color: '#3b82f6', label: '14h BRT - todo dia' },
+  { name: 'Sincronizar DataJud', utcH: 23, utcM: 0, days: [0,1,2,3,4,5,6], icon: 'ti-refresh', color: '#3b82f6', label: '20h BRT - todo dia' },
+  { name: 'Sincronizar DataJud', utcH: 3, utcM: 0, days: [0,1,2,3,4,5,6], icon: 'ti-refresh', color: '#3b82f6', label: '00h BRT - todo dia' },
+  { name: 'Sincronizar DataJud', utcH: 5, utcM: 0, days: [0,1,2,3,4,5,6], icon: 'ti-refresh', color: '#3b82f6', label: '02h BRT - todo dia' },
+  { name: 'Sincronizar DataJud', utcH: 7, utcM: 0, days: [0,1,2,3,4,5,6], icon: 'ti-refresh', color: '#3b82f6', label: '04h BRT - todo dia' },
+  { name: 'Sincronizar DataJud', utcH: 9, utcM: 0, days: [0,1,2,3,4,5,6], icon: 'ti-refresh', color: '#3b82f6', label: '06h BRT - todo dia' },
 ];
 
 function nextFire(utcH, utcM, days) {
