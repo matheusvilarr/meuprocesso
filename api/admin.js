@@ -285,8 +285,24 @@ async function acaoConvidarAdvogado(req, res, admin, adminUser) {
     .eq('ativo', true)
     .maybeSingle();
 
+  // Convidar a mesma pessoa de novo não é erro: é quase sempre "o e-mail não
+  // chegou, manda de novo". Antes isso devolvia 422 e parecia que o convite
+  // tinha falhado, quando na verdade já existia e estava válido.
   if (existente) {
-    return res.status(422).json({ erro: `Já existe um convite pendente para esse e-mail (código ${existente.codigo}). Use "Reenviar".` });
+    let avisoEmail = null;
+    try {
+      await enviarEmailConvite(emailNorm, existente.codigo);
+      await admin.from('codigos_acesso').update({ enviado_em: new Date().toISOString() }).eq('id', existente.id);
+    } catch (e) {
+      avisoEmail = 'O convite já existia, mas o e-mail não pôde ser reenviado: ' + e.message;
+    }
+    return res.json({
+      ok: true,
+      jaExistia: true,
+      codigo: existente,
+      link: linkConvite(existente.codigo, emailNorm),
+      ...(avisoEmail ? { avisoEmail } : {}),
+    });
   }
 
   const codigo = crypto.randomBytes(4).toString('hex').toUpperCase();
@@ -303,14 +319,23 @@ async function acaoConvidarAdvogado(req, res, admin, adminUser) {
     .single();
   if (error) return res.status(500).json({ erro: error.message });
 
+  const link = linkConvite(codigo, emailNorm);
   try {
     await enviarEmailConvite(emailNorm, codigo);
     await admin.from('codigos_acesso').update({ enviado_em: new Date().toISOString() }).eq('id', novoCodigo.id);
   } catch (e) {
-    return res.status(200).json({ ok: true, codigo: novoCodigo, avisoEmail: 'Código gerado, mas o e-mail não pôde ser enviado: ' + e.message });
+    return res.status(200).json({ ok: true, codigo: novoCodigo, link, avisoEmail: 'Código gerado, mas o e-mail não pôde ser enviado: ' + e.message });
   }
 
-  return res.json({ ok: true, codigo: novoCodigo });
+  return res.json({ ok: true, codigo: novoCodigo, link });
+}
+
+// O link é devolvido para o painel porque e-mail não é garantia de entrega —
+// Hotmail e Outlook jogam muita coisa em lixo eletrônico. Com o link em mãos
+// dá para mandar por WhatsApp e não depender disso.
+function linkConvite(codigo, email) {
+  const base = process.env.VERCEL ? 'https://meuprocesso.app.br' : 'http://localhost:3002';
+  return `${base}/registro?codigo=${encodeURIComponent(codigo)}&email=${encodeURIComponent(email)}`;
 }
 
 async function acaoReenviarConvite(req, res, admin) {
@@ -327,14 +352,18 @@ async function acaoReenviarConvite(req, res, admin) {
   if (!row.email_convidado) return res.status(400).json({ erro: 'Esse código não foi gerado como convite por e-mail.' });
   if (row.usado_em) return res.status(422).json({ erro: 'Esse convite já foi usado.' });
 
+  const link = linkConvite(row.codigo, row.email_convidado);
+
+  // Mesmo se o e-mail falhar, devolve o link: dá para mandar pelo WhatsApp e
+  // o convite continua válido.
   try {
     await enviarEmailConvite(row.email_convidado, row.codigo);
   } catch (e) {
-    return res.status(502).json({ erro: 'Falha ao enviar e-mail: ' + e.message });
+    return res.status(502).json({ erro: 'Falha ao enviar e-mail: ' + e.message, link });
   }
 
   await admin.from('codigos_acesso').update({ enviado_em: new Date().toISOString() }).eq('id', id);
-  return res.json({ ok: true });
+  return res.json({ ok: true, link });
 }
 
 async function enviarEmailConvite(email, codigo) {

@@ -1045,6 +1045,8 @@ async function toggleCodigo(id, ativo) {
 }
 
 function abrirConvidarAdvogado() {
+  const res = document.getElementById('conv-resultado');
+  if (res) { res.style.display = 'none'; res.innerHTML = ''; }
   document.getElementById('conv-email').value = '';
   document.getElementById('conv-descricao').value = '';
   document.getElementById('conv-erro').style.display = 'none';
@@ -1078,10 +1080,75 @@ async function convidarAdvogado() {
     erroEl.style.display = 'block';
     return;
   }
-  fecharConvidarAdvogado();
+
+  // Antes o modal fechava sem mostrar nada e dava a impressão de que o convite
+  // não tinha sido criado. Agora mostra o link na tela: e-mail não é garantia
+  // de entrega (Hotmail e Outlook mandam muito para lixo eletrônico).
+  mostrarLinkConvite({
+    email,
+    link: r.link,
+    codigo: r.codigo?.codigo,
+    jaExistia: r.jaExistia,
+    avisoEmail: r.avisoEmail,
+  });
   await init();
-  if (r.avisoEmail) alert(r.avisoEmail);
 }
+
+function mostrarLinkConvite({ email, link, codigo, jaExistia, avisoEmail }) {
+  const caixa = document.getElementById('conv-resultado');
+  if (!caixa) { alert(`Convite criado.\n\nLink: ${link}`); return; }
+
+  const texto = `Olá! Seu acesso ao Meu Processo está liberado — 7 dias grátis para testar.\n\nCrie sua conta aqui:\n${link}`;
+  window._convTextoWpp = texto;
+  window._convLink     = link;
+
+  caixa.innerHTML = `
+    <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:16px 18px">
+      <div style="display:flex;align-items:center;gap:9px;margin-bottom:8px">
+        <i class="ti ti-circle-check" style="color:#16a34a;font-size:19px"></i>
+        <strong style="color:#166534;font-size:14px">
+          ${jaExistia ? 'Esse convite já existia — e-mail reenviado' : 'Convite criado e e-mail enviado'}
+        </strong>
+      </div>
+      <div style="font-size:12.5px;color:#15803d;line-height:1.6;margin-bottom:12px">
+        Para <strong>${esc(email)}</strong>${codigo ? ` · código <code style="font-family:monospace">${esc(codigo)}</code>` : ''}.
+        O e-mail pode cair em lixo eletrônico — se quiser garantir, mande o link direto.
+      </div>
+      <input id="conv-link-input" readonly value="${esc(link || '')}"
+        onclick="this.select()"
+        style="width:100%;font-size:12px;font-family:monospace;padding:9px 11px;border:1.5px solid #bbf7d0;border-radius:7px;background:#fff;color:#166534;margin-bottom:10px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="adm-btn-primary" style="font-size:12.5px;padding:8px 14px" onclick="copiarLinkConvite()">
+          <i class="ti ti-copy"></i> Copiar link
+        </button>
+        <button class="adm-btn-secondary" style="font-size:12.5px;padding:8px 14px" onclick="copiarMensagemConvite()">
+          <i class="ti ti-message"></i> Copiar mensagem pronta
+        </button>
+        <a class="adm-btn-secondary" style="font-size:12.5px;padding:8px 14px;text-decoration:none"
+           href="https://wa.me/?text=${encodeURIComponent(texto)}" target="_blank">
+          <i class="ti ti-brand-whatsapp"></i> Abrir WhatsApp
+        </a>
+      </div>
+      ${avisoEmail ? `<div style="margin-top:12px;font-size:12px;color:#92400e;background:#fffbeb;border:1px solid #fcd34d;border-radius:7px;padding:9px 11px">${esc(avisoEmail)}</div>` : ''}
+    </div>`;
+  caixa.style.display = 'block';
+  document.getElementById('conv-email').value     = '';
+  document.getElementById('conv-descricao').value = '';
+}
+
+async function copiarTexto(texto, aviso) {
+  try {
+    await navigator.clipboard.writeText(texto);
+    alert(aviso);
+  } catch (_) {
+    // clipboard bloqueado (http, permissão): seleciona para o Ctrl+C manual
+    const el = document.getElementById('conv-link-input');
+    if (el) { el.value = texto; el.select(); }
+    alert('Não consegui copiar sozinho. O texto está selecionado no campo — use Ctrl+C.');
+  }
+}
+function copiarLinkConvite()      { copiarTexto(window._convLink || '', 'Link copiado!'); }
+function copiarMensagemConvite()  { copiarTexto(window._convTextoWpp || '', 'Mensagem copiada! Cole no WhatsApp.'); }
 
 let _assinaturaEscritorioId = null;
 
@@ -1567,7 +1634,16 @@ async function rodarDjenCadernos() {
 
 async function reenviarConvite(id) {
   const r = await chamarAdmin('reenviar-convite', { id });
-  if (r.erro) return alert(r.erro);
+  // Mesmo com o e-mail falhando o convite segue válido: mostra o link para
+  // mandar por WhatsApp, em vez de só reclamar do e-mail.
+  if (r.link) {
+    const copiar = confirm((r.erro ? r.erro + '\n\n' : 'E-mail reenviado.\n\n') +
+      'Link do convite:\n' + r.link + '\n\nClique OK para copiar o link.');
+    if (copiar) { try { await navigator.clipboard.writeText(r.link); } catch (_) {} }
+  } else if (r.erro) {
+    alert(r.erro);
+    return;
+  }
   await init();
 }
 
