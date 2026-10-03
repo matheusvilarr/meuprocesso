@@ -6368,23 +6368,61 @@ function renderizarDescobertos() {
     return;
   }
 
-  lista.innerHTML = _descobertosCache.map(item => {
-    const d = item.dados || {};
-    const dataFmt = item.data_ajuizamento
-      ? new Date(item.data_ajuizamento + 'T12:00:00').toLocaleDateString('pt-BR')
-      : '—';
+  const fmtDia = iso => iso ? new Date(String(iso).slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR') : '—';
+
+  lista.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 2px 10px;border-bottom:1px solid var(--gray-200);margin-bottom:4px">
+      <div style="font-size:12px;color:var(--gray-500);line-height:1.5">
+        Sua OAB apareceu nestas publicações, mas os processos não estão cadastrados.
+        Escolha quais você quer acompanhar.
+      </div>
+      ${_descobertosCache.length > 1 ? `<button class="btn-primary" style="font-size:11px;padding:6px 12px;white-space:nowrap" onclick="importarTodosDescobertos()">Importar todos</button>` : ''}
+    </div>` +
+  _descobertosCache.map(item => {
+    const d  = item.dados || {};
+    // O que convence o advogado é a intimação, não a classe processual
+    const it = d._intimacao || {};
+    const detalhe = it.nome
+      ? `<div style="font-size:11.5px;color:var(--gray-500);margin-top:3px;line-height:1.45">${escHtml(String(it.nome).replace(/^DJEN — /, ''))} · ${fmtDia(it.data)}</div>`
+      : `<div style="font-size:11px;color:var(--gray-400);margin-top:3px">${escHtml(d.classe || item.tribunal)} · encontrado em ${fmtDia(item.encontrado_em)}</div>`;
     return `
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;background:var(--gray-50);border-radius:var(--radius)" id="descoberto-${item.id}">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 12px;background:var(--gray-50);border-radius:var(--radius)" id="descoberto-${item.id}">
       <div style="min-width:0">
-        <div style="font-size:13px;font-weight:700;color:var(--navy)">${escHtml(d.numero || item.numero)}</div>
-        <div style="font-size:11px;color:var(--gray-400)">${escHtml(d.classe || item.tribunal)} · Ajuizado em ${dataFmt}</div>
+        <div style="font-size:13px;font-weight:700;color:var(--navy);font-family:monospace">${escHtml(d.numero || item.numero)}</div>
+        ${detalhe}
       </div>
       <div style="display:flex;gap:6px;flex-shrink:0">
-        <button class="btn-secondary" style="font-size:11px;padding:5px 10px" onclick="ignorarDescoberto('${item.id}')">Ignorar</button>
-        <button class="btn-primary" style="font-size:11px;padding:5px 10px" onclick="importarDescoberto('${item.id}')">Importar</button>
+        <button class="btn-secondary" style="font-size:11px;padding:5px 10px" onclick="ignorarDescoberto('${item.id}')">Não é meu</button>
+        <button class="btn-primary" style="font-size:11px;padding:5px 10px" onclick="importarDescoberto('${item.id}')">Acompanhar</button>
       </div>
     </div>`;
   }).join('');
+}
+
+// O Lucas tem 439 processos — se aparecerem 15 sugestões, decidir uma a uma
+// não escala.
+async function importarTodosDescobertos() {
+  const todos = [..._descobertosCache];
+  if (!todos.length) return;
+  const ok = await _confirmar(
+    `Os ${todos.length} processos passam a ser acompanhados e entram na sua lista.`,
+    `Acompanhar ${todos.length} processos?`,
+    { textoOk: 'Acompanhar todos', icone: '📥' },
+  );
+  if (!ok) return;
+
+  let importados = 0, erros = 0;
+  for (const item of todos) {
+    const r = await _importarComMerge(item.dados);
+    if (r.status === 'erro') { erros++; continue; }
+    await decidirDescoberto(item.id, 'marcar-importado');
+    importados++;
+  }
+  await carregarDescobertos();
+  carregarProcessos();
+  showToast(erros
+    ? `${importados} importado(s), ${erros} falharam.`
+    : `${importados} processo(s) agora em acompanhamento.`, erros ? 'warning' : 'success');
 }
 
 async function decidirDescoberto(id, acao) {
