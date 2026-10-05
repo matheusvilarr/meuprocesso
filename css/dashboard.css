@@ -2017,8 +2017,12 @@ body.kanban-dragging .task-col-body {
 
 /* ── 1100px ── */
 @media (max-width: 1100px) {
-  .dash-grid  { grid-template-columns: 1fr; }
-  .task-cols  { grid-template-columns: repeat(2, 1fr); }
+  /* minmax(0, 1fr) e não só 1fr: "1fr" é minmax(auto, 1fr), e o "auto" impede
+     a coluna de ficar menor que o conteúdo. No celular isso fazia a coluna ir
+     a 562px numa tela de 375px — o dashboard rolava 200px para o lado,
+     mesmo com a regra de uma coluna já aplicada aqui. */
+  .dash-grid  { grid-template-columns: minmax(0, 1fr); }
+  .task-cols  { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 /* ── 768px — mobile ── */
@@ -2055,8 +2059,15 @@ body.kanban-dragging .task-col-body {
   .stat-icon { width: 34px; height: 34px; font-size: 16px; }
   .stat-value { font-size: 20px; }
 
-  /* Dash grid */
-  .dash-grid { grid-template-columns: 1fr; }
+  /* Dash grid — ver explicação do minmax(0,1fr) no bloco de 1100px */
+  .dash-grid { grid-template-columns: minmax(0, 1fr); }
+
+  /* A lista de processos recentes é uma linha flex com número, título e
+     etiqueta lado a lado. No celular isso não cabe: empilha e deixa o título
+     quebrar, em vez de empurrar a tela inteira para o lado. */
+  .process-row { flex-wrap: wrap; gap: 8px; padding: 12px 16px; }
+  .process-row > * { min-width: 0; }
+  .process-info, .process-row .tl-text { min-width: 0; overflow-wrap: anywhere; }
 
   /* Processos */
   .process-grid { grid-template-columns: 1fr; }
