@@ -2062,12 +2062,17 @@ body.kanban-dragging .task-col-body {
   /* Dash grid — ver explicação do minmax(0,1fr) no bloco de 1100px */
   .dash-grid { grid-template-columns: minmax(0, 1fr); }
 
-  /* A lista de processos recentes é uma linha flex com número, título e
-     etiqueta lado a lado. No celular isso não cabe: empilha e deixa o título
-     quebrar, em vez de empurrar a tela inteira para o lado. */
-  .process-row { flex-wrap: wrap; gap: 8px; padding: 12px 16px; }
+  /* A lista de processos recentes põe número, título e etiqueta lado a lado.
+     Em 375px não cabe: o título ficava reduzido a "Agravo em Re..." mesmo
+     havendo espaço logo abaixo. Agora a linha vira dois andares —
+     número + etiqueta em cima, título e detalhes embaixo, inteiros. */
+  .process-row { flex-wrap: wrap; gap: 6px 8px; padding: 12px 16px; }
   .process-row > * { min-width: 0; }
-  .process-info, .process-row .tl-text { min-width: 0; overflow-wrap: anywhere; }
+  .process-num  { order: 1; }
+  .process-row .badge { order: 2; margin-left: auto; }
+  .process-info { order: 3; flex: 1 1 100%; }
+  .process-name { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.35; }
+  .process-meta { overflow-wrap: anywhere; }
 
   /* Processos */
   .process-grid { grid-template-columns: 1fr; }
