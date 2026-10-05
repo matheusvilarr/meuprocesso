@@ -117,9 +117,12 @@
       </div>
       <p class="state-title">Convite inválido</p>
       <p class="state-sub" id="error-msg">Este link de convite não é válido ou já foi utilizado.</p>
-      <a href="mailto:contato@meuprocesso.app.br" class="support-link" style="display:block;text-align:center;margin-top:8px">
-        Entrar em contato com o suporte
-      </a>
+      <!-- endereço por extenso: mailto: sozinho não abre nada para quem usa
+           webmail, e a pessoa fica sem saída numa tela de erro -->
+      <div class="support-link" style="display:block;text-align:center;margin-top:8px;line-height:1.7;cursor:default">
+        Peça um novo convite ou escreva para<br>
+        <a href="mailto:contato@meuprocesso.app.br" style="color:#1a2e6b;font-weight:600;text-decoration:none">contato@meuprocesso.app.br</a>
+      </div>
     </div>
 
     <!-- Estado: sem token na URL -->
