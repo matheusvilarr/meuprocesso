@@ -145,9 +145,12 @@ async function acaoDados(req, res, admin, adminUser) {
         oab:            u.user_metadata?.oab || '—',
         oabDuplicado:   oabNorm ? contagemOab[oabNorm] > 1 : false,
         criadoEm:       u.created_at,
-        // ultimo_acesso (gravado pelo auth-guard a cada dia de uso) reflete o
-        // uso real; last_sign_in_at só muda quando a pessoa digita a senha de novo.
-        ultimoLogin:    u.user_metadata?.ultimo_acesso || u.last_sign_in_at || null,
+        // Só ultimo_acesso (gravado pelo auth-guard quando a pessoa ABRE o
+        // dashboard) é atividade real. Havia aqui um fallback para
+        // last_sign_in_at, e ele mentia: qualquer sessão criada por fora —
+        // um teste, um magic link — carimba last_sign_in_at sem ninguém ter
+        // usado o sistema. Agora os dois vão separados e a tela não os mistura.
+        ultimoLogin:    u.user_metadata?.ultimo_acesso || null,
         ultimoSignIn:   u.last_sign_in_at || null,
         emailConfirmado: !!u.email_confirmed_at,
         bloqueado:      !!(u.banned_until && new Date(u.banned_until) > new Date()),
@@ -1157,7 +1160,7 @@ async function acaoDetalheUsuario(req, res, admin) {
       oabs: String(meta.oab || '').split(',').map(s => s.trim()).filter(Boolean),
       telefone: meta.telefone || null,
       criadoEm: u.created_at,
-      ultimoLogin: meta.ultimo_acesso || u.last_sign_in_at || null,
+      ultimoLogin: meta.ultimo_acesso || null,   // ver o comentário em acaoDados
       ultimoSignIn: u.last_sign_in_at || null,
       emailConfirmado: !!u.email_confirmed_at,
       bloqueado: !!(u.banned_until && new Date(u.banned_until) > new Date()),

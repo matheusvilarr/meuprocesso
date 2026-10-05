@@ -607,7 +607,7 @@ function renderAdvogados() {
       <td>${esc(a.email)}${a.emailConfirmado ? '' : ` <span class="adm-status-pill adm-status-pendente" style="font-size:9px;">não confirmado</span> <button class="adm-btn-small ok" style="font-size:10px;padding:2px 7px;" onclick="event.stopPropagation();confirmarEmailManual('${a.id}','${esc(a.email)}')" title="A pessoa não recebeu o e-mail de confirmação? Libere o acesso por aqui.">liberar</button>`}</td>
       <td>${esc(a.oab)}${a.oabDuplicado ? ' <span class="adm-status-pill adm-status-bloqueado" title="Outra conta usa a mesma OAB" style="font-size:9px;"><i class="ti ti-alert-triangle"></i> duplicada</span>' : ''}</td>
       <td>${fmtData(a.criadoEm)}</td>
-      <td title="${a.ultimoSignIn ? 'Último login com senha: ' + fmtData(a.ultimoSignIn) : 'Nunca fez login com senha'}">${a.ultimoLogin ? fmtData(a.ultimoLogin) : '<span style="color:#9f9f98">—</span>'}</td>
+      <td title="${a.ultimoLogin ? 'Abriu o dashboard em ' + fmtData(a.ultimoLogin) : 'Nunca abriu o dashboard desde 29/09, quando esse registro passou a existir'}${a.ultimoSignIn ? ' · sessão mais recente: ' + fmtData(a.ultimoSignIn) : ''}">${a.ultimoLogin ? fmtData(a.ultimoLogin) : '<span style="color:#9f9f98" title="Sem uso registrado">nunca abriu</span>'}</td>
       <td>${a.numProcessos}</td>
       <td>${a.numTarefas}</td>
       <td>${a.numColaboradores}</td>
