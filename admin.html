@@ -72,12 +72,20 @@
       </div>
 
       <!-- CRON SCHEDULE -->
-      <div class="cron-schedule">
-        <div class="cron-schedule-header">
+      <!-- Começa recolhida: são 16 horários ocupando ~420px no topo de TODAS
+           as abas, empurrando para baixo o que se usa no dia a dia. A próxima
+           execução continua visível no cabeçalho, que é o que importa de
+           relance. O estado fica guardado no navegador. -->
+      <div class="cron-schedule" id="cron-schedule">
+        <div class="cron-schedule-header" onclick="alternarAgenda()" style="cursor:pointer" title="Mostrar ou esconder a agenda completa">
           <div class="cron-schedule-title">
             <i class="ti ti-clock-2"></i> Agenda de notificações
+            <span id="cron-proxima" style="font-weight:500;color:#6b7280;font-size:12.5px"></span>
           </div>
-          <div class="cron-now-brt" id="cron-now-brt">— : — BRT</div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <div class="cron-now-brt" id="cron-now-brt">— : — BRT</div>
+            <i class="ti ti-chevron-down" id="cron-seta" style="font-size:16px;color:#9f9f98;transition:transform .2s"></i>
+          </div>
         </div>
         <div class="cron-grid" id="cron-grid">
           <div style="color:#9f9f98;font-size:13px;padding:8px 0;">Carregando…</div>
@@ -311,8 +319,14 @@
       <h3>Gerar código de convite</h3>
       <label>Descrição (opcional)</label>
       <input type="text" id="cod-descricao" placeholder="Ex: Convite para Dr. João">
-      <label>Limite de usos (opcional, em branco = ilimitado)</label>
-      <input type="number" id="cod-usos-max" min="1" placeholder="Ex: 1">
+      <!-- Vem preenchido com 1: em branco cria código SEM LIMITE, que vale
+           para sempre para quem souber. Já existem dois assim em produção. -->
+      <label>Limite de usos</label>
+      <input type="number" id="cod-usos-max" min="1" value="1" placeholder="Ex: 1">
+      <div style="font-size:11.5px;color:#92400e;margin-top:5px;line-height:1.5">
+        Deixar em branco cria um código <strong>sem limite</strong>: qualquer pessoa que
+        souber ele cria conta, quantas vezes quiser.
+      </div>
       <div class="adm-modal-actions">
         <button class="adm-btn-secondary" onclick="fecharGerarCodigo()">Cancelar</button>
         <button class="adm-btn-primary" onclick="gerarCodigo()">Gerar</button>

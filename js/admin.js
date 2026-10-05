@@ -63,6 +63,7 @@ async function init() {
   renderAdmins();
   if (!_tabsProntas) { setupTabs(); _tabsProntas = true; }
   renderCronSchedule();
+  aplicarEstadoAgenda();
   startCronClock();
   carregarPendentes(); // carrega em background só para mostrar badge
   carregarSaude();
@@ -271,6 +272,30 @@ function renderCronSchedule() {
       </div>
     </div>
   `).join('');
+
+  // Com a agenda recolhida, a próxima execução continua à vista no cabeçalho —
+  // é o que se quer saber de relance ("quando roda de novo?").
+  const prox = items.find(c => c.ms != null);
+  const resumo = document.getElementById('cron-proxima');
+  if (resumo) resumo.textContent = prox ? `· ${prox.name} ${formatCountdown(prox.ms)}` : '';
+}
+
+// A agenda ocupa ~420px no topo de todas as abas. Recolhida por padrão; a
+// escolha fica guardada no navegador de quem usa.
+function alternarAgenda(forcar) {
+  const grade = document.getElementById('cron-grid');
+  const seta  = document.getElementById('cron-seta');
+  if (!grade) return;
+  const abrir = forcar !== undefined ? forcar : grade.style.display === 'none';
+  grade.style.display = abrir ? '' : 'none';
+  if (seta) seta.style.transform = abrir ? 'rotate(180deg)' : '';
+  try { localStorage.setItem('admin-agenda-aberta', abrir ? '1' : '0'); } catch (_) {}
+}
+
+function aplicarEstadoAgenda() {
+  let aberta = false;
+  try { aberta = localStorage.getItem('admin-agenda-aberta') === '1'; } catch (_) {}
+  alternarAgenda(aberta);
 }
 
 let _cronClockTimer = null;
@@ -612,7 +637,7 @@ function renderAdvogados() {
       <td>${a.numTarefas}</td>
       <td>${a.numColaboradores}</td>
       <td><span class="adm-status-pill ${a.bloqueado ? 'adm-status-bloqueado' : 'adm-status-ativo'}">${a.bloqueado ? 'Bloqueado' : 'Ativo'}</span></td>
-      <td>${celulaAssinatura(a)}</td>
+      <td class="adm-td-livre">${celulaAssinatura(a)}</td>
       <td onclick="event.stopPropagation()">
         <button class="adm-btn-small ${a.bloqueado ? 'ok' : 'danger'}" onclick="toggleStatus('${a.id}', ${!a.bloqueado})">
           ${a.bloqueado ? 'Desbloquear' : 'Bloquear'}
@@ -819,13 +844,29 @@ function renderCodigos() {
       else if (c.enviado_em) statusConvite = `<span class="adm-status-pill adm-status-pendente">Enviado</span> <button class="adm-btn-small" onclick="reenviarConvite('${c.id}')">Reenviar</button>`;
       else                   statusConvite = '<span class="adm-status-pill adm-status-bloqueado">Falhou ao enviar</span> <button class="adm-btn-small" onclick="reenviarConvite(\'' + c.id + '\')">Reenviar</button>';
     }
+    // A tela dizia "Ativo" para código já esgotado, como se ainda
+    // funcionasse. E código sem limite mostrava só o número de usos, sem
+    // avisar que vale para sempre, para qualquer um que souber o código.
+    const ilimitado = c.usos_max == null;
+    const esgotado  = !ilimitado && c.usos_atual >= c.usos_max;
+
+    const usos = ilimitado
+      ? `<span style="color:#b45309;font-weight:700" title="Sem limite de quantidade: qualquer pessoa com este código cria conta, quantas vezes quiser">${c.usos_atual} · sem limite</span>`
+      : `${c.usos_atual} / ${c.usos_max}`;
+
+    const situacao = !c.ativo
+      ? '<span class="adm-status-pill adm-status-bloqueado">Desativado</span>'
+      : esgotado
+        ? '<span class="adm-status-pill adm-status-bloqueado" title="Atingiu o limite de usos — não funciona mais">Esgotado</span>'
+        : '<span class="adm-status-pill adm-status-ativo">Ativo</span>';
+
     return `
-    <tr>
+    <tr${ilimitado && c.ativo ? ' style="background:#fffbeb"' : ''}>
       <td><code class="adm-code">${esc(c.codigo)}</code></td>
       <td>${esc(c.descricao) || '—'}</td>
       <td>${c.email_convidado ? esc(c.email_convidado) + '<br>' + statusConvite : '—'}</td>
-      <td>${c.usos_atual}${c.usos_max != null ? ' / ' + c.usos_max : ''}</td>
-      <td><span class="adm-status-pill ${c.ativo ? 'adm-status-ativo' : 'adm-status-bloqueado'}">${c.ativo ? 'Ativo' : 'Inativo'}</span></td>
+      <td>${usos}</td>
+      <td>${situacao}</td>
       <td>${fmtData(c.created_at)}</td>
       <td>
         <button class="adm-btn-small ${c.ativo ? 'danger' : 'ok'}" onclick="toggleCodigo('${c.id}', ${!c.ativo})">

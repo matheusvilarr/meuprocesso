@@ -90,16 +90,23 @@ body {
 
 .adm-tabs {
   display: flex;
-  gap: 6px;
+  gap: 2px;
   margin-bottom: 24px;
   border-bottom: 1px solid var(--gray-200);
+  /* com 9 abas elas não cabem em telas menores; rolar na horizontal é melhor
+     do que apertar o texto */
+  overflow-x: auto;
+  scrollbar-width: thin;
 }
 
 .adm-tab {
   background: none;
   border: none;
-  padding: 12px 18px;
-  font-size: 14px;
+  /* sem isso, "Cadernos DJEN" e "Códigos de convite" quebram em duas linhas e
+     desalinham a régua inteira de abas */
+  white-space: nowrap;
+  padding: 12px 14px;
+  font-size: 13.5px;
   font-weight: 600;
   color: var(--gray-600);
   cursor: pointer;
@@ -142,10 +149,20 @@ body {
   border-bottom: 1px solid var(--gray-200);
 }
 .adm-table td {
-  padding: 12px 16px;
+  /* 16px de lado × 11 colunas empurrava os botões de ação para fora da área
+     visível, e eles ficavam cortados na borda direita */
+  padding: 10px 11px;
   border-bottom: 1px solid var(--gray-100);
   vertical-align: middle;
 }
+
+/* Datas como "23 de jun. de 2026" quebravam em três linhas e deixavam cada
+   advogado com 80px de altura; a lista de 6 contas ocupava meia tela. */
+.adm-table td, .adm-table th { white-space: nowrap; }
+/* nome, e-mail e assinatura podem quebrar — são os campos longos de verdade */
+.adm-table td:first-child,
+.adm-table td:nth-child(2),
+.adm-table td.adm-td-livre { white-space: normal; }
 .adm-table tr:last-child td { border-bottom: none; }
 
 .adm-status-pill {
