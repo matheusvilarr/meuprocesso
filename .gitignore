@@ -13,3 +13,6 @@ js/precos.js
 # Backups locais do banco — NUNCA vão pro Git (contêm dados de clientes)
 backups/
 .env.backup
+
+# telas antigas da landing, guardadas na troca de out/2026
+img/screenshots-antigos/
