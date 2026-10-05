@@ -172,9 +172,18 @@ async function rodarDatajud(admin, res, hoje) {
 // Concorrência 40: com 20 e resposta de 20s (madrugada) davam ~40 processos
 // por execução — 555 processos levariam dias pra fechar um ciclo. A medição
 // mostrou 40 simultâneas com 100% de sucesso, então é daí que vem a vazão.
+// Medido em 05/10/2026, consultas sequenciais a TJDFT, TJGO e TRF1:
+// mediana 34,6s · 3 de 9 devolveram 429 (fila deles cheia) em 14-37s ·
+// 2 de 9 devolveram HTTP 504 em exatos 60,0s.
+// Esse 504 em 60s é o dado novo: o CNJ tem um limite próprio e desiste sozinho
+// nessa marca. Então esperar além de ~60s é tempo jogado fora, e o nosso
+// limite de 55s cortava respostas que ainda chegariam. 58s fica entre os dois.
 const CONCORRENCIA_DATAJUD = 40;
 const JANELA_INICIAR_MS    = 55000;  // até quando novas consultas são iniciadas
-const ESPERA_DATAJUD_MS    = 55000;  // quanto esperamos cada resposta
+const ESPERA_DATAJUD_MS    = 58000;  // quanto esperamos cada resposta
+// 55s iniciando + 58s da última resposta + gravação = ~115s, dentro do
+// maxDuration de 120s. Observado nas execuções do fim de semana: mediana 100s,
+// máxima 111s — a margem é pequena, então não dá para subir mais.
 // 55s pra iniciar + 55s da última resposta + gravação = ~112s, dentro do
 // maxDuration de 120s do vercel.json.
 
@@ -311,10 +320,12 @@ export async function sincronizarDatajudUm(proc, admin, hoje) {
 // crítico no painel admin).
 export function classificarErroDatajud(e) {
   const m = String(e?.message || e || '');
-  // Nossa consulta expirou antes de o CNJ responder. Pode ser lentidão deles,
-  // mas o limite é NOSSO — se acontecer muito, é sinal de aumentar o tempo de
-  // espera, não de culpar o CNJ.
-  if (/aborted|timeout/i.test(m))           return { tipo: 'espera-curta',  origem: 'sistema', texto: 'Desistimos antes de o DataJud responder (nosso limite é 55s)' };
+  // Nossa consulta expirou antes de o CNJ responder. Continua marcado como
+  // 'sistema' de propósito: o limite é nosso e é o que dá para mexer. Mas a
+  // medição de 05/10 mostrou que o CNJ leva 35s na mediana e desiste sozinho
+  // em 60s — então passar disso raramente é bug nosso, é o CNJ no limite.
+  // Dizer o número medido evita tanto nos culpar à toa quanto nos isentar.
+  if (/aborted|timeout/i.test(m))           return { tipo: 'espera-curta',  origem: 'sistema', texto: `Sem resposta do DataJud em ${Math.round(ESPERA_DATAJUD_MS / 1000)}s (ele responde em ~35s e corta sozinho em 60s)` };
   if (/respondeu 429/.test(m))              return { tipo: 'cnj-saturado',  origem: 'cnj',     texto: 'Servidor do CNJ sem capacidade no momento (429 — fila interna cheia)' };
   if (/respondeu 5\d\d/.test(m))            return { tipo: 'cnj-fora',      origem: 'cnj',     texto: `DataJud com erro interno (${m.match(/respondeu (\d+)/)[1]})` };
   if (/respondeu 40[13]/.test(m))           return { tipo: 'cnj-bloqueio',  origem: 'cnj',     texto: 'DataJud recusou o acesso (chave pública trocada ou bloqueio de IP)' };
