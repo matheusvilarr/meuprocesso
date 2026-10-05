@@ -66,6 +66,8 @@ document.getElementById('loginForm').addEventListener('submit', async function (
   pwErr.classList.remove('show');
   document.getElementById('email').classList.remove('error');
   document.getElementById('password').classList.remove('error');
+  const avisoAnterior = document.getElementById('avisoConfirmacao');
+  if (avisoAnterior) avisoAnterior.style.display = 'none';
 
   let ok = true;
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -88,14 +90,23 @@ document.getElementById('loginForm').addEventListener('submit', async function (
   const { error } = await _supabase.auth.signInWithPassword({ email, password });
 
   if (error) {
-    const msg = (error.message || '').toLowerCase().includes('invalid')
-      ? 'E-mail ou senha incorretos.'
-      : 'Erro ao entrar. Verifique suas credenciais.';
-    pwErr.textContent = msg;
-    pwErr.classList.add('show');
-    document.getElementById('password').classList.add('error');
+    const texto = (error.message || '').toLowerCase();
     btn.classList.remove('loading');
     btn.textContent = 'Entrar';
+
+    // Caso mais comum logo depois do cadastro: a senha está CERTA, só falta
+    // confirmar o e-mail. Dizer "verifique suas credenciais" aqui fazia a
+    // pessoa achar que errou a senha, tentar de novo e desistir.
+    if (texto.includes('not confirmed') || texto.includes('não confirmado')) {
+      mostrarAvisoConfirmacao(email);
+      return;
+    }
+
+    pwErr.textContent = texto.includes('invalid')
+      ? 'E-mail ou senha incorretos.'
+      : 'Não foi possível entrar agora. Tente de novo em instantes.';
+    pwErr.classList.add('show');
+    document.getElementById('password').classList.add('error');
     return;
   }
 
@@ -103,6 +114,49 @@ document.getElementById('loginForm').addEventListener('submit', async function (
   const params = new URLSearchParams(window.location.search);
   window.location.href = params.get('redirect') || '/dashboard';
 });
+
+// Explica o que realmente aconteceu e dá o caminho de saída ali mesmo, em vez
+// de mandar a pessoa adivinhar ou tentar "esqueci minha senha" sem motivo.
+function mostrarAvisoConfirmacao(email) {
+  const caixa = document.getElementById('avisoConfirmacao');
+  if (!caixa) return;
+  caixa.innerHTML = `
+    <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:14px 16px;margin-bottom:16px;text-align:left">
+      <div style="font-size:13.5px;font-weight:700;color:#1e3a5f;margin-bottom:5px">Falta confirmar seu e-mail</div>
+      <div style="font-size:12.5px;color:#1e40af;line-height:1.6">
+        Sua senha está correta. Enviamos um link de confirmação para
+        <strong>${email.replace(/[<>&"]/g, '')}</strong> — abra o e-mail e clique nele para entrar.
+        <br><span style="color:#64748b">Não achou? Veja no lixo eletrônico ou promoções.</span>
+      </div>
+      <button type="button" id="btnReenviar" style="margin-top:11px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">
+        Reenviar e-mail de confirmação
+      </button>
+      <div id="reenvioStatus" style="font-size:12px;color:#15803d;margin-top:9px;display:none"></div>
+    </div>`;
+  caixa.style.display = 'block';
+
+  document.getElementById('btnReenviar').addEventListener('click', async function () {
+    this.disabled = true;
+    this.textContent = 'Enviando...';
+    const { error } = await _supabase.auth.resend({ type: 'signup', email });
+    const status = document.getElementById('reenvioStatus');
+    status.style.display = 'block';
+    if (error) {
+      // O plano grátis do Supabase limita os envios por hora — dizer isso é
+      // melhor do que a pessoa ficar clicando achando que está quebrado.
+      status.style.color = '#b45309';
+      status.textContent = /rate|limit|seconds/i.test(error.message || '')
+        ? 'Muitas tentativas seguidas. Espere alguns minutos e tente de novo.'
+        : 'Não conseguimos reenviar agora: ' + error.message;
+      this.disabled = false;
+      this.textContent = 'Reenviar e-mail de confirmação';
+      return;
+    }
+    status.style.color = '#15803d';
+    status.textContent = 'E-mail reenviado. Confira a caixa de entrada e o lixo eletrônico.';
+    this.textContent = 'E-mail reenviado';
+  });
+}
 
 // ── Cadastro ──────────────────────────────────────────────────────────────────
 
