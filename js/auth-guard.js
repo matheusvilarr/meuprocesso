@@ -78,7 +78,7 @@ window._oabsValidas = function (raw) {
     const meta    = session.user.user_metadata || {};
     const nome    = meta.full_name || meta.nome || session.user.email.split('@')[0];
     const email   = session.user.email;
-    const cor     = meta.avatar_color || '#1a2e6b';
+    const cor     = meta.avatar_color || '#053958';
     const fotoUrl = meta.avatar_url;
 
     const nameEl  = document.getElementById('sidebar-user-name');

@@ -47,7 +47,7 @@ async function init() {
       <div style="text-align:center;max-width:460px;line-height:1.6">
         <div style="font-size:16px;font-weight:600;color:#2e2e2a;margin-bottom:8px">Acesso restrito a administradores</div>
         ${motivo ? `<div style="font-size:13px;margin-bottom:16px">${esc(motivo)}</div>` : ''}
-        <a href="/dashboard" style="color:#1a2e6b;font-weight:600">← Voltar ao dashboard</a>
+        <a href="/dashboard" style="color:#053958;font-weight:600">← Voltar ao dashboard</a>
       </div>`;
     return;
   }
@@ -568,6 +568,14 @@ function fmtData(iso) {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
+// Conta criada há pouco tempo precisa chamar atenção: é quando a licença dela
+// ainda não foi ajustada manualmente (ex: convite de cortesia que nasce com
+// só 7 dias de trial e precisa ser estendido à mão).
+function ehRecente(iso) {
+  if (!iso) return false;
+  return (Date.now() - new Date(iso).getTime()) < 7 * 86400000;
+}
+
 const PLANO_LABEL = { trial: 'Teste grátis', mensal: 'Mensal', semestral: 'Semestral', anual: 'Anual', legado: 'Legado' };
 
 function celulaAssinatura(a) {
@@ -631,7 +639,7 @@ function renderAdvogados() {
       <td><span class="adv-nome">${esc(a.nome)}</span>${a.nivelAdmin ? ' <span class="adm-badge" style="font-size:9px;vertical-align:middle;">' + esc(a.nivelAdmin.toUpperCase()) + '</span>' : ''}${a.numDesatualizados ? ` <span class="adm-status-pill adm-status-pendente" style="font-size:9px;" title="Processos sem consulta ao DataJud há 48h+">${a.numDesatualizados} atrasado(s)</span>` : ''}</td>
       <td>${esc(a.email)}${a.emailConfirmado ? '' : ` <span class="adm-status-pill adm-status-pendente" style="font-size:9px;">não confirmado</span> <button class="adm-btn-small ok" style="font-size:10px;padding:2px 7px;" onclick="event.stopPropagation();confirmarEmailManual('${a.id}','${esc(a.email)}')" title="A pessoa não recebeu o e-mail de confirmação? Libere o acesso por aqui.">liberar</button>`}</td>
       <td>${esc(a.oab)}${a.oabDuplicado ? ' <span class="adm-status-pill adm-status-bloqueado" title="Outra conta usa a mesma OAB" style="font-size:9px;"><i class="ti ti-alert-triangle"></i> duplicada</span>' : ''}</td>
-      <td>${fmtData(a.criadoEm)}</td>
+      <td>${fmtData(a.criadoEm)}${ehRecente(a.criadoEm) ? ' <span class="adm-status-pill" style="font-size:9px;background:#dcfce7;color:#166534" title="Entrou nos últimos 7 dias — confira se a licença está como você quer">novo</span>' : ''}</td>
       <td title="${a.ultimoLogin ? 'Abriu o dashboard em ' + fmtData(a.ultimoLogin) : 'Nunca abriu o dashboard desde 29/09, quando esse registro passou a existir'}${a.ultimoSignIn ? ' · sessão mais recente: ' + fmtData(a.ultimoSignIn) : ''}">${a.ultimoLogin ? fmtData(a.ultimoLogin) : '<span style="color:#9f9f98" title="Sem uso registrado">nunca abriu</span>'}</td>
       <td>${a.numProcessos}</td>
       <td>${a.numTarefas}</td>

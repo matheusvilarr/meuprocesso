@@ -1,7 +1,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --navy:     #1a2e6b;
+  --navy:     #0c7fda;
   --gold:     #e8b400;
   --white:    #ffffff;
   --g50:      #f9fafb;
@@ -16,8 +16,8 @@
 
 html, body {
   height: 100%;
-  font-family: 'Inter', sans-serif;
-  background: linear-gradient(135deg,#0f172a 0%,#1e3a5f 55%,#1d4ed8 100%);
+  font-family: 'Roboto', sans-serif;
+  background: linear-gradient(135deg,#053958 0%,#0d5a96 55%,#2196f3 100%);
   background-attachment: fixed;
   color: var(--g700);
   font-size: 16px;
@@ -47,7 +47,7 @@ html, body {
 
 /* Blue top — logo/brand */
 .card-top {
-  background: linear-gradient(135deg,#0f172a 0%,#1e3a5f 55%,#1d4ed8 100%);
+  background: linear-gradient(135deg,#053958 0%,#0d5a96 55%,#2196f3 100%);
   padding: 36px 48px 32px;
   display: flex;
   justify-content: center;
@@ -97,7 +97,7 @@ html, body {
   border: 1.5px solid var(--g200);
   border-radius: 10px;
   font-size: 15px;
-  font-family: 'Inter', sans-serif;
+  font-family: 'Roboto', sans-serif;
   color: var(--g900);
   background: var(--white);
   outline: none;
@@ -153,7 +153,7 @@ html, body {
 .btn-submit {
   width: 100%;
   padding: 15px;
-  background: linear-gradient(135deg,#0f172a 0%,#1e3a5f 55%,#1d4ed8 100%);
+  background: linear-gradient(135deg,#053958 0%,#0d5a96 55%,#2196f3 100%);
   color: var(--white);
   border: none;
   border-radius: 10px;
@@ -162,7 +162,7 @@ html, body {
   letter-spacing: .08em;
   text-transform: uppercase;
   cursor: pointer;
-  font-family: 'Inter', sans-serif;
+  font-family: 'Roboto', sans-serif;
   transition: opacity .15s, transform .15s, box-shadow .15s;
   margin-top: 4px;
 }
@@ -249,7 +249,7 @@ html, body {
   border: 1.5px solid var(--g200);
   border-radius: 10px;
   background: var(--white);
-  font-family: 'Inter', sans-serif;
+  font-family: 'Roboto', sans-serif;
   font-size: 14px;
   font-weight: 600;
   color: var(--g700);
@@ -296,7 +296,7 @@ html, body {
   border: 1.5px solid var(--g200);
   border-radius: 10px;
   padding: 0 10px;
-  font-family: 'Inter', sans-serif;
+  font-family: 'Roboto', sans-serif;
   font-size: 14px;
   color: var(--g700);
   background: var(--white);
@@ -354,7 +354,7 @@ html, body {
   padding: 9px 0;
   border: none;
   border-radius: 7px;
-  font-family: 'Inter', sans-serif;
+  font-family: 'Roboto', sans-serif;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;

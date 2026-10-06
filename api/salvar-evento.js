@@ -15,8 +15,8 @@ export default async function handler(req, res) {
   const { data: { user }, error: userErr } = await userClient.auth.getUser(token);
   if (userErr || !user) return res.status(401).json({ erro: 'Token inválido.' });
 
-  const { titulo, tipo, data, processo_id, urgencia, notificar_antes, escritorio_id, eventos } = req.body || {};
-  const lote = Array.isArray(eventos) ? eventos : [{ titulo, tipo, data, processo_id, urgencia, notificar_antes }];
+  const { titulo, tipo, data, processo_id, nome_parte, urgencia, notificar_antes, escritorio_id, eventos } = req.body || {};
+  const lote = Array.isArray(eventos) ? eventos : [{ titulo, tipo, data, processo_id, nome_parte, urgencia, notificar_antes }];
   if (lote.some(e => !e.titulo || !e.data)) return res.status(400).json({ erro: 'Título e data são obrigatórios.' });
 
   // Se vier escritorio_id, valida que o usuário é colaborador ativo desse escritório
@@ -46,6 +46,7 @@ export default async function handler(req, res) {
     tipo:            e.tipo            || 'lembrete',
     data:            e.data,
     processo_id:     e.processo_id     || null,
+    nome_parte:      e.nome_parte      || null,
     urgencia:        e.urgencia        || 'baixa',
     notificar_antes: e.notificar_antes ?? 1,
     recorrencia_id:  recorrenciaId,

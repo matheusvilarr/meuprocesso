@@ -78,7 +78,7 @@ async function debugEmail(req, res) {
     <html lang="pt-BR">
     <body style="font-family:-apple-system,sans-serif;background:#f3f4f6;margin:0;padding:32px">
       <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
-        <div style="background:#1a2e6b;padding:24px 28px">
+        <div style="background:#053958;padding:24px 28px">
           <div style="font-size:18px;font-weight:700;color:#fff">Meu Processo</div>
           <div style="font-size:12px;color:rgba(255,255,255,.6);margin-top:2px">meuprocesso.app.br</div>
         </div>

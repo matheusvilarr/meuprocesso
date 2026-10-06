@@ -10,11 +10,13 @@ const _WIN1252_ALTOS = {
 };
 
 let _clientesDB   = [];
+let _clienteAtual = null; // cliente aberto no modal de perfil/edição
 let _honorariosDB = [];
 // Tarefas com prazo, de QUALQUER quadro/pasta — _tarefasDB só tem as do
 // quadro aberto no Kanban, mas sino/calendário/prazos do processo/dashboard
 // precisam enxergar tudo, não só a pasta ativa.
 let _tarefasPrazoDB = [];
+let _tarefasConcluidasCal = []; // só pro calendário — ver comentário em carregarTarefasPrazo()
 
 // Navigation
 const pages = {
@@ -45,6 +47,16 @@ function closeSidebar() {
   document.querySelector('.sidebar').classList.remove('open');
   document.getElementById('sidebar-overlay').classList.remove('show');
   document.body.style.overflow = '';
+}
+
+// Colapsa a sidebar pra só ícones (desktop). Começa recolhida — o estado
+// inicial já é aplicado num <script> inline no <body> (evita flash do menu
+// largo ao recarregar). O botão flutuante só existe pra expandir (o CSS já
+// esconde ele quando a barra está aberta), por isso não precisa de lógica
+// de ícone/título indo e voltando aqui.
+function toggleSidebarCollapse() {
+  const colapsada = document.body.classList.toggle('sidebar-collapsed');
+  localStorage.setItem('sidebar_collapsed', colapsada ? '1' : '0');
 }
 
 // Pilha de navegação do SPA — fonte da verdade pro botão voltar, em vez de
@@ -84,7 +96,15 @@ function showPage(id) {
   if (id === 'tarefas')       { carregarQuadros(); carregarTarefas(); const b = document.getElementById('badge-tarefas'); if(b){b.style.display='none';} }
   if (id === 'arquivados')    carregarArquivados();
   if (id === 'configuracoes') carregarConfiguracoes();
-  if (id === 'colaboradores') carregarParceiros();
+  if (id === 'colaboradores') {
+    carregarParceiros();
+    localStorage.setItem('parceiros_badge_last_seen', new Date().toISOString());
+    const bp = document.getElementById('badge-parceiros'); if (bp) bp.style.display = 'none';
+  }
+  if (id === 'processos') {
+    localStorage.setItem('processos_badge_last_seen', new Date().toISOString());
+    const bpr = document.getElementById('badge-processos'); if (bpr) bpr.style.display = 'none';
+  }
   if (id === 'tjdft') { verificarBackendPython(); inicializarDatesDJe(); }
   if (id === 'clientes')      carregarClientes();
   if (id === 'honorarios') { carregarHonorarios(); _aplicarVisHonorarios(); }
@@ -142,12 +162,16 @@ function _atualizarBadgesDetalhe(proc) {
 function openModal(id) {
   document.getElementById(id).classList.add('open');
   if (id === 'modal-lembrete') {
-    preencherProcessosModal('ev-processo');
     const hoje = new Date().toISOString().slice(0, 10);
     const evData = document.getElementById('ev-data');
     if (evData && !evData.value) evData.value = hoje;
     // Reseta estado de lock (só abrirModalPrazoProcesso o ativa)
     _resetarLockProcessoModal();
+    // Reseta modo edição — abrirEdicaoEvento() liga de novo logo em seguida
+    _eventoEditando = null;
+    document.querySelector('#modal-lembrete .modal-title').textContent = 'Novo Prazo / Lembrete';
+    const btnSalvar = document.getElementById('btn-salvar-evento');
+    if (btnSalvar) btnSalvar.innerHTML = '<i class="ti ti-check"></i> Salvar Prazo';
   }
   if (id === 'modal-lembrete-recorrente') {
     const hoje = new Date().toISOString().slice(0, 10);
@@ -365,7 +389,10 @@ function changeCalMonth(dir) {
   if (pop) pop.style.display = 'none';
 }
 
-let _diaSelecionado = null;
+let _diaSelecionado  = null;
+let _eventoEditando  = null; // id do evento em edição no modal-lembrete; null = criando novo
+
+function _eventoPorId(id) { return (_eventosDB || []).find(e => e.id === id); }
 
 function abrirDiaPopover(ano, mes, dia, celEl) {
   const pop    = document.getElementById('dia-popover');
@@ -387,7 +414,7 @@ function abrirDiaPopover(ano, mes, dia, celEl) {
   const tipoLabel = { prazo_processual:'Prazo', audiencia:'Audiência', lembrete:'Lembrete', reuniao:'Reunião' };
   const corTipo   = { prazo_processual:'#ef4444', audiencia:'#3b82f6', lembrete:'#f59e0b', reuniao:'#8b5cf6' };
   const eventos   = (_eventosDB || []).filter(e => e.data === isoDate);
-  const tarefas   = (_tarefasPrazoDB || []).filter(t => t.prazo === isoDate);
+  const tarefas   = [...(_tarefasPrazoDB || []), ...(_tarefasConcluidasCal || [])].filter(t => t.prazo === isoDate);
 
   const htmlEventos = eventos.map(e => {
     const sh = e.processo_id ? window._sharedSet?.[e.processo_id] : null;
@@ -399,18 +426,28 @@ function abrirDiaPopover(ano, mes, dia, celEl) {
         <div style="font-size:11px;color:var(--gray-400);margin-top:1px">${tipoLabel[e.tipo] || e.tipo}${e.hora ? ' · ' + e.hora : ''}</div>
         ${sh ? `<div style="font-size:10px;color:#7c3aed;margin-top:2px"><i class="ti ti-handshake" style="font-size:10px"></i> ${_esc(sh.owner_nome)}</div>` : ''}
       </div>
+      <div style="display:flex;gap:1px;flex-shrink:0">
+        <button onclick="abrirEdicaoEvento(_eventoPorId('${e.id}'))" title="Editar"
+          style="background:none;border:none;cursor:pointer;color:var(--gray-400);padding:4px;border-radius:5px"
+          onmouseover="this.style.background='var(--gray-200)'" onmouseout="this.style.background='none'"><i class="ti ti-pencil" style="font-size:13px"></i></button>
+        <button onclick="excluirEvento('${e.id}')" title="Excluir"
+          style="background:none;border:none;cursor:pointer;color:var(--gray-400);padding:4px;border-radius:5px"
+          onmouseover="this.style.background='#fee2e2';this.style.color='var(--red)'" onmouseout="this.style.background='none';this.style.color='var(--gray-400)'"><i class="ti ti-trash" style="font-size:13px"></i></button>
+      </div>
     </div>`;
   }).join('');
 
   const htmlTarefas = tarefas.map(t => {
+    const concluida = t.coluna === 'concluida';
     const st = _prazoStatus(t.prazo, t.coluna);
-    const cor = st?.nivel === 'fatal' ? '#be123c' : '#dc2626';
+    const cor = concluida ? '#1a7a4a' : (st?.nivel === 'fatal' ? '#be123c' : '#dc2626');
+    const tituloEstilo = concluida ? 'text-decoration:line-through;opacity:.6' : '';
     return `
     <div onclick="abrirTarefaPorId('${t.id}','${t.quadro_id || ''}')" style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:8px;background:var(--gray-50);cursor:pointer">
       <div style="width:3px;min-height:34px;border-radius:4px;background:${cor};flex-shrink:0;margin-top:2px"></div>
       <div style="flex:1;min-width:0">
-        <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(t.titulo)}</div>
-        <div style="font-size:11px;color:var(--gray-400);margin-top:1px">Tarefa</div>
+        <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${tituloEstilo}">${_esc(t.titulo)}</div>
+        <div style="font-size:11px;color:${concluida ? '#1a7a4a' : 'var(--gray-400)'};margin-top:1px">${concluida ? '✓ Concluída' : 'Tarefa'}</div>
       </div>
     </div>`;
   }).join('');
@@ -467,6 +504,31 @@ function abrirNovoEventoDia() {
   openModal('modal-lembrete');
   const evData = document.getElementById('ev-data');
   if (evData) evData.value = isoDate;
+}
+
+function abrirEdicaoEvento(ev) {
+  if (!ev) return;
+  fecharDiaPopover();
+  openModal('modal-lembrete'); // abre em modo "novo" — sobrescrevemos os campos abaixo
+  _eventoEditando = ev.id;
+  document.getElementById('ev-tipo').value      = ev.tipo || 'lembrete';
+  document.getElementById('ev-titulo').value    = ev.titulo || '';
+  document.getElementById('ev-data').value      = ev.data || '';
+  document.getElementById('ev-urgencia').value  = ev.urgencia || 'baixa';
+  document.getElementById('ev-notificar').value = String(ev.notificar_antes ?? 1);
+  const procVinculado = ev.processo_id ? (window._processosDB || []).find(p => p.id === ev.processo_id) : null;
+  document.getElementById('ev-processo-id').value = ev.processo_id || '';
+  if (procVinculado) {
+    _mostrarChipProcesso(procVinculado.apelido || procVinculado.nome || procVinculado.numero);
+  } else {
+    document.getElementById('ev-processo-chip').style.display = 'none';
+    document.getElementById('ev-processo-texto').style.display = 'block';
+    document.getElementById('ev-processo-texto').value = '';
+  }
+  document.getElementById('ev-parte').value = ev.nome_parte || '';
+  document.querySelector('#modal-lembrete .modal-title').textContent = 'Editar Prazo / Lembrete';
+  const btn = document.getElementById('btn-salvar-evento');
+  if (btn) btn.innerHTML = '<i class="ti ti-check"></i> Salvar Alterações';
 }
 
 // ── CALENDÁRIO EXPANDIDO ────────────────────────────────────────────────────
@@ -769,7 +831,7 @@ function buildFullCal() {
   }
 
   const tarefasPorDia = {};
-  for (const t of (_tarefasPrazoDB || [])) {
+  for (const t of [...(_tarefasPrazoDB || []), ...(_tarefasConcluidasCal || [])]) {
     const d = new Date(t.prazo + 'T12:00:00');
     if (d.getFullYear() === fullCalDate.getFullYear() && d.getMonth() === fullCalDate.getMonth()) {
       const day = d.getDate();
@@ -784,25 +846,33 @@ function buildFullCal() {
     html += `<div class="fcal-day other-month"><div class="fcal-day-num">${d.getDate()}</div></div>`;
   }
 
+  // Teto de pílulas por dia — sem isso um dia com muitos compromissos
+  // (comum pra quem tem centenas de processos) esticava a linha inteira da
+  // semana e empurrava as outras pra baixo, dando a impressão de que o dia
+  // "sumiu". Acima do teto, mostra "+N mais" e o resto fica no popover do dia.
+  const LIMITE_DIA = 3;
+
   for (let d = 1; d <= last.getDate(); d++) {
     const isToday = fullCalDate.getFullYear() === today.getFullYear() &&
                     fullCalDate.getMonth() === today.getMonth() && d === today.getDate();
-    const events  = eventosPorDia[d] || [];
-    const evHtml  = events.map(e => {
-      const sh = e.processo_id ? window._sharedSet?.[e.processo_id] : null;
-      const shIcon = sh ? `<i class="ti ti-handshake" title="Compartilhado por ${_esc(sh.owner_nome)}" style="font-size:9px;margin-left:3px;opacity:.8"></i>` : '';
-      return `<div class="fcal-event ${_tipoEvtCls[e.tipo] || 'event-lembrete'}"
-            onclick="event.stopPropagation();excluirEvento('${e.id}')"
-            title="${_esc(e.titulo)}${sh ? ' · Compartilhado por ' + _esc(sh.owner_nome) : ''} (clique para excluir)">${_esc(e.titulo)}${shIcon}</div>`;
-    }).join('');
-    const tarefasDia = tarefasPorDia[d] || [];
-    const tarHtml = tarefasDia.map(t => {
-      const st = _prazoStatus(t.prazo, t.coluna);
-      return `<div class="fcal-event event-tarefa event-tarefa-${st?.nivel || 'baixo'}"
-            onclick="event.stopPropagation();abrirTarefaPorId('${t.id}','${t.quadro_id || ''}')"
-            title="${_esc(t.titulo)} (tarefa — clique para abrir)"><i class="ti ti-checklist" style="font-size:9px;margin-right:2px"></i>${_esc(t.titulo)}</div>`;
-    }).join('');
-    html += `<div class="fcal-day ${isToday ? 'today' : ''}"><div class="fcal-day-num">${d}</div>${evHtml}${tarHtml}</div>`;
+    const events      = eventosPorDia[d] || [];
+    const tarefasDia  = tarefasPorDia[d] || [];
+    const total       = events.length + tarefasDia.length;
+
+    const itensHtml = [
+      ...events.map(e => `<div class="fcal-event ${_tipoEvtCls[e.tipo] || 'event-lembrete'}">${_esc(e.titulo)}</div>`),
+      ...tarefasDia.map(t => {
+        const concluida = t.coluna === 'concluida';
+        const st = _prazoStatus(t.prazo, t.coluna);
+        const nivelCls = concluida ? 'concluida' : (st?.nivel || 'baixo');
+        const icone = concluida ? 'ti-circle-check' : 'ti-checklist';
+        const tituloEstilo = concluida ? 'text-decoration:line-through' : '';
+        return `<div class="fcal-event event-tarefa event-tarefa-${nivelCls}"><i class="ti ${icone}" style="font-size:9px;margin-right:2px"></i><span style="${tituloEstilo}">${_esc(t.titulo)}</span></div>`;
+      }),
+    ].slice(0, LIMITE_DIA).join('');
+    const maisHtml = total > LIMITE_DIA ? `<div class="fcal-event fcal-mais">+${total - LIMITE_DIA} mais</div>` : '';
+
+    html += `<div class="fcal-day ${isToday ? 'today' : ''}" onclick="abrirDiaPopover(${fullCalDate.getFullYear()},${fullCalDate.getMonth()},${d},this)"><div class="fcal-day-num">${d}</div>${itensHtml}${maisHtml}</div>`;
   }
 
   grid.innerHTML = html;
@@ -994,7 +1064,7 @@ async function buscarAdvogadoDJEN() {
         ? `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:8px;background:#fef3c7;color:#92400e;white-space:nowrap">${doc._pubCount} publicações</span>`
         : '';
 
-      const badgeTipo = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;background:${temMatch ? '#dcfce7;color:#166534' : '#e8edf5;color:var(--navy)'};white-space:nowrap">${temMatch ? '✓ No sistema' : (doc.tipoComunicacao || 'PUBLICAÇÃO')}</span>`;
+      const badgeTipo = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;background:${temMatch ? '#dcfce7;color:#166534' : '#e8edf5;color:var(--gray-800)'};white-space:nowrap">${temMatch ? '✓ No sistema' : (doc.tipoComunicacao || 'PUBLICAÇÃO')}</span>`;
       const badgeDecisao = doc.tipoDecisao ? `<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#f3f4f6;color:var(--gray-500)">${doc.tipoDecisao}</span>` : '';
 
       // Card compacto para processos já no sistema
@@ -1372,7 +1442,7 @@ function exibirResultados(lista) {
           <div style="font-size:12px;color:var(--gray-500);margin-top:2px">${d.classe || ''}</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-          <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#e8edf5;color:var(--navy);white-space:nowrap">${d.tribunal || ''}</span>
+          <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#e8edf5;color:var(--gray-800);white-space:nowrap">${d.tribunal || ''}</span>
           ${jaExiste ? `<span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#dcfce7;color:#15803d">Já cadastrado</span>` : ''}
         </div>
       </div>
@@ -1510,13 +1580,17 @@ async function carregarProcessos() {
 
   const uid = window._user.id;
 
+  // Badges da sidebar não são mais "total" — zeram ao visitar a página e só
+  // voltam a contar coisa posterior a essa visita (ver showPage()).
+  const lastSeenParceiros = localStorage.getItem('parceiros_badge_last_seen') || '1970-01-01';
+
   // Carrega processos + compartilhamentos em paralelo
   const [processosRes, countArqRes, sharedWithMeRes, mySharesRes, pendentesRes] = await Promise.all([
     _supabase.from('processos').select('*').neq('status', 'Arquivado').order('created_at', { ascending: false }),
     _supabase.from('processos').select('id', { count: 'exact', head: true }).eq('status', 'Arquivado'),
     _supabase.from('processo_compartilhamentos').select('processo_id,owner_nome,nivel_acesso').eq('shared_with_id', uid).eq('status', 'aceito'),
     _supabase.from('processo_compartilhamentos').select('processo_id,shared_with_nome,nivel_acesso').eq('owner_id', uid).eq('status', 'aceito'),
-    _supabase.from('processo_compartilhamentos').select('id', { count: 'exact', head: true }).eq('shared_with_id', uid).eq('status', 'pendente'),
+    _supabase.from('processo_compartilhamentos').select('id', { count: 'exact', head: true }).eq('shared_with_id', uid).eq('status', 'pendente').gt('created_at', lastSeenParceiros),
   ]);
 
   const data = processosRes.data;
@@ -1541,12 +1615,17 @@ async function carregarProcessos() {
     return dB.localeCompare(dA);
   });
 
-  // Badge de processos (exclui os que eu não possuo — shared)
+  // "meus" segue sendo o total (usado no card do Dashboard e em outros
+  // lugares) — só o badge da sidebar virou "novidade desde a última visita".
   const meus = data.filter(p => !window._sharedSet[p.id]);
+  const lastSeenProcessos = localStorage.getItem('processos_badge_last_seen') || '1970-01-01';
+  const novosDesdeVisita = meus.filter(p =>
+    p.notificacao_pendente && (p.ultima_verificacao || p.created_at || '') > lastSeenProcessos
+  );
   const badge = document.getElementById('badge-processos');
   if (badge) {
-    badge.textContent   = meus.length;
-    badge.style.display = meus.length ? 'inline-flex' : 'none';
+    badge.textContent   = novosDesdeVisita.length;
+    badge.style.display = novosDesdeVisita.length ? 'inline-flex' : 'none';
   }
 
   // Badge de arquivados
@@ -1898,7 +1977,7 @@ function renderizarListaProcessos(lista) {
         </div>
         <div style="display:flex;align-items:center;gap:5px">
           ${isShared ? `<span class="pc-share-badge"><i class="ti ti-share" style="font-size:9px"></i> ${_esc(sharedInfo.owner_nome.split(' ')[0])}</span>` : ''}
-          <span title="${syncTip}" style="width:7px;height:7px;border-radius:50%;background:${syncDot};flex-shrink:0;display:inline-block"></span>
+          <i class="ti ti-cloud-check" title="${syncTip}" style="font-size:12px;color:${syncDot};flex-shrink:0"></i>
           <span class="pc-status status-${statusCls(p.status)}">${p.status || 'Ativo'}</span>
           ${!isShared ? `
             <button class="pc-fav-btn${p.favorito ? ' ativo' : ''}" onclick="favoritar(event,'${p.id}')" title="${p.favorito ? 'Remover dos favoritos' : 'Favoritar'}">
@@ -1911,7 +1990,11 @@ function renderizarListaProcessos(lista) {
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:4px;min-width:0" class="pc-title-row">
-        <div class="pc-title" style="flex:1;min-width:0" id="pc-title-${p.id}">${_esc(_nomeProc(p))}</div>
+        <div class="pc-title" style="flex:1;min-width:0" id="pc-title-${p.id}">${
+          _digitos(_nomeProc(p)) && _digitos(_nomeProc(p)) === _digitos(p.numero)
+            ? '<span style="color:var(--gray-400);font-style:italic">Aguardando dados do tribunal…</span>'
+            : _esc(_nomeProc(p))
+        }</div>
         ${!isShared ? `<button onclick="editarApelidoCard(event,'${p.id}')" title="Editar apelido"
           style="background:none;border:none;padding:2px 4px;cursor:pointer;color:var(--gray-400);font-size:12px;flex-shrink:0;opacity:0;transition:opacity .15s"
           class="btn-edit-apelido-card">
@@ -2122,13 +2205,12 @@ async function verificarProcessoAgora(evt, id, datajudIndex, numero) {
     if (!res.ok) throw new Error(data.erro || 'erro api');
     if (!data.resultados?.length) throw new Error('não encontrado');
 
-    const d    = data.resultados[0];
-    const movs = d.movimentos || [];
+    const d = data.resultados[0];
 
     const proc = await _processoFresco(id);
     if (!proc) throw new Error('não encontrado');
 
-    const { upd, novos } = _atualizacaoDatajud(proc, movs);
+    const { upd, novos } = _atualizacaoDatajud(proc, d);
     const { error: upErr } = await _supabase.from('processos').update(upd).eq('id', id);
     if (upErr) throw upErr;
 
@@ -2385,7 +2467,7 @@ function renderizarTimelineCNJ(proc) {
                   ? `<span style="margin-left:6px;background:var(--gray-100);color:var(--gray-400);font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px">LOG</span>`
                   : m._fonte === 'djen'
                     ? '<span style="margin-left:6px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px">DJEN</span>'
-                    : '<span style="margin-left:6px;background:#e8f0fe;color:#1a2e6b;font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px">CNJ</span>'
+                    : '<span style="margin-left:6px;background:#e8f0fe;color:#053958;font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px">CNJ</span>'
               }
               ${m._url
                 ? `<a href="${m._url}" target="_blank" rel="noopener" title="Ver publicação" style="margin-left:6px;color:var(--gray-400);font-size:11px;text-decoration:none;vertical-align:middle"><i class="ti ti-external-link"></i></a>`
@@ -2650,7 +2732,7 @@ function _indiceDoNumero(numero) {
 // para duas pessoas editando o mesmo processo não apagarem o texto uma da
 // outra. Se a função ainda não existir no banco (migration não rodada), cai no
 // jeito antigo em vez de deixar o advogado sem salvar nada.
-async function _jsonbRpc(fn, args, coluna, aplicarLocal) {
+async function _jsonbRpc(fn, args, coluna, aplicarLocal, tabela = 'processos', idArg = 'p_processo') {
   const esperado = aplicarLocal();
   const { data, error } = await _supabase.rpc(fn, args);
 
@@ -2660,7 +2742,7 @@ async function _jsonbRpc(fn, args, coluna, aplicarLocal) {
     // deveria, algo está errado nela e o texto de alguém acabou de sumir.
     // Em vez de aceitar a perda, regrava o resultado correto.
     if (lista.length < esperado.length) {
-      await _supabase.from('processos').update({ [coluna]: esperado }).eq('id', args.p_processo);
+      await _supabase.from(tabela).update({ [coluna]: esperado }).eq('id', args[idArg]);
       return { lista: esperado, error: null };
     }
     return { lista, error: null };
@@ -2669,8 +2751,8 @@ async function _jsonbRpc(fn, args, coluna, aplicarLocal) {
   const faltaFuncao = /(could not find|does not exist|schema cache|404)/i.test(error.message || '');
   if (!faltaFuncao) return { lista: null, error };
 
-  const { error: err2 } = await _supabase.from('processos')
-    .update({ [coluna]: esperado }).eq('id', args.p_processo);
+  const { error: err2 } = await _supabase.from(tabela)
+    .update({ [coluna]: esperado }).eq('id', args[idArg]);
   return { lista: esperado, error: err2 || null };
 }
 
@@ -2682,6 +2764,17 @@ function _jsonbAnexar(fn, args, coluna, item) {
 function _jsonbRemover(fn, args, coluna, id) {
   return _jsonbRpc(fn, args, coluna,
     () => (_processoAtual?.[coluna] || []).filter(x => x.id !== id));
+}
+
+// Mesmo mecanismo, pros comentários do cliente (ver migration_clientes_perfil.sql).
+function _jsonbAnexarCliente(fn, args, coluna, item) {
+  return _jsonbRpc(fn, args, coluna,
+    () => [...(_clienteAtual?.[coluna] || []), item], 'clientes', 'p_cliente');
+}
+
+function _jsonbRemoverCliente(fn, args, coluna, id) {
+  return _jsonbRpc(fn, args, coluna,
+    () => (_clienteAtual?.[coluna] || []).filter(x => x.id !== id), 'clientes', 'p_cliente');
 }
 
 // Chamada à nossa API já com o login do advogado. A busca no DataJud passou
@@ -2893,13 +2986,13 @@ async function sincronizarDetalhe() {
     const data = await res.json();
     if (!res.ok || !data.resultados?.length) throw new Error();
 
-    const movs = data.resultados[0].movimentos || [];
+    const d = data.resultados[0];
 
     // Quem está com o processo aberto já está vendo as novidades — não
     // acende a notificação de novo (abrirProcesso já a marcou como lida).
     const fresco = await _processoFresco(_processoAtual.id);
     if (!fresco) throw new Error();
-    const { upd, novos } = _atualizacaoDatajud({ ...fresco, notificacao_pendente: false }, movs);
+    const { upd, novos } = _atualizacaoDatajud({ ...fresco, notificacao_pendente: false }, d);
     delete upd.notificacao_pendente;
     delete upd.email_pendente;
     if (novos.length) upd.novos_movimentos = novos; // só pra destacar "NOVO" na timeline
@@ -2908,7 +3001,10 @@ async function sincronizarDetalhe() {
     if (upErr) throw upErr;
     Object.assign(_processoAtual, upd);
 
-    renderizarTimelineCNJ(_processoAtual);
+    // popularDetalhe (não só a timeline) — pra quando o processo veio sem
+    // nome/classe/tribunal (descoberto pelo DJEN), o título deixar de mostrar
+    // o número cru na mesma hora, sem precisar sair e abrir de novo.
+    popularDetalhe(_processoAtual);
     document.getElementById('detalhe-sync-badge').innerHTML =
       `<i class="ti ti-cloud-check"></i> CNJ DataJud · verificado agora`;
 
@@ -3317,7 +3413,16 @@ async function _processoFresco(id) {
   return data;
 }
 
-function _atualizacaoDatajud(proc, movs) {
+// `resultado` aceita dois formatos, por compatibilidade com quem já chamava
+// isso antes: um array de movimentos (jeito antigo) ou o objeto inteiro que
+// /api/buscar-processo devolve (com .movimentos, .classe, .tribunal, etc).
+// Só no segundo formato dá pra completar nome/classe/tribunal do processo
+// descoberto pelo DJEN — e é exatamente isso que faltava: o botão
+// "Sincronizar" e a sincronização em segundo plano paravam só na timeline,
+// nunca preenchiam esses campos, então um processo descoberto ficava com o
+// número no lugar do nome PARA SEMPRE, mesmo clicando repetidas vezes.
+function _atualizacaoDatajud(proc, resultado) {
+  const movs = Array.isArray(resultado) ? resultado : (resultado?.movimentos || []);
   const salvos      = proc.movimentos_recentes || [];
   const anteriores  = salvos.filter(m => !_ehMovDJEN(m));
   const conhecidas  = new Set(anteriores.map(_chaveMov));
@@ -3350,6 +3455,20 @@ function _atualizacaoDatajud(proc, movs) {
     upd.email_pendente       = true;
     upd.novos_movimentos     = [...novos, ...pendentes.filter(m => !chaves.has(_chaveMov(m)))];
   }
+
+  // Espelha o mesmo "if" do cron no servidor (api/cron/sincronizar.js). Só
+  // mexe no nome/classe/tribunal quando o processo ainda está com o número no
+  // lugar do nome — nunca sobrescreve apelido nem dado que o advogado editou.
+  if (!Array.isArray(resultado) && proc.nome && proc.nome === proc.numero) {
+    if (resultado.classe) {
+      const classe = _tituloProcesso(resultado.classe);
+      upd.nome = classe;
+      upd.classe = classe;
+    }
+    if (resultado.orgaoJulgador) upd.orgao_julgador = _corrigirMojibake(resultado.orgaoJulgador);
+    if (resultado.tribunal)      upd.tribunal       = _corrigirMojibake(resultado.tribunal);
+  }
+
   return { upd, novos };
 }
 
@@ -3369,13 +3488,17 @@ async function sincronizarTodos() {
       const data = await res.json();
       if (!res.ok || !data.resultados?.length) continue;
 
-      const movs = data.resultados[0].movimentos || [];
-      const hash = movs.slice(0, 6).map(m => m.data + m.nome).join('|');
-      if (hash === p.movimentos_hash) continue;
+      const d    = data.resultados[0];
+      const hash = (d.movimentos || []).slice(0, 6).map(m => m.data + m.nome).join('|');
+      // Mesmo sem movimentação nova, um processo descoberto pelo DJEN (nome
+      // ainda = número) precisa passar adiante — é a única forma de ele um
+      // dia ganhar nome/classe/tribunal, já que isso só acontece dentro de
+      // _atualizacaoDatajud(). Sem este "e", ele ficava preso pra sempre.
+      if (hash === p.movimentos_hash && p.nome !== p.numero) continue;
 
       const fresco = await _processoFresco(p.id);
       if (!fresco) continue;
-      const { upd, novos } = _atualizacaoDatajud(fresco, movs);
+      const { upd, novos } = _atualizacaoDatajud(fresco, d);
       const { error } = await _supabase.from('processos').update(upd).eq('id', p.id);
       if (!error && novos.length) atualizados++;
     } catch (_) {}
@@ -3568,7 +3691,7 @@ async function carregarArquivados() {
 // ── COLABORADORES ─────────────────────────────────────────────────────────
 
 function _avatarCor(str) {
-  const paleta = ['#1a2e6b','#1565c0','#1a7a4a','#9c2b6a','#c0390f','#b07a00','#374151','#0d7377','#7c3aed'];
+  const paleta = ['#053958','#1565c0','#1a7a4a','#9c2b6a','#c0390f','#b07a00','#374151','#0d7377','#7c3aed'];
   let h = 0;
   for (let i = 0; i < (str || '').length; i++) h = ((h << 5) - h + (str || '').charCodeAt(i)) | 0;
   return paleta[Math.abs(h) % paleta.length];
@@ -3639,7 +3762,7 @@ async function carregarColaboradores() {
     const meta   = window._user?.user_metadata || {};
     const nomeT  = meta.full_name || meta.nome || window._user?.email?.split('@')[0] || 'Titular';
     const emailT = window._user?.email || '';
-    const corT   = meta.avatar_color || '#1a2e6b';
+    const corT   = meta.avatar_color || '#053958';
     const iniT   = _avatarIniciais(nomeT, emailT);
     titularHTML  = _membroCardHTML(iniT, corT, nomeT, emailT, 'Titular', 'Escritório completo', '', '');
   }
@@ -4170,8 +4293,8 @@ function _nivelLabel(nivel) {
 
 // ── CONFIGURAÇÕES / PERFIL ────────────────────────────────────────────────
 
-const AVATAR_CORES = ['#1a2e6b','#1565c0','#1a7a4a','#9c2b6a','#c0390f','#b07a00','#374151'];
-let _avatarCorAtual = '#1a2e6b';
+const AVATAR_CORES = ['#053958','#1565c0','#1a7a4a','#9c2b6a','#c0390f','#b07a00','#374151'];
+let _avatarCorAtual = '#053958';
 
 function aplicarAvatarSidebar() {
   const avatar = document.getElementById('sidebar-user-avatar');
@@ -4190,7 +4313,7 @@ function aplicarAvatarSidebar() {
     avatar.style.overflow   = 'hidden';
   } else {
     avatar.innerHTML = '';
-    const cor      = meta.avatar_color || '#1a2e6b';
+    const cor      = meta.avatar_color || '#053958';
     const iniciais = nome.trim().split(' ').filter(Boolean).slice(0,2).map(p => p[0].toUpperCase()).join('')
                      || (window._user.email || '?')[0].toUpperCase();
     avatar.textContent      = iniciais;
@@ -4417,7 +4540,7 @@ function carregarConfiguracoes() {
   const meta  = window._user?.user_metadata || {};
   const nome  = meta.full_name || meta.nome || '';
   const email = window._user?.email || '';
-  const cor   = meta.avatar_color || '#1a2e6b';
+  const cor   = meta.avatar_color || '#053958';
 
   _avatarCorAtual = cor;
 
@@ -4787,6 +4910,7 @@ async function excluirEvento(id) {
   const { error } = await _supabase.from('eventos').delete().eq('id', id);
   if (error) { showToast('Erro ao excluir evento.'); return; }
   showToast('Evento excluído.');
+  fecharDiaPopover(); // evita lista do popover ficar com o item já apagado
   carregarEventos();
 }
 
@@ -4794,17 +4918,37 @@ async function salvarEvento() {
   const titulo   = document.getElementById('ev-titulo')?.value.trim()   || '';
   const tipo     = document.getElementById('ev-tipo')?.value            || 'lembrete';
   const data     = document.getElementById('ev-data')?.value            || '';
-  const proc     = document.getElementById('ev-processo')?.value        || '';
+  const proc     = document.getElementById('ev-processo-id')?.value     || '';
+  const parte    = document.getElementById('ev-parte')?.value.trim()    || '';
   const urgencia = document.getElementById('ev-urgencia')?.value        || 'baixa';
   const notif    = parseInt(document.getElementById('ev-notificar')?.value || '1', 10);
 
   if (!titulo) { showToast('Preencha a descrição do evento.'); return; }
   if (!data)   { showToast('Selecione uma data.'); return; }
 
+  // Mesma checagem da tarefa: nome em "Nome da parte" sem bater com cliente
+  // cadastrado pergunta antes de seguir (ver _garantirClienteCadastrado).
+  const parteFinal = await _garantirClienteCadastrado(parte, salvarEvento);
+  if (parte && parteFinal === null) return;
+
   const btn = document.getElementById('btn-salvar-evento');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Salvando...'; }
 
   try {
+    // Editando: grava direto no Supabase (sem passar pela função serverless,
+    // que só existe pra disparar o fluxo de criação) — igual excluirEvento().
+    if (_eventoEditando) {
+      const { error } = await _supabase.from('eventos').update({
+        titulo, tipo, data, processo_id: proc || null, nome_parte: parteFinal || null, urgencia, notificar_antes: notif,
+      }).eq('id', _eventoEditando);
+      if (error) { showToast('Erro: ' + error.message); return; }
+      _eventoEditando = null;
+      closeModal('modal-lembrete');
+      showToast('Prazo atualizado.');
+      carregarEventos();
+      return;
+    }
+
     const { data: { session } } = await _supabase.auth.getSession();
     if (!session) { showToast('Sessão expirada. Recarregue a página.'); return; }
 
@@ -4816,7 +4960,8 @@ async function salvarEvento() {
       },
       body: JSON.stringify({
         titulo, tipo, data,
-        processo_id:     proc || null,
+        processo_id:     proc       || null,
+        nome_parte:      parteFinal || null,
         urgencia,
         notificar_antes: notif,
         escritorio_id:   window._isColaborador ? window._escritorioId : undefined,
@@ -4980,8 +5125,13 @@ async function carregarPrazosProcesso(processoId) {
 function _resetarLockProcessoModal() {
   document.getElementById('ev-processo-locked').style.display     = 'none';
   document.getElementById('ev-processo-toggle-wrap').style.display = 'none';
-  document.getElementById('ev-processo').style.display            = 'block';
+  document.getElementById('ev-processo-texto').style.display      = 'block';
   document.getElementById('ev-processo-span-opcional').style.display = 'inline';
+  document.getElementById('ev-processo-texto').value = '';
+  document.getElementById('ev-processo-id').value    = '';
+  document.getElementById('ev-processo-chip').style.display = 'none';
+  const parte = document.getElementById('ev-parte');
+  if (parte) parte.value = '';
   const tog = document.getElementById('ev-processo-toggle');
   if (tog) tog.checked = false;
 }
@@ -4991,13 +5141,15 @@ function abrirModalPrazoProcesso() {
   if (!_processoAtual) return;
 
   // Trava o campo no processo atual
-  const sel    = document.getElementById('ev-processo');
+  const txt    = document.getElementById('ev-processo-texto');
+  const idEl   = document.getElementById('ev-processo-id');
   const locked = document.getElementById('ev-processo-locked');
   const nome   = document.getElementById('ev-processo-locked-nome');
   const toggle = document.getElementById('ev-processo-toggle-wrap');
   const opc    = document.getElementById('ev-processo-span-opcional');
 
-  if (sel)    { sel.value = _processoAtual.id; sel.style.display = 'none'; }
+  if (idEl)   idEl.value = _processoAtual.id;
+  if (txt)    { txt.value = (_processoAtual.apelido || _processoAtual.nome); txt.style.display = 'none'; }
   if (locked) locked.style.display = 'flex';
   if (nome)   nome.textContent = (_processoAtual.apelido || _processoAtual.nome) +
                                   (_processoAtual.numero ? '  ·  ' + _processoAtual.numero : '');
@@ -5006,15 +5158,219 @@ function abrirModalPrazoProcesso() {
 }
 
 function toggleProcessoOutro(checked) {
-  const sel    = document.getElementById('ev-processo');
+  const txt    = document.getElementById('ev-processo-texto');
+  const idEl   = document.getElementById('ev-processo-id');
   const locked = document.getElementById('ev-processo-locked');
+  const chip   = document.getElementById('ev-processo-chip');
   if (checked) {
     if (locked) locked.style.display = 'none';
-    if (sel)    { sel.style.display = 'block'; sel.value = _processoAtual?.id || ''; }
+    if (chip)   chip.style.display = 'none';
+    if (txt)    { txt.style.display = 'block'; txt.value = ''; txt.focus(); }
+    if (idEl)   idEl.value = '';
   } else {
     if (locked) locked.style.display = 'flex';
-    if (sel)    { sel.style.display = 'none'; if (_processoAtual) sel.value = _processoAtual.id; }
+    if (chip)   chip.style.display = 'none';
+    if (txt)    txt.style.display = 'none';
+    if (idEl && _processoAtual) idEl.value = _processoAtual.id;
   }
+}
+
+// ── COMBO DE TEXTO COM SUGESTÃO (processo / nome da parte) ─────────────────
+// Nunca obriga escolher: a sugestão só preenche o campo quando clicada
+// (onmousedown+preventDefault pra não perder o foco antes do clique
+// registrar); digitar livre e salvar sem clicar em nada também é válido.
+let _procSugestoesAtual  = [];
+let _parteSugestoesAtual = [];
+
+function _comboFiltrarProcessos(valor) {
+  const idEl = document.getElementById('ev-processo-id');
+  if (idEl) idEl.value = ''; // editar o texto invalida a seleção anterior
+  const q = (valor || '').toLowerCase().trim();
+  const lista = document.getElementById('ev-processo-sugestoes');
+  if (!lista) return;
+  if (!q) { lista.style.display = 'none'; return; }
+  const procs = window._processosDB || [];
+  _procSugestoesAtual = procs.filter(p => {
+    const alvo = `${p.numero || ''} ${p.apelido || ''} ${p.nome || ''} ${p.cliente || ''}`.toLowerCase();
+    return alvo.includes(q);
+  }).slice(0, 8);
+  if (!_procSugestoesAtual.length) { lista.style.display = 'none'; return; }
+  lista.innerHTML = _procSugestoesAtual.map((p, i) => `
+    <div class="autocomplete-item" onmousedown="event.preventDefault();_comboEscolherProcesso(${i})">
+      <div style="font-weight:600;font-size:12.5px;color:var(--navy)">${_esc(p.apelido || p.nome || p.numero)}</div>
+      <div style="font-size:11px;color:var(--gray-400)">${_esc(p.numero)}${p.cliente ? ' · ' + _esc(p.cliente) : ''}</div>
+    </div>`).join('');
+  lista.style.display = 'block';
+}
+function _comboEscolherProcesso(i) {
+  const p = _procSugestoesAtual[i];
+  if (!p) return;
+  document.getElementById('ev-processo-id').value = p.id;
+  _mostrarChipProcesso(p.apelido || p.nome || p.numero);
+  document.getElementById('ev-processo-sugestoes').style.display = 'none';
+}
+
+// Processo escolhido vira uma pílula removível (tipo destinatário de
+// e-mail), em vez de ficar como texto solto que dá pra confundir com texto
+// livre. O "x" volta pro campo de texto vazio, pronto pra buscar de novo.
+function _mostrarChipProcesso(nome) {
+  const txt  = document.getElementById('ev-processo-texto');
+  const chip = document.getElementById('ev-processo-chip');
+  txt.style.display = 'none';
+  txt.value = '';
+  document.getElementById('ev-processo-chip-texto').textContent = nome;
+  chip.style.display = 'flex';
+}
+
+function _removerProcessoChip() {
+  document.getElementById('ev-processo-id').value = '';
+  document.getElementById('ev-processo-chip').style.display = 'none';
+  const txt = document.getElementById('ev-processo-texto');
+  txt.style.display = 'block';
+  txt.value = '';
+  txt.focus();
+}
+
+function _comboFiltrarPartes(valor) {
+  const q = (valor || '').toLowerCase().trim();
+  const lista = document.getElementById('ev-parte-sugestoes');
+  if (!lista) return;
+  if (!q) { lista.style.display = 'none'; return; }
+  const nomes = new Set();
+  (window._processosDB || []).forEach(p => {
+    if (p.cliente)         nomes.add(p.cliente);
+    if (p.parte_contraria) nomes.add(p.parte_contraria);
+  });
+  _parteSugestoesAtual = [...nomes].filter(n => n.toLowerCase().includes(q)).slice(0, 8);
+  if (!_parteSugestoesAtual.length) { lista.style.display = 'none'; return; }
+  lista.innerHTML = _parteSugestoesAtual.map((n, i) =>
+    `<div class="autocomplete-item" onmousedown="event.preventDefault();_comboEscolherParte(${i})">${_esc(n)}</div>`).join('');
+  lista.style.display = 'block';
+}
+function _comboEscolherParte(i) {
+  const n = _parteSugestoesAtual[i];
+  if (n == null) return;
+  document.getElementById('ev-parte').value = n;
+  document.getElementById('ev-parte-sugestoes').style.display = 'none';
+}
+
+function _comboFechar(listaId) {
+  setTimeout(() => { const l = document.getElementById(listaId); if (l) l.style.display = 'none'; }, 150);
+}
+
+// ── SUGESTÃO DE TEXTO LIVRE EM TAREFAS (processo e cliente) ─────────────────
+// Diferente do combo do evento, aqui não tem campo de id escondido — é só
+// texto com sugestão, porque numero_processo_manual/cliente_manual sempre
+// foram texto livre nessas telas. Reaproveitado nos dois lugares que têm
+// esses campos: o modal de Nova Tarefa (tar-*) e o painel de detalhe (tp-*).
+let _sugestaoProcTexto    = [];
+let _sugestaoClienteTexto = [];
+
+function _sugerirProcessoTexto(valor, inputId, listaId) {
+  const q = (valor || '').toLowerCase().trim();
+  const lista = document.getElementById(listaId);
+  if (!lista) return;
+  if (!q) { lista.style.display = 'none'; return; }
+  _sugestaoProcTexto = (window._processosDB || []).filter(p => {
+    const alvo = `${p.numero || ''} ${p.apelido || ''} ${p.nome || ''} ${p.cliente || ''}`.toLowerCase();
+    return alvo.includes(q);
+  }).slice(0, 8);
+  if (!_sugestaoProcTexto.length) { lista.style.display = 'none'; return; }
+  lista.innerHTML = _sugestaoProcTexto.map((p, i) => `
+    <div class="autocomplete-item" onmousedown="event.preventDefault();_escolherProcessoTexto(${i},'${inputId}','${listaId}')">
+      <div style="font-weight:600;font-size:12.5px;color:var(--navy)">${_esc(p.apelido || p.nome || p.numero)}</div>
+      <div style="font-size:11px;color:var(--gray-400)">${_esc(p.numero)}${p.cliente ? ' · ' + _esc(p.cliente) : ''}</div>
+    </div>`).join('');
+  lista.style.display = 'block';
+}
+function _escolherProcessoTexto(i, inputId, listaId) {
+  const p = _sugestaoProcTexto[i];
+  if (!p) return;
+  document.getElementById(inputId).value = p.numero || p.apelido || p.nome || '';
+  document.getElementById(listaId).style.display = 'none';
+}
+
+function _sugerirClienteTexto(valor, inputId, listaId) {
+  const q = (valor || '').toLowerCase().trim();
+  const lista = document.getElementById(listaId);
+  if (!lista) return;
+  if (!q) { lista.style.display = 'none'; return; }
+  _sugestaoClienteTexto = (_clientesDB || []).filter(c => (c.nome || '').toLowerCase().includes(q)).slice(0, 8);
+  if (!_sugestaoClienteTexto.length) { lista.style.display = 'none'; return; }
+  lista.innerHTML = _sugestaoClienteTexto.map((c, i) =>
+    `<div class="autocomplete-item" onmousedown="event.preventDefault();_escolherClienteTexto(${i},'${inputId}','${listaId}')">${_esc(c.nome)}</div>`).join('');
+  lista.style.display = 'block';
+}
+function _escolherClienteTexto(i, inputId, listaId) {
+  const c = _sugestaoClienteTexto[i];
+  if (!c) return;
+  document.getElementById(inputId).value = c.nome || '';
+  document.getElementById(listaId).style.display = 'none';
+}
+
+// ── CADASTRO RÁPIDO DE CLIENTE (a partir de um campo "Cliente" qualquer) ───
+// _pendenciaAposCliente roda depois que o cliente é criado em modal-novo-
+// cliente — recebe o registro criado {id, nome}. Serve tanto pro botão "+"
+// (só preenche o campo de volta) quanto pro fluxo de "cliente não
+// encontrado" (reexecuta o salvamento da tarefa, que na 2a vez já acha o
+// cliente recém-criado e segue em frente).
+let _pendenciaAposCliente = null;
+
+function abrirCadastroRapidoCliente(campoTextoId) {
+  const nomeAtual = document.getElementById(campoTextoId)?.value.trim() || '';
+  document.getElementById('cli-nome').value = nomeAtual;
+  _pendenciaAposCliente = (cli) => {
+    const el = document.getElementById(campoTextoId);
+    if (el) el.value = cli?.nome || nomeAtual;
+  };
+  const modal = document.getElementById('modal-novo-cliente');
+  modal.style.zIndex = '400'; // fica por cima do modal/painel que chamou
+  openModal('modal-novo-cliente');
+}
+
+// ── CONFIRMAÇÃO "CLIENTE NÃO CADASTRADO" ────────────────────────────────────
+let _clienteNaoEncontradoResolve = null;
+
+function _perguntarClienteNaoEncontrado(nome) {
+  return new Promise(resolve => {
+    _clienteNaoEncontradoResolve = resolve;
+    document.getElementById('cnf-cliente-msg').textContent = `Não encontramos "${nome}" nos seus clientes cadastrados.`;
+    document.getElementById('modal-cliente-nao-encontrado').style.display = 'flex';
+  });
+}
+function _clienteNaoEncontradoResolver(acao) {
+  document.getElementById('modal-cliente-nao-encontrado').style.display = 'none';
+  if (_clienteNaoEncontradoResolve) { _clienteNaoEncontradoResolve(acao); _clienteNaoEncontradoResolve = null; }
+}
+
+// Confere o nome digitado em "Cliente" contra _clientesDB antes de salvar a
+// tarefa. Devolve o nome final (string) se pode seguir salvando, ou null se
+// deve PARAR (ou o usuário cancelou, ou abriu o cadastro completo — nesse
+// caso `aoRetomar` é chamado sozinho assim que o cliente for criado).
+async function _garantirClienteCadastrado(nomeDigitado, aoRetomar) {
+  const nome = (nomeDigitado || '').trim();
+  if (!nome) return '';
+  const existe = (_clientesDB || []).some(c => (c.nome || '').trim().toLowerCase() === nome.toLowerCase());
+  if (existe) return nome;
+
+  const acao = await _perguntarClienteNaoEncontrado(nome);
+  if (acao === 'cancelar') return null;
+
+  if (acao === 'completar') {
+    document.getElementById('cli-nome').value = nome;
+    _pendenciaAposCliente = () => aoRetomar?.();
+    const modal = document.getElementById('modal-novo-cliente');
+    modal.style.zIndex = '400';
+    openModal('modal-novo-cliente');
+    return null;
+  }
+
+  // 'rapido' — cria só com o nome que já temos
+  const uid = window._escritorioId || window._user?.id;
+  const { error } = await _supabase.from('clientes').insert({ user_id: uid, nome });
+  if (error) { showToast('Erro ao criar cliente: ' + error.message); return null; }
+  await carregarClientes();
+  return nome;
 }
 
 function irParaCalendarioMes(ano, mes) {
@@ -5144,12 +5500,19 @@ let _isDragging  = false;  // bloqueia click durante drag
 
 async function carregarTarefasPrazo() {
   if (!window._user) return;
-  const { data } = await _supabase
-    .from('tarefas')
-    .select('id, titulo, prazo, coluna, prioridade, processo_id, quadro_id, numero_processo_manual, cliente_manual')
-    .not('prazo', 'is', null)
-    .neq('coluna', 'concluida');
-  _tarefasPrazoDB = data || [];
+  const COLS = 'id, titulo, prazo, coluna, prioridade, processo_id, quadro_id, numero_processo_manual, cliente_manual';
+  // Duas listas separadas de propósito: _tarefasPrazoDB continua só com
+  // pendentes (é o que alimenta contador de prazo da semana, sino de
+  // urgente/fatal e a aba de prazos do processo — mexer nela espalharia o
+  // efeito pra essas telas). _tarefasConcluidasCal é só pro calendário saber
+  // marcar o dia como "concluída" em vez de simplesmente sumir (antes, ao
+  // concluir a tarefa ela desaparecia do calendário — igual a ter apagado).
+  const [{ data: pendentes }, { data: concluidas }] = await Promise.all([
+    _supabase.from('tarefas').select(COLS).not('prazo', 'is', null).neq('coluna', 'concluida'),
+    _supabase.from('tarefas').select(COLS).not('prazo', 'is', null).eq('coluna', 'concluida'),
+  ]);
+  _tarefasPrazoDB       = pendentes  || [];
+  _tarefasConcluidasCal = concluidas || [];
 }
 
 async function carregarTarefas() {
@@ -5348,6 +5711,7 @@ function criarCardTarefa(t, procMap, lastSeen, meuNome) {
       ${atividadeNova ? '<div class="tc-dot-novo"></div>' : ''}
 
       <div class="tc-hover-actions">
+        <button class="tc-action-btn" onclick="event.stopPropagation();abrirDetalhe('${t.id}')" title="Editar"><i class="ti ti-pencil"></i></button>
         ${!t.processo_id ? `<button class="tc-action-btn" onclick="event.stopPropagation();abrirVincularTarefa('${t.id}')" title="Vincular processo"><i class="ti ti-link"></i></button>` : ''}
         <button class="tc-action-btn tc-action-del" onclick="event.stopPropagation();excluirTarefa('${t.id}')" title="Excluir"><i class="ti ti-trash"></i></button>
       </div>
@@ -5463,6 +5827,13 @@ async function salvarTarefa() {
 
   if (!titulo) { showToast('Preencha a descrição da tarefa.'); return; }
 
+  // Nome digitado em Cliente sem bater com ninguém cadastrado? Pergunta antes
+  // de criar a tarefa (ver _garantirClienteCadastrado) — se voltar null é pra
+  // parar aqui (cancelou, ou foi completar o cadastro e salvarTarefa() será
+  // chamada de novo sozinha assim que o cliente for criado).
+  const clienteFinal = await _garantirClienteCadastrado(clienteManual, salvarTarefa);
+  if (clienteManual && clienteFinal === null) return;
+
   const btn = document.getElementById('btn-salvar-tarefa');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Salvando...'; }
 
@@ -5472,7 +5843,7 @@ async function salvarTarefa() {
     titulo,
     processo_id:             processo || null,
     numero_processo_manual:  processoManual || null,
-    cliente_manual:          clienteManual || null,
+    cliente_manual:          clienteFinal || null,
     prazo:                   prazo || null,
     coluna,
     prioridade,
@@ -5928,6 +6299,9 @@ async function salvarTarefaDetalhe() {
   if (!titulo) { showToast('O título não pode ficar vazio.'); return; }
   _checarNumeroProcessoManual('tp-processo-manual', 'tp-processo-manual-alerta');
 
+  const clienteFinal = await _garantirClienteCadastrado(clienteManual, salvarTarefaDetalhe);
+  if (clienteManual && clienteFinal === null) return;
+
   const btn = document.getElementById('btn-salvar-tarefa-detalhe');
   if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Salvando...'; }
 
@@ -5936,7 +6310,7 @@ async function salvarTarefaDetalhe() {
   const campos  = {
     titulo, descricao, prazo,
     numero_processo_manual: numeroProcManual,
-    cliente_manual:         clienteManual,
+    cliente_manual:         clienteFinal,
     updated_at:      agora,
     updated_by_nome: meuNome,
   };
@@ -6382,13 +6756,25 @@ function renderizarDescobertos() {
     const d  = item.dados || {};
     // O que convence o advogado é a intimação, não a classe processual
     const it = d._intimacao || {};
+    const cliente   = (d.partes || []).find(p => /autor|requerente|reclamante|exequente/i.test(p.tipo || ''))?.nome;
+    const tribunal  = d.tribunal || item.tribunal || '';
+    // Linha de identificação: cliente + classe + tribunal — sem isso só dava
+    // pra ver o número do processo, e o advogado não tinha como saber de
+    // quem era o caso antes de decidir "Acompanhar" ou "Não é meu".
+    const idPartes = [d.classe, tribunal].filter(Boolean).join(' · ');
+    const identificacao = (cliente || idPartes)
+      ? `<div style="font-size:12px;color:var(--gray-700);margin-top:3px;line-height:1.4">
+           ${cliente ? `<b>${escHtml(cliente)}</b>` : ''}${cliente && idPartes ? ' · ' : ''}${escHtml(idPartes)}
+         </div>`
+      : '';
     const detalhe = it.nome
-      ? `<div style="font-size:11.5px;color:var(--gray-500);margin-top:3px;line-height:1.45">${escHtml(String(it.nome).replace(/^DJEN — /, ''))} · ${fmtDia(it.data)}</div>`
-      : `<div style="font-size:11px;color:var(--gray-400);margin-top:3px">${escHtml(d.classe || item.tribunal)} · encontrado em ${fmtDia(item.encontrado_em)}</div>`;
+      ? `<div style="font-size:11.5px;color:var(--gray-500);margin-top:2px;line-height:1.45">${escHtml(String(it.nome).replace(/^DJEN — /, ''))} · ${fmtDia(it.data)}</div>`
+      : `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">encontrado em ${fmtDia(item.encontrado_em)}</div>`;
     return `
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 12px;background:var(--gray-50);border-radius:var(--radius)" id="descoberto-${item.id}">
       <div style="min-width:0">
         <div style="font-size:13px;font-weight:700;color:var(--navy);font-family:monospace">${escHtml(d.numero || item.numero)}</div>
+        ${identificacao}
         ${detalhe}
       </div>
       <div style="display:flex;gap:6px;flex-shrink:0">
@@ -6713,7 +7099,7 @@ async function rodarMonitorDJe() {
                 <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:#dcfce7;color:#166534;letter-spacing:.03em">
                   <i class="ti ti-bell-ringing" style="font-size:10px"></i> ATUALIZAÇÃO
                 </span>
-                ${doc.tipoDecisao ? `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;background:#e8edf5;color:var(--navy)">${doc.tipoDecisao}</span>` : ''}
+                ${doc.tipoDecisao ? `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;background:#e8edf5;color:var(--gray-800)">${doc.tipoDecisao}</span>` : ''}
               </div>
               <span style="font-size:10px;color:var(--gray-400);white-space:nowrap">${dataFmt}</span>
             </div>
@@ -6741,7 +7127,7 @@ async function rodarMonitorDJe() {
         <div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:var(--radius);padding:12px 14px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px">
             <div style="display:flex;align-items:center;gap:6px">
-              <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:#e8edf5;color:var(--navy);letter-spacing:.03em">
+              <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:#e8edf5;color:var(--gray-800);letter-spacing:.03em">
                 ${doc.tipoComunicacao || 'PUBLICAÇÃO'}
               </span>
               ${doc.tipoDecisao ? `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;background:#f3f4f6;color:var(--gray-600)">${doc.tipoDecisao}</span>` : ''}
@@ -7131,6 +7517,18 @@ async function carregarClientes() {
   _popularSelectsClientes();
 }
 
+function _fmtDataCurta(iso) {
+  return iso ? new Date(iso).toLocaleDateString('pt-BR') : '—';
+}
+// updated_at tem default now() desde a migration — todo cliente "nasce" com
+// updated_at == created_at. Só mostra "editado" se passou de fato por uma
+// atualizarCliente() depois da criação (diferença maior que alguns segundos,
+// pra não pegar flutuação de precisão do timestamp).
+function _foiEditadoDepoisDeCriado(cli) {
+  if (!cli.created_at || !cli.updated_at) return false;
+  return new Date(cli.updated_at) - new Date(cli.created_at) > 5000;
+}
+
 function _renderClientes(lista) {
   const grid  = document.getElementById('clientes-grid');
   const empty = document.getElementById('clientes-empty');
@@ -7163,6 +7561,12 @@ function _renderClientes(lista) {
       <div class="cliente-card-info">
         ${cli.email    ? `<div class="cliente-info-row"><i class="ti ti-mail"></i>${_esc(cli.email)}</div>` : ''}
         ${cli.telefone ? `<div class="cliente-info-row"><i class="ti ti-phone"></i>${_esc(cli.telefone)}</div>` : ''}
+        <div class="cliente-info-row" style="color:var(--gray-300);font-size:10.5px">
+          <i class="ti ti-calendar-plus"></i>desde ${_fmtDataCurta(cli.created_at)}${
+            cli.updated_at && _foiEditadoDepoisDeCriado(cli)
+              ? ` · editado ${_tempoRelativo(cli.updated_at)}`
+              : ''}
+        </div>
       </div>
       <div class="cliente-card-footer">
         <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -7196,7 +7600,7 @@ async function salvarCliente() {
   const btn = document.getElementById('cli-save-btn');
   btn.disabled = true;
   const uid = window._escritorioId || window._user?.id;
-  const { error } = await _supabase.from('clientes').insert({
+  const { data, error } = await _supabase.from('clientes').insert({
     user_id:   uid,
     nome,
     cpf_cnpj:  document.getElementById('cli-cpf').value.trim()     || null,
@@ -7204,20 +7608,26 @@ async function salvarCliente() {
     telefone:  document.getElementById('cli-telefone').value.trim() || null,
     endereco:  document.getElementById('cli-endereco').value.trim() || null,
     observacoes: document.getElementById('cli-obs').value.trim()    || null,
-  });
+  }).select().single();
   btn.disabled = false;
   if (error) { showToast('Erro ao salvar: ' + error.message, 'error'); return; }
   showToast('Cliente salvo com sucesso!', 'success');
   closeModal('modal-novo-cliente');
+  document.getElementById('modal-novo-cliente').style.zIndex = '';
   ['cli-nome','cli-cpf','cli-email','cli-telefone','cli-endereco','cli-obs'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   await carregarClientes();
+  // Se foi aberto a partir de um campo "Cliente" (botão + ou fluxo de
+  // "cliente não encontrado"), retoma o que estava pendente — preencher o
+  // campo de volta, ou re-executar o salvamento da tarefa que estava parado.
+  if (_pendenciaAposCliente) { const fn = _pendenciaAposCliente; _pendenciaAposCliente = null; fn(data); }
 }
 
 function abrirEditarCliente(id) {
   const cli = _clientesDB.find(c => c.id === id);
   if (!cli) return;
+  _clienteAtual = cli;
   document.getElementById('cli-edit-id').value       = cli.id;
   document.getElementById('cli-edit-nome').value     = cli.nome || '';
   document.getElementById('cli-edit-email').value    = cli.email || '';
@@ -7230,7 +7640,156 @@ function abrirEditarCliente(id) {
   const telEl = document.getElementById('cli-edit-telefone');
   telEl.value = cli.telefone || '';
   if (telEl.value) maskTelefone(telEl);
+
+  const datasEl = document.getElementById('cli-edit-datas');
+  if (datasEl) {
+    const criado = cli.created_at ? new Date(cli.created_at).toLocaleDateString('pt-BR') : '—';
+    const atualizado = cli.updated_at ? _tempoRelativo(cli.updated_at) : null;
+    datasEl.textContent = `Cliente desde ${criado}` + (atualizado ? ` · atualizado ${atualizado}` : '');
+  }
+
   openModal('modal-editar-cliente');
+  _carregarERenderizarVinculosCliente(cli.nome);
+  popularComentariosCliente(cli);
+}
+
+// Atalho que antes era a ação principal de clicar no card — agora é só um
+// link dentro do perfil do cliente (ver pedido do Matheus: ir direto pra
+// honorários ao clicar não fazia sentido como comportamento padrão).
+function abrirHonorariosDoCliente() {
+  const id = document.getElementById('cli-edit-id').value;
+  if (!id) return;
+  closeModal('modal-editar-cliente');
+  showPage('honorarios');
+  const sel = document.getElementById('hon-filtro-status');
+  if (sel) sel.value = '';
+  window._honFiltroCliente = id;
+  filtrarHonorarios();
+}
+
+// ── COMENTÁRIOS DO CLIENTE ──────────────────────────────────────────────────
+function popularComentariosCliente(cli) {
+  const lista = document.getElementById('cli-comentarios-lista');
+  if (!lista) return;
+  const comentarios = [...(cli.comentarios || [])].sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+  if (!comentarios.length) {
+    lista.innerHTML = '<div style="color:var(--gray-300);font-size:12.5px">Nenhum comentário ainda.</div>';
+    return;
+  }
+  lista.innerHTML = comentarios.map(c => `
+    <div style="background:var(--gray-50);border-radius:8px;padding:8px 10px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span style="font-size:12px;font-weight:700;color:var(--navy)">${_esc(c.autor_nome || 'Usuário')}</span>
+        <span style="font-size:10.5px;color:var(--gray-400)">${_tempoRelativo(c.created_at) || ''}</span>
+      </div>
+      <div style="font-size:12.5px;color:var(--gray-600);margin-top:2px;white-space:pre-wrap">${_esc(c.texto)}</div>
+      ${c.autor_id === window._user?.id
+        ? `<div style="text-align:right;margin-top:2px"><span onclick="excluirComentarioCliente('${c.id}')" style="font-size:11px;color:var(--gray-400);cursor:pointer">excluir</span></div>`
+        : ''}
+    </div>`).join('');
+  lista.scrollTop = lista.scrollHeight;
+}
+
+async function adicionarComentarioCliente() {
+  if (!_clienteAtual) return;
+  const area = document.getElementById('cli-comentario-input');
+  const btn  = document.getElementById('cli-comentario-btn');
+  const texto = area?.value.trim();
+  if (!texto) return;
+
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2" style="animation:spin .6s linear infinite"></i>'; }
+
+  const entry = {
+    id:         crypto.randomUUID(),
+    autor_id:   window._user?.id,
+    autor_nome: window._user?.user_metadata?.nome || window._user?.email || 'Usuário',
+    texto,
+    created_at: new Date().toISOString(),
+  };
+  const { lista: comentarios, error } = await _jsonbAnexarCliente('anexar_comentario_cliente',
+    { p_cliente: _clienteAtual.id, p_comentario: entry }, 'comentarios', entry);
+
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-send"></i>'; }
+  if (error) { showToast('Erro ao salvar comentário.', 'error'); return; }
+
+  _clienteAtual.comentarios = comentarios;
+  const cliDB = _clientesDB.find(c => c.id === _clienteAtual.id);
+  if (cliDB) cliDB.comentarios = comentarios;
+  area.value = '';
+  popularComentariosCliente(_clienteAtual);
+}
+
+async function excluirComentarioCliente(id) {
+  if (!_clienteAtual) return;
+  const todos = _clienteAtual.comentarios || [];
+  const alvo  = todos.find(c => c.id === id);
+  if (!alvo || alvo.autor_id !== window._user?.id) return;
+
+  const { lista, error } = await _jsonbRemoverCliente('remover_comentario_cliente',
+    { p_cliente: _clienteAtual.id, p_comentario_id: id }, 'comentarios', id);
+  if (error) { showToast('Erro ao excluir comentário.', 'error'); return; }
+
+  _clienteAtual.comentarios = lista;
+  const cliDB = _clientesDB.find(c => c.id === _clienteAtual.id);
+  if (cliDB) cliDB.comentarios = lista;
+  popularComentariosCliente(_clienteAtual);
+}
+
+// ── VÍNCULOS DO CLIENTE (processos, tarefas, eventos) ──────────────────────
+// Não existe cliente_id nessas três tabelas (cliente sempre foi texto
+// livre) — o cruzamento é por nome exato (sem diferenciar maiúsculas). Não é
+// perfeito (um nome digitado diferente não aparece), mas já resolve "onde
+// que eu vi esse cliente" sem precisar de uma migração maior agora.
+async function _carregarVinculosCliente(nome) {
+  const n = (nome || '').trim();
+  const vazio = { processos: [], tarefas: [], eventos: [] };
+  if (!n) return vazio;
+  const uid = window._escritorioId || window._user?.id;
+
+  const [resProc, resTar, resEv] = await Promise.allSettled([
+    _supabase.from('processos').select('id,nome,apelido,numero').eq('user_id', uid).ilike('cliente', n).limit(20),
+    _supabase.from('tarefas').select('id,titulo,coluna,quadro_id').eq('user_id', uid).ilike('cliente_manual', n).limit(20),
+    // nome_parte só existe depois da migration_eventos_nome_parte.sql — se a
+    // coluna ainda não existir, o erro é engolido e essa lista fica vazia.
+    _supabase.from('eventos').select('id,titulo,data,tipo').eq('user_id', uid).ilike('nome_parte', n).limit(20),
+  ]);
+
+  return {
+    processos: resProc.status === 'fulfilled' ? (resProc.value.data || []) : [],
+    tarefas:   resTar.status  === 'fulfilled' ? (resTar.value.data  || []) : [],
+    eventos:   resEv.status   === 'fulfilled' ? (resEv.value.data   || []) : [],
+  };
+}
+
+async function _carregarERenderizarVinculosCliente(nome) {
+  const el = document.getElementById('cli-vinculos-lista');
+  if (el) el.innerHTML = '<div style="color:var(--gray-300)">Carregando…</div>';
+  const v = await _carregarVinculosCliente(nome);
+  if (!el) return;
+
+  const total = v.processos.length + v.tarefas.length + v.eventos.length;
+  if (!total) {
+    el.innerHTML = '<div style="color:var(--gray-300)">Nada encontrado com esse nome ainda.</div>';
+    return;
+  }
+
+  const linhaProc = p => `
+    <div style="display:flex;align-items:center;gap:6px">
+      <i class="ti ti-briefcase" style="font-size:13px;color:var(--gray-400);flex-shrink:0"></i>
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(p.apelido || p.nome || p.numero)}</span>
+    </div>`;
+  const linhaTar = t => `
+    <div style="display:flex;align-items:center;gap:6px;cursor:pointer" onclick="closeModal('modal-editar-cliente');abrirTarefaPorId('${t.id}','${t.quadro_id || ''}')">
+      <i class="ti ti-checklist" style="font-size:13px;color:var(--gray-400);flex-shrink:0"></i>
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(t.titulo)}</span>
+    </div>`;
+  const linhaEv = e => `
+    <div style="display:flex;align-items:center;gap:6px">
+      <i class="ti ti-calendar" style="font-size:13px;color:var(--gray-400);flex-shrink:0"></i>
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(e.titulo)}</span>
+    </div>`;
+
+  el.innerHTML = [...v.processos.map(linhaProc), ...v.tarefas.map(linhaTar), ...v.eventos.map(linhaEv)].join('');
 }
 
 async function atualizarCliente() {
@@ -7244,6 +7803,7 @@ async function atualizarCliente() {
     telefone:    document.getElementById('cli-edit-telefone').value.trim()  || null,
     endereco:    document.getElementById('cli-edit-endereco').value.trim()  || null,
     observacoes: document.getElementById('cli-edit-obs').value.trim()       || null,
+    updated_at:  new Date().toISOString(),
   }).eq('id', id);
   if (error) { showToast('Erro: ' + error.message, 'error'); return; }
   showToast('Cliente atualizado!', 'success');
@@ -7259,13 +7819,11 @@ async function excluirCliente(id) {
   await carregarClientes();
 }
 
+// Clicar no card abre o perfil do cliente (antes ia direto pra honorários
+// filtrado — o atalho continua existindo, só que como link dentro do
+// perfil: abrirHonorariosDoCliente()).
 function abrirDetalheCliente(id) {
-  // Atalho: abre honorários filtrado pelo cliente
-  showPage('honorarios');
-  const sel = document.getElementById('hon-filtro-status');
-  if (sel) sel.value = '';
-  window._honFiltroCliente = id;
-  filtrarHonorarios();
+  abrirEditarCliente(id);
 }
 
 // ── HONORÁRIOS ────────────────────────────────────────────────────────────────

@@ -1,9 +1,14 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --navy:        #1a2e6b;
-  --navy-mid:    #243a7a;
-  --navy-light:  #2e4a8a;
+  /* --navy era #1a2e6b (a marca antiga), depois virou --primary-900 (o azul
+     escuro da sidebar) — agora é o --primary-600 (o azul claro da pílula
+     ativa), que é o que o Matheus pediu pros botões/números/destaques do
+     resto do site. A sidebar continua escura porque usa --primary-900
+     direto, não --navy. */
+  --navy:        var(--primary-600);
+  --navy-mid:    var(--primary-700);
+  --navy-light:  var(--primary-500);
   --gold:        #e8b400;
   --gold-light:  #f0c832;
   --gold-pale:   #fefbe7;
@@ -23,7 +28,17 @@
   --amber-light: #fef5e7;
   --blue:        #1565c0;
   --blue-light:  #e8f0fe;
-  --sidebar-w:   240px;
+  --sidebar-w:           240px;
+  --sidebar-w-collapsed: 68px;
+  /* Paleta da repaginada (kit "Sidebar Navigation" do Figma que o Matheus mandou).
+     --navy aponta pra cá agora, então isto já vale pro site inteiro. */
+  --primary-900: #053958;
+  --primary-800: #0a4a7a;
+  --primary-700: #0d5a96;
+  --primary-600: #0c7fda;
+  --primary-500: #2196f3;
+  --primary-400: #4fa8f5;
+  --primary-100: #bfe0fb;
   --header-h:    64px;
   --radius:      8px;
   --radius-lg:   12px;
@@ -32,7 +47,7 @@
 }
 
 body {
-  font-family: 'Inter', sans-serif;
+  font-family: 'Roboto', sans-serif;
   background: var(--cream);
   color: var(--gray-800);
   font-size: 14px;
@@ -46,16 +61,43 @@ body {
   position: fixed;
   top: 0; left: 0; bottom: 0;
   width: var(--sidebar-w);
-  background: var(--navy);
+  background: var(--primary-900);
   display: flex;
   flex-direction: column;
   z-index: 100;
 }
 
+body.sidebar-collapsed .sidebar { width: var(--sidebar-w-collapsed); }
+
+/* Só existe pra abrir de novo — flutua na borda direita, centralizado na
+   altura da tela, e some quando a barra já está expandida (o menu em si
+   não precisa de um botão permanente ocupando espaço). */
+.sidebar-collapse-btn {
+  display: none;
+  position: absolute;
+  top: 50%; right: -15px;
+  transform: translateY(-50%);
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  align-items: center; justify-content: center;
+  background: var(--primary-700);
+  border: 2px solid var(--cream);
+  color: #fff;
+  cursor: pointer;
+  z-index: 101;
+  box-shadow: var(--shadow-md);
+  transition: background .15s;
+}
+.sidebar-collapse-btn:hover { background: var(--primary-600); }
+.sidebar-collapse-btn .ti { font-size: 15px; }
+
+body.sidebar-collapsed .sidebar-collapse-btn { display: flex; }
+
 .sidebar-logo {
-  padding: 12px 20px 8px;
+  padding: 10px 20px 6px;
   border-bottom: 1px solid rgba(255,255,255,0.08);
   flex-shrink: 0;
+  transition: padding .2s ease;
 }
 
 .logo-mark {
@@ -73,6 +115,7 @@ body {
   flex-shrink: 0;
   border-radius: 8px;
   margin-bottom: 4px;
+  transition: height .2s ease;
 }
 
 .logo-sub {
@@ -112,7 +155,7 @@ body {
 .sidebar-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 3px; }
 
 .nav-section {
-  padding: 12px 16px 3px;
+  padding: 9px 16px 2px;
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.1em;
@@ -124,32 +167,61 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 16px;
+  padding: 7px 14px;
+  margin: 0 10px;
+  border-radius: 8px;
   color: rgba(255,255,255,0.65);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background .18s cubic-bezier(.4,0,.2,1), color .18s, transform .18s cubic-bezier(.4,0,.2,1), box-shadow .18s;
   font-size: 13.5px;
-  border-left: 3px solid transparent;
-  margin: 0;
 }
 
 .nav-item:hover {
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.9);
+  background: rgba(255,255,255,0.07);
+  color: #fff;
+  transform: translateX(2px);
 }
 
 .nav-item.active {
-  background: rgba(232,180,0,0.12);
-  color: var(--gold-light);
-  border-left-color: var(--gold);
+  background: var(--primary-600);
+  color: #fff;
+  box-shadow: 0 2px 10px rgba(12,127,218,.35);
 }
 
-.nav-item .ti { font-size: 17px; flex-shrink: 0; }
+.nav-item.active:hover { transform: none; } /* já está no lugar certo, não precisa "andar" */
+
+.nav-item .ti { font-size: 17px; flex-shrink: 0; transition: transform .18s cubic-bezier(.4,0,.2,1); }
+.nav-item:hover .ti { transform: scale(1.08); }
+
+/* ── SIDEBAR COLAPSADA (só ícones) ── */
+body.sidebar-collapsed .nav-section,
+body.sidebar-collapsed .nav-label,
+body.sidebar-collapsed .logo-sub,
+body.sidebar-collapsed .logo-version,
+body.sidebar-collapsed .user-info { display: none; }
+
+body.sidebar-collapsed .nav-item { position: relative; justify-content: center; padding: 9px 0; margin: 1px 12px; }
+body.sidebar-collapsed .sidebar-logo { padding: 12px 8px 8px; }
+body.sidebar-collapsed .sidebar-logo-img { height: 40px; }
+body.sidebar-collapsed .sidebar-user { justify-content: center; padding: 12px 8px; }
+
+/* Com só o ícone, o número do badge ficava solto longe dele (empurrado pelo
+   margin-left:auto) — parecia desincronizado. Vira uma bolinha colada no
+   ícone, sem o número, só pra avisar "tem coisa nova". */
+body.sidebar-collapsed .nav-badge {
+  position: absolute;
+  top: 2px; right: 14px;
+  width: 9px; height: 9px;
+  min-width: 0;
+  padding: 0;
+  font-size: 0;
+  border: 2px solid var(--primary-900);
+}
 
 .nav-badge {
   margin-left: auto;
   background: var(--gold);
-  color: var(--navy);
+  color: var(--primary-900);
   font-size: 10px;
   font-weight: 600;
   padding: 1px 6px;
@@ -195,7 +267,10 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  transition: margin-left 0.2s ease;
 }
+
+body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
 
 /* ── TOPBAR ── */
 .topbar {
@@ -224,7 +299,7 @@ body {
   width: 260px;
 }
 
-.topbar-search input { border: none; background: none; font-size: 13px; color: var(--gray-800); outline: none; width: 100%; font-family: 'Inter', sans-serif; }
+.topbar-search input { border: none; background: none; font-size: 13px; color: var(--gray-800); outline: none; width: 100%; font-family: 'Roboto', sans-serif; }
 .topbar-search input::placeholder { color: var(--gray-400); }
 .topbar-search .ti { color: var(--gray-400); font-size: 16px; }
 
@@ -263,7 +338,7 @@ body {
 /* ── DASHBOARD ── */
 .dash-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; }
 
-.dash-greeting { font-size: 22px; font-family: 'Playfair Display', serif; font-weight: 500; color: var(--navy); }
+.dash-greeting { font-size: 22px; font-family: 'Roboto', sans-serif; font-weight: 500; color: var(--navy); }
 .dash-sub { font-size: 13px; color: var(--gray-600); margin-top: 2px; }
 
 .btn-primary {
@@ -277,7 +352,7 @@ body {
   cursor: pointer;
   display: flex; align-items: center; gap: 6px;
   transition: background 0.15s;
-  font-family: 'Inter', sans-serif;
+  font-family: 'Roboto', sans-serif;
 }
 
 .btn-primary:hover { background: var(--navy-mid); }
@@ -293,7 +368,7 @@ body {
   cursor: pointer;
   display: flex; align-items: center; gap: 6px;
   transition: all 0.15s;
-  font-family: 'Inter', sans-serif;
+  font-family: 'Roboto', sans-serif;
 }
 
 .btn-secondary:hover { background: var(--gray-50); border-color: var(--gray-400); }
@@ -325,7 +400,7 @@ body {
   margin-bottom: 12px;
 }
 
-.stat-icon.navy  { background: #e8edf5; color: var(--navy); }
+.stat-icon.navy  { background: #e8edf5; color: var(--gray-800); }
 .stat-icon.gold  { background: var(--gold-pale); color: var(--amber); }
 .stat-icon.red   { background: var(--red-light); color: var(--red); }
 .stat-icon.green { background: var(--green-light); color: var(--green); }
@@ -373,7 +448,7 @@ body {
 .process-row:hover { background: var(--gray-50); }
 
 .process-num {
-  font-size: 11px; font-weight: 600; color: var(--navy);
+  font-size: 11px; font-weight: 600; color: var(--gray-800);
   background: #e8edf5; padding: 3px 7px; border-radius: 4px; white-space: nowrap;
 }
 
@@ -500,7 +575,7 @@ body {
 
 /* ── PROCESSOS ── */
 .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
-.page-title { font-size: 20px; font-family: 'Playfair Display', serif; font-weight: 500; color: var(--navy); }
+.page-title { font-size: 20px; font-family: 'Roboto', sans-serif; font-weight: 500; color: var(--navy); }
 .page-sub { font-size: 13px; color: var(--gray-600); margin-top: 2px; }
 
 .filter-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
@@ -511,16 +586,19 @@ body {
   border-radius: var(--radius); padding: 7px 12px; gap: 8px; flex: 1; min-width: 200px;
 }
 
-.filter-search input { border: none; background: none; font-size: 13px; color: var(--gray-800); outline: none; width: 100%; font-family: 'Inter', sans-serif; }
+.filter-search input { border: none; background: none; font-size: 13px; color: var(--gray-800); outline: none; width: 100%; font-family: 'Roboto', sans-serif; }
 .filter-search input::placeholder { color: var(--gray-400); }
 
 .filter-select {
   padding: 7px 10px; border: 1px solid var(--gray-200);
   border-radius: var(--radius); font-size: 13px; color: var(--gray-800);
-  background: var(--white); cursor: pointer; font-family: 'Inter', sans-serif; outline: none;
+  background: var(--white); cursor: pointer; font-family: 'Roboto', sans-serif; outline: none;
 }
 
-.process-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+/* align-items: start evita que o Grid estique todo card da linha até a
+   altura do mais alto — era isso que deixava um vão vazio embaixo dos cards
+   com menos texto (cliente/título de uma linha só). */
+.process-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; align-items: start; }
 
 .process-card {
   background: var(--white); border: 1px solid var(--gray-200);
@@ -531,8 +609,11 @@ body {
 .process-card:hover { border-color: var(--gray-200); box-shadow: var(--shadow-md); transform: translateY(-2px); border-left-color: var(--navy); }
 .process-card:hover .btn-edit-apelido-card { opacity: 1 !important; }
 
-.pc-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 10px; }
-.pc-num { font-size: 11px; font-weight: 600; color: var(--navy); background: #e8edf5; padding: 3px 8px; border-radius: 4px; }
+/* flex-wrap: se não couber o número + status na mesma linha, o status desce
+   inteiro para a linha de baixo — sem isso o número do processo quebrava no
+   meio da string ("0723975-\n74...") num card mais estreito. */
+.pc-top { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; row-gap: 6px; margin-bottom: 10px; }
+.pc-num { font-size: 11px; font-weight: 600; color: var(--gray-800); background: #e8edf5; padding: 3px 8px; border-radius: 4px; white-space: nowrap; }
 .pc-status { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 10px; }
 .status-ativo      { background: var(--green-light); color: var(--green); }
 .status-aguardando { background: var(--amber-light); color: var(--amber); }
@@ -574,7 +655,7 @@ body {
   border-radius: var(--radius-lg); padding: 24px 28px; margin-bottom: 20px;
 }
 
-.detail-title { font-size: 20px; font-family: 'Playfair Display', serif; font-weight: 500; color: var(--navy); margin-bottom: 6px; }
+.detail-title { font-size: 20px; font-family: 'Roboto', sans-serif; font-weight: 500; color: var(--navy); margin-bottom: 6px; }
 .detail-tags  { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
 
 .detail-grid {
@@ -601,7 +682,7 @@ body {
   border-bottom: 2px solid transparent; margin-bottom: -1px;
   transition: all 0.12s; background: none;
   border-top: none; border-left: none; border-right: none;
-  font-family: 'Inter', sans-serif;
+  font-family: 'Roboto', sans-serif;
   display: flex; align-items: center; gap: 6px;
 }
 
@@ -658,7 +739,7 @@ body {
 
 .comment-input {
   flex: 1; border: 1px solid var(--gray-200); border-radius: var(--radius);
-  padding: 10px 12px; font-size: 13px; font-family: 'Inter', sans-serif;
+  padding: 10px 12px; font-size: 13px; font-family: 'Roboto', sans-serif;
   outline: none; resize: none; min-height: 72px; color: var(--gray-800);
   transition: border-color 0.12s;
 }
@@ -673,7 +754,7 @@ body {
   display: flex; align-items: center; justify-content: space-between;
 }
 
-.full-cal-month { font-size: 18px; font-family: 'Playfair Display', serif; font-weight: 500; color: var(--navy); }
+.full-cal-month { font-size: 18px; font-family: 'Roboto', sans-serif; font-weight: 500; color: var(--navy); }
 
 .full-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
 
@@ -705,6 +786,8 @@ body {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
+.fcal-mais { background: var(--gray-100); color: var(--gray-500); font-weight: 700; text-align: center; }
+
 .event-prazo    { background: var(--red-light);   color: var(--red); }
 .event-audiencia{ background: var(--blue-light);  color: var(--blue); }
 .event-lembrete { background: var(--gold-pale);   color: var(--amber); }
@@ -716,6 +799,7 @@ body {
 .event-tarefa-medio   { background: #fef3c7; color: #d97706; }
 .event-tarefa-urgente { background: #fee2e2; color: #dc2626; }
 .event-tarefa-fatal   { background: #be123c; color: #fff; }
+.event-tarefa-concluida { background: var(--green-light); color: var(--green); }
 
 /* ── CALENDÁRIO EXPANDIDO ──────────────────────────────────────────────────── */
 
@@ -734,7 +818,7 @@ body {
 .cal-exp-titulo-btn {
   background: none; border: none; font-size: 20px; font-weight: 700;
   color: var(--navy); cursor: pointer; padding: 4px 10px; border-radius: 8px;
-  font-family: 'Playfair Display', serif; letter-spacing: .01em;
+  font-family: 'Roboto', sans-serif; letter-spacing: .01em;
   transition: background .15s;
 }
 .cal-exp-titulo-btn:hover { background: var(--gray-100); }
@@ -1081,7 +1165,7 @@ body.kanban-dragging .task-col-body {
 .busca-tab {
   padding: 6px 8px; border: none; background: none; border-radius: 6px;
   font-size: 12px; font-weight: 500; color: var(--gray-600);
-  cursor: pointer; transition: all .12s; font-family: 'Inter', sans-serif;
+  cursor: pointer; transition: all .12s; font-family: 'Roboto', sans-serif;
 }
 .busca-tab:hover  { background: var(--white); color: var(--navy); }
 .busca-tab.active { background: var(--white); color: var(--navy); box-shadow: 0 1px 4px rgba(0,0,0,.1); }
@@ -1111,13 +1195,41 @@ body.kanban-dragging .task-col-body {
 .form-input, .form-select, .form-textarea {
   width: 100%; padding: 8px 12px;
   border: 1px solid var(--gray-200); border-radius: var(--radius);
-  font-size: 13px; font-family: 'Inter', sans-serif;
+  font-size: 13px; font-family: 'Roboto', sans-serif;
   color: var(--gray-800); outline: none; transition: border-color 0.12s; background: var(--white);
 }
 
 .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--navy); }
 .form-textarea { min-height: 80px; resize: vertical; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* Campo de texto livre com sugestões — processo/parte no modal de prazo.
+   Nunca obrigatório escolher um item: a sugestão só preenche o texto, quem
+   quiser pode digitar algo que não está na lista e salvar assim mesmo. */
+.autocomplete-list {
+  display: none;
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+  background: var(--white); border: 1px solid var(--gray-200); border-radius: var(--radius);
+  box-shadow: var(--shadow-md); max-height: 220px; overflow-y: auto; z-index: 60;
+}
+.autocomplete-item { padding: 8px 12px; cursor: pointer; border-bottom: 1px solid var(--gray-100); }
+.autocomplete-item:last-child { border-bottom: none; }
+.autocomplete-item:hover { background: var(--gray-50); }
+
+/* Processo escolhido vira uma "pílula" removível (tipo destinatário de
+   e-mail) em vez de ficar só texto solto no campo — menos ambíguo sobre se
+   é um processo de verdade vinculado ou só texto digitado. */
+.combo-chip {
+  display: flex; align-items: center; gap: 7px;
+  padding: 8px 10px; border: 1px solid var(--gray-200); border-radius: var(--radius);
+  background: var(--gray-50); font-size: 13px; color: var(--navy); font-weight: 500;
+}
+.combo-chip span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.combo-chip-x {
+  background: none; border: none; cursor: pointer; color: var(--gray-400);
+  display: flex; align-items: center; padding: 3px; border-radius: 4px; flex-shrink: 0;
+}
+.combo-chip-x:hover { background: var(--gray-200); color: var(--red); }
 
 /* Toast */
 .toast {
@@ -2013,7 +2125,7 @@ body.kanban-dragging .task-col-body {
 .sidebar-overlay.show { display: block; }
 
 /* ── SIDEBAR TRANSITION ── */
-.sidebar { transition: transform 0.25s ease; }
+.sidebar { transition: transform 0.25s ease, width 0.2s ease; }
 
 /* ── 1100px ── */
 @media (max-width: 1100px) {
@@ -2036,6 +2148,28 @@ body.kanban-dragging .task-col-body {
 
   /* Hamburger visível */
   .hamburger { display: flex; }
+
+  /* Colapsar não faz sentido no drawer deslizante do celular — a gaveta
+     sempre abre completa, mesmo que o desktop tenha ficado recolhido.
+     (mesma especificidade da regra "aparece quando colapsada" lá em cima —
+     precisa repetir o prefixo body.sidebar-collapsed pra vencer por ordem.) */
+  .sidebar-collapse-btn,
+  body.sidebar-collapsed .sidebar-collapse-btn { display: none; }
+  body.sidebar-collapsed .sidebar      { width: var(--sidebar-w); }
+  body.sidebar-collapsed .main         { margin-left: 0; }
+  body.sidebar-collapsed .nav-section,
+  body.sidebar-collapsed .nav-label,
+  body.sidebar-collapsed .logo-sub,
+  body.sidebar-collapsed .logo-version { display: block; }
+  body.sidebar-collapsed .user-info    { display: block; overflow: hidden; }
+  body.sidebar-collapsed .nav-item     { justify-content: flex-start; padding: 8px 14px; margin: 1px 10px; }
+  body.sidebar-collapsed .sidebar-logo { padding: 12px 20px 8px; }
+  body.sidebar-collapsed .sidebar-logo-img { height: 78px; }
+  body.sidebar-collapsed .sidebar-user { justify-content: flex-start; padding: 12px 16px; }
+  body.sidebar-collapsed .nav-badge {
+    position: static; width: auto; height: auto; min-width: 64px;
+    padding: 1px 6px; font-size: 10px; border: none;
+  }
 
   /* Topbar */
   .topbar { padding: 0 12px; gap: 10px; }

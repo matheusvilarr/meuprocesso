@@ -1,6 +1,6 @@
 :root {
-  --navy:        #1a2e6b;
-  --navy-mid:    #243a7a;
+  --navy:        #0c7fda;
+  --navy-mid:    #0d5a96;
   --gold:        #e8b400;
   --gold-pale:   #fefbe7;
   --cream:       #fafaf8;
@@ -295,7 +295,7 @@ code.adm-code {
 .sync-legend {
   display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 4px;
 }
-.sync-legend.navy   { background: #1a2e6b; }
+.sync-legend.navy   { background: #053958; }
 .sync-legend.blue   { background: #3b82f6; }
 .sync-legend.orange { background: #f97316; }
 
@@ -321,7 +321,7 @@ code.adm-code {
 .sync-bar-fill {
   height: 100%; border-radius: 5px; transition: width .4s ease;
 }
-.sync-bar-fill.navy { background: #1a2e6b; }
+.sync-bar-fill.navy { background: #053958; }
 .sync-bar-fill.blue { background: #3b82f6; }
 .sync-bar-num { min-width: 80px; font-size: 12px; color: var(--gray-600); }
 

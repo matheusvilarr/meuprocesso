@@ -228,6 +228,28 @@ function sucessoFila() {
   return { ultima_verificacao: agora, sync_ultima_tentativa: agora, sync_falhas: 0, sync_ultimo_erro: null };
 }
 
+// Processo auto-descoberto (DJEN) nasce com nome = número, pra ser completado
+// com os dados do DataJud assim que possível. Fica em função própria porque
+// precisa rodar em DOIS lugares: quando a movimentação muda E quando não muda.
+// Antes só rodava no primeiro caso — um processo sem movimentação nova (ex:
+// aguardando despacho há meses) caía sempre no atalho "sem-mudanca" e nunca
+// chegava a essa parte do código, ficando com nome=número PARA SEMPRE, mesmo
+// depois de centenas de tentativas do cron. Achado investigando por que o
+// botão "Sincronizar" do detalhe não atualizava classe/tribunal.
+function enriquecerSeDescoberto(proc, hits) {
+  if (!(proc.nome && proc.nome === proc.numero)) return {};
+  const src = hits[0]._source || {};
+  const upd = {};
+  if (src.classe?.nome) {
+    const classe = tituloProcesso(src.classe.nome);
+    upd.nome = classe;
+    upd.classe = classe;
+  }
+  if (src.orgaoJulgador?.nome) upd.orgao_julgador = corrigirMojibake(src.orgaoJulgador.nome);
+  if (src.tribunal)            upd.tribunal = corrigirMojibake(src.tribunal);
+  return upd;
+}
+
 export async function sincronizarDatajudUm(proc, admin, hoje) {
   if ((proc.created_at || '').slice(0, 10) === hoje) return 'pulado';
   try {
@@ -241,7 +263,9 @@ export async function sincronizarDatajudUm(proc, admin, hoje) {
     const novoHash  = todosMovs.slice(0, 6).map(m => m.data + m.nome).join('|');
 
     if (novoHash === proc.movimentos_hash) {
-      await admin.from('processos').update(sucessoFila()).eq('id', proc.id);
+      await admin.from('processos')
+        .update({ ...sucessoFila(), ...enriquecerSeDescoberto(proc, hits) })
+        .eq('id', proc.id);
       return 'sem-mudanca';
     }
 
@@ -273,16 +297,8 @@ export async function sincronizarDatajudUm(proc, admin, hoje) {
       movimentos_recentes: movimentosFinal,
       movimentos_hash:     novoHash,
       ...sucessoFila(),
+      ...enriquecerSeDescoberto(proc, hits),
     };
-    // Processo auto-importado pelo DJEN nasce com nome = número; completa com
-    // os dados do DataJud (só nesse caso — nunca sobrescreve o que o advogado editou).
-    const src = hits[0]._source || {};
-    if (proc.nome && proc.nome === proc.numero) {
-      const classe = tituloProcesso(src.classe?.nome);
-      if (src.classe?.nome)        { update.nome = classe; update.classe = classe; }
-      if (src.orgaoJulgador?.nome) update.orgao_julgador = corrigirMojibake(src.orgaoJulgador.nome);
-      if (src.tribunal)            update.tribunal = corrigirMojibake(src.tribunal);
-    }
     if (novosRecentes.length) {
       // Mantém novidades ainda não notificadas (ex: publicação DJEN pendente de e-mail)
       const pendentes = proc.notificacao_pendente ? (proc.novos_movimentos || []) : [];
