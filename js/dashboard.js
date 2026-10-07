@@ -1205,8 +1205,19 @@ async function buscarProcesso() {
   if (_tipoBusca === 'numero') {
     const linhas = rawInput.split(/[\n\r,;]+/).map(l => l.trim()).filter(Boolean);
     const numerosValidos = linhas.map(l => l.replace(/\D/g, '')).filter(n => n.length === 20);
-    if (numerosValidos.length > 1) {
-      await _buscarLoteInterno(numerosValidos, btn);
+    // "AREsp 3254978" etc. não tem como ser buscado direto no DataJud (ele só
+    // aceita o número único) — em vez de descartar a linha, entra na fila que
+    // o worker local resolve via scraping do site do STJ (ver
+    // scripts/fila_stj/worker.py) e devolve como processo importado sozinho.
+    const linhasSigla = linhas.filter(l => l.replace(/\D/g, '').length !== 20 && /^a?resp\.?\s*\d/i.test(l));
+    if (linhasSigla.length) await _enfileirarSTJ(linhasSigla);
+
+    if (numerosValidos.length > 1 || (numerosValidos.length >= 1 && linhasSigla.length)) {
+      await _buscarLoteInterno(numerosValidos, btn, linhasSigla);
+      return;
+    }
+    if (!numerosValidos.length && linhasSigla.length) {
+      _mostrarApenasFilaSTJ(linhasSigla);
       return;
     }
   }
@@ -1236,6 +1247,37 @@ async function buscarProcesso() {
     btn.innerHTML = '<i class="ti ti-search"></i> Buscar';
     btn.disabled  = false;
   }
+}
+
+// Grava números no formato STJ/STF (ex: "AREsp 3254978") na fila de resolução.
+// upsert com ignoreDuplicates: se já estava na fila (em qualquer status), não
+// mexe — evita reiniciar uma consulta que já deu erro ou já foi resolvida.
+async function _enfileirarSTJ(linhasSigla) {
+  const rows = linhasSigla.map(l => ({
+    user_id:           window._escritorioId,
+    entrada_original:  l,
+    // remove sufixo de UF tipo " - AL", que não faz parte do número no STJ
+    termo_busca:        l.replace(/\s*-\s*[A-Z]{2}\s*$/i, '').trim(),
+    tribunal:           'stj',
+    status:             'pendente',
+  }));
+  try {
+    await _supabase.from('fila_consulta_stj')
+      .upsert(rows, { onConflict: 'user_id,termo_busca', ignoreDuplicates: true });
+  } catch (_) {}
+}
+
+// Busca continha só sigla(s) do STJ, nenhum número CNJ válido — mostra a fila
+// sem acionar o DataJud (que rejeitaria com "tribunal não identificado").
+function _mostrarApenasFilaSTJ(linhasSigla) {
+  _loteResultados = linhasSigla.map(l => ({ numero: l, status: 'na_fila_stj', data: null, selecionado: false }));
+  const progressEl   = document.getElementById('lote-progress');
+  const resultadosEl = document.getElementById('lote-resultados');
+  if (progressEl)   progressEl.style.display = 'none';
+  if (resultadosEl) resultadosEl.style.display = 'flex';
+  document.getElementById('lote-importar-wrap').style.display = 'none';
+  renderizarLoteResultados();
+  showToast(`${linhasSigla.length} número(s) do STJ na fila de conversão — você será avisado quando forem resolvidos.`);
 }
 
 async function _buscarPJeTJDFT(numero, btn) {
@@ -1308,8 +1350,10 @@ function _pjeExtrairMagistrado(movs) {
   return '';
 }
 
-async function _buscarLoteInterno(numerosValidos, btn) {
-  _loteResultados = [];
+async function _buscarLoteInterno(numerosValidos, btn, linhasSigla = []) {
+  // Siglas do STJ já enfileiradas (ver _enfileirarSTJ) entram na mesma lista
+  // visual, só que com status próprio — não passam pela busca no DataJud.
+  _loteResultados = linhasSigla.map(l => ({ numero: l, status: 'na_fila_stj', data: null, selecionado: false }));
 
   const progressEl    = document.getElementById('lote-progress');
   const progressBar   = document.getElementById('lote-progress-bar');
@@ -2310,9 +2354,10 @@ function popularDetalhe(proc) {
     display.style.opacity = '0.8';
   }
 
-  // Número e órgão
+  // Número e órgão (+ número de registro no STJ, quando veio da fila de conversão)
   document.getElementById('detalhe-numero-orgao').textContent =
-    [proc.numero, proc.orgao_julgador, proc.tribunal].filter(Boolean).join(' · ');
+    [proc.numero, proc.numero_registro_superior ? `STJ: ${proc.numero_registro_superior}` : null, proc.orgao_julgador, proc.tribunal]
+      .filter(Boolean).join(' · ');
 
   // Grid de campos
   const fmt = iso => iso ? new Date(iso).toLocaleDateString('pt-BR') : '—';
@@ -3547,6 +3592,7 @@ window.addEventListener('DOMContentLoaded', () => {
         carregarTarefasPrazo().then(() => carregarEventosDashboard());
         carregarTarefas();
         carregarDescobertos();
+        carregarAvisosFilaSTJ();
         aplicarAvatarSidebar();
       }
     }
@@ -6606,12 +6652,14 @@ function renderizarLoteResultados() {
     encontrado:     `<i class="ti ti-circle-check" style="color:var(--green);font-size:15px"></i>`,
     nao_encontrado: `<i class="ti ti-circle-x" style="color:var(--red);font-size:15px"></i>`,
     erro:           `<i class="ti ti-alert-triangle" style="color:var(--amber);font-size:15px"></i>`,
+    na_fila_stj:    `<i class="ti ti-clock" style="color:var(--gray-400);font-size:15px"></i>`,
   };
   const bgs = {
     buscando:       'var(--gray-50)',
     encontrado:     'var(--green-light)',
     nao_encontrado: 'var(--red-light)',
     erro:           'var(--amber-light)',
+    na_fila_stj:    'var(--gray-50)',
   };
 
   wrap.innerHTML = _loteResultados.map((r, i) => {
@@ -6622,6 +6670,7 @@ function renderizarLoteResultados() {
       encontrado:     (jaExiste ? '↻ Já cadastrado · ' : '') + (r.data?.classe || r.data?.tribunal || 'Encontrado'),
       nao_encontrado: 'Não localizado',
       erro:           'Erro de conexão',
+      na_fila_stj:    'Na fila do STJ — você será avisado quando for resolvido',
     }[r.status] || r.status;
 
     const bg = r.status === 'encontrado'
@@ -6725,6 +6774,29 @@ async function carregarDescobertos() {
     } else {
       banner.style.display = 'none';
     }
+  } catch (_) {}
+}
+
+// ── AVISOS DA FILA STJ ───────────────────────────────────────────────────────
+// Processo importado/mesclado automaticamente a partir de um número do STJ
+// resolvido pelo worker local (fila_consulta_stj -> api/cron/sincronizar.js
+// ?tipo=fila_stj). Diferente dos "descobertos", não pede decisão — só avisa.
+async function carregarAvisosFilaSTJ() {
+  try {
+    const { data, error } = await _supabase
+      .from('processos')
+      .select('id, nome, apelido, numero, numero_registro_superior')
+      .eq('user_id', window._escritorioId)
+      .eq('aviso_stj_pendente', true);
+    if (error || !data?.length) return;
+
+    for (const p of data) {
+      showToast(
+        `${p.numero_registro_superior || 'Número do STJ'} → ${p.numero} importado no processo "${p.apelido || p.nome}".`,
+        'success'
+      );
+    }
+    await _supabase.from('processos').update({ aviso_stj_pendente: false }).in('id', data.map(p => p.id));
   } catch (_) {}
 }
 

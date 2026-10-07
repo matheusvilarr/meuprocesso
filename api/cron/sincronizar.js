@@ -59,7 +59,8 @@ export default async function handler(req, res) {
   const admin = createClient(SUPA_URL, SUPA_SERVICE_KEY);
   const hoje  = new Date().toISOString().slice(0, 10);
 
-  if (tipo === 'oab') return rodarOabScan(admin, res, hoje);
+  if (tipo === 'oab')      return rodarOabScan(admin, res, hoje);
+  if (tipo === 'fila_stj') return rodarFilaStj(admin, res);
   return rodarDatajud(admin, res, hoje);
 }
 
@@ -395,6 +396,120 @@ async function buscarNoDatajud(index, numero) {
   if (!r.ok) throw new Error(`DataJud respondeu ${r.status} (${index})`);
   const json = JSON.parse(decodificarBuffer(await r.arrayBuffer()));
   return json.hits?.hits || [];
+}
+
+// ── FILA STJ — resolve "AREsp 3254978" pro número CNJ e importa ───────────────
+// O scraping em si roda fora da Vercel (navegador real, contorna o Cloudflare
+// do processo.stj.jus.br — ver scripts/fila_stj/worker.py) porque a API
+// pública do DataJud só aceita o número único (20 dígitos), nunca o número de
+// registro tradicional do STJ/STF. O worker só resolve o número e grava em
+// fila_consulta_stj; quem decide como importar/mesclar em `processos` é esta
+// função — mesma regra de _importarComMerge() (js/dashboard.js), só que aqui
+// com a service key porque não existe sessão de usuário.
+async function rodarFilaStj(admin, res) {
+  const { data: fila, error: filaErr } = await admin
+    .from('fila_consulta_stj')
+    .select('id, user_id, termo_busca, numero_cnj')
+    .eq('status', 'resolvido');
+  if (filaErr) return res.status(500).json({ erro: filaErr.message });
+  if (!fila?.length) return res.status(200).json({ ok: true, tipo: 'fila_stj', processados: 0 });
+
+  let importados = 0, mesclados = 0, erros = 0;
+
+  for (const linha of fila) {
+    try {
+      const numero = normalizarNumeroCNJ(linha.numero_cnj);
+      const index  = datajudIndexFromNumero(numero);
+      if (!index) throw new Error('Número único resolvido não tem índice DataJud reconhecido.');
+
+      const hits = await buscarNoDatajud(index, numero);
+      if (!hits.length) {
+        await admin.from('fila_consulta_stj').update({
+          status:        'nao_encontrado',
+          erro_mensagem: `Número único ${numero} resolvido, mas não encontrado no índice ${index}.`,
+          processado_em: new Date().toISOString(),
+        }).eq('id', linha.id);
+        continue;
+      }
+
+      const d = normalizarDescoberta(hits[0]._source, index);
+      d.numero     = numero;
+      d.movimentos = movimentosDosHits(hits);
+
+      // Número tradicional do STJ (ex: "AREsp 3254978") — o advogado usa pra
+      // consultar direto no site do tribunal, nunca é apagado depois disso.
+      const registroSuperior = linha.termo_busca;
+
+      const { data: existente } = await admin
+        .from('processos')
+        .select('id, movimentos_recentes, tribunal')
+        .eq('user_id', linha.user_id)
+        .eq('numero', numero)
+        .maybeSingle();
+
+      let processoId;
+      if (existente) {
+        const novasMovs = d.movimentos.length ? d.movimentos : (existente.movimentos_recentes || []);
+        const updates = {
+          movimentos_recentes:      novasMovs,
+          movimentos_hash:          novasMovs.length ? novasMovs.slice(0, 6).map(m => m.data + m.nome).join('|') : null,
+          ultima_verificacao:       new Date().toISOString(),
+          numero_registro_superior: registroSuperior,
+          aviso_stj_pendente:       true,
+        };
+        if (!existente.tribunal && d.tribunal) updates.tribunal = d.tribunal;
+        if (d.orgaoJulgador)   updates.orgao_julgador  = d.orgaoJulgador;
+        if (d.classe)          updates.classe          = d.classe;
+        if (d.dataAjuizamento) updates.data_ajuizamento = d.dataAjuizamento;
+        if (d._datajudIndex)   updates.datajud_index   = d._datajudIndex;
+
+        const { error } = await admin.from('processos').update(updates).eq('id', existente.id);
+        if (error) throw new Error(error.message);
+        processoId = existente.id;
+        mesclados++;
+      } else {
+        const clientePart = (d.partes || []).find(p => /autor|requerente|reclamante/i.test(p.tipo || ''));
+        const { data: inserido, error } = await admin.from('processos').upsert({
+          user_id:                  linha.user_id,
+          numero,
+          nome:                     d.classe || numero,
+          cliente:                  clientePart?.nome || '',
+          area:                     'Cível',
+          tribunal:                 d.tribunal || '',
+          datajud_index:            d._datajudIndex || index,
+          classe:                   d.classe || null,
+          orgao_julgador:           d.orgaoJulgador || null,
+          data_ajuizamento:         d.dataAjuizamento || null,
+          movimentos_recentes:      d.movimentos.length ? d.movimentos : null,
+          movimentos_hash:          d.movimentos.length ? d.movimentos.slice(0, 6).map(m => m.data + m.nome).join('|') : null,
+          ultima_verificacao:       d.movimentos.length ? new Date().toISOString() : null,
+          numero_registro_superior: registroSuperior,
+          aviso_stj_pendente:       true,
+        }, { onConflict: 'user_id,numero' }).select('id').single();
+        if (error) throw new Error(error.message);
+        processoId = inserido?.id || null;
+        importados++;
+      }
+
+      await admin.from('fila_consulta_stj').update({
+        status:        'importado',
+        processo_id:   processoId,
+        processado_em: new Date().toISOString(),
+      }).eq('id', linha.id);
+
+    } catch (e) {
+      erros++;
+      await logErro(admin, 'cron:fila-stj', String(e.message || e).slice(0, 300),
+        { filaId: linha.id, termo: linha.termo_busca }, linha.user_id);
+      await admin.from('fila_consulta_stj').update({
+        status:        'erro',
+        erro_mensagem: String(e.message || e).slice(0, 300),
+        processado_em: new Date().toISOString(),
+      }).eq('id', linha.id).then(() => {}, () => {});
+    }
+  }
+
+  return res.status(200).json({ ok: true, tipo: 'fila_stj', processados: fila.length, importados, mesclados, erros });
 }
 
 // ── OAB SCAN — busca processos novos por OAB em todos os tribunais ────────────

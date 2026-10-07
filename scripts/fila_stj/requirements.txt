@@ -1,0 +1,12 @@
+# Dependências do worker da fila STJ. Instala no MESMO venv do Scrapling
+# (C:\Users\mathe\scrapling-env\.venv) — não no venv do scripts/api.py (FastAPI
+# do PJe/DJe), pra não colidir com os pins de Playwright de lá.
+#
+#   uv pip install --python C:\Users\mathe\scrapling-env\.venv -r requirements.txt
+#
+# scrapling[fetchers] já deve estar instalado (ver sessão de setup original);
+# listado aqui também só pra esta pasta ficar completa/reprodutível sozinha.
+scrapling[fetchers]>=0.4.15
+supabase>=2.0.0
+python-dotenv>=1.0.0
+requests>=2.31.0
