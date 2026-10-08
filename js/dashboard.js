@@ -1218,17 +1218,18 @@ async function buscarProcesso() {
       return;
     }
     if (!numerosValidos.length && linhasSigla.length) {
-      // Caso mais comum: um AREsp/REsp só. O card já existe (_enfileirarSTJ
-      // acabou de criar) — leva direto pro detalhe em vez de deixar só uma
-      // linha "na fila" no modal, que o advogado não associa a um card criado.
+      // O card já existe (_enfileirarSTJ acabou de criar) — só leva pra lista
+      // "Meus Processos" pra confirmar que apareceu. Não abre o detalhe
+      // sozinho: o advogado edita o processo quando e como quiser, igual
+      // qualquer outro processo cadastrado manualmente.
       closeModal('modal-busca-tribunal');
-      if (idsCriadosSTJ.length === 1) {
-        showToast('Processo criado — acompanhando a resolução automática do número.', 'success');
-        abrirProcesso(idsCriadosSTJ[0]);
-      } else {
-        showToast(`${linhasSigla.length} processo(s) na fila do STJ — já aparecem em "Meus Processos".`, 'success');
-        showPage('processos');
-      }
+      showToast(
+        idsCriadosSTJ.length === 1
+          ? 'Processo criado — acompanhando a resolução automática do número.'
+          : `${linhasSigla.length} processo(s) criado(s) — acompanhando a resolução automática.`,
+        'success'
+      );
+      showPage('processos');
       return;
     }
   }
