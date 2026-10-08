@@ -423,18 +423,18 @@ async function rodarFilaStj(admin, res) {
       if (!index) throw new Error('Número único resolvido não tem índice DataJud reconhecido.');
 
       const hits = await buscarNoDatajud(index, numero);
-      if (!hits.length) {
-        await admin.from('fila_consulta_stj').update({
-          status:        'nao_encontrado',
-          erro_mensagem: `Número único ${numero} resolvido, mas não encontrado no índice ${index}.`,
-          processado_em: new Date().toISOString(),
-        }).eq('id', linha.id);
-        continue;
-      }
-
-      const d = normalizarDescoberta(hits[0]._source, index);
+      // Processo pode ser recente demais pro DataJud já ter indexado — isso
+      // não invalida a resolução do número no STJ (que veio direto do site do
+      // tribunal). Em vez de desistir, grava o número certo mesmo sem dados
+      // ainda: ultima_verificacao fica null, então a sincronização normal
+      // (api/cron/sincronizar.js?tipo=datajud) completa assim que o DataJud
+      // indexar, sem precisar passar pela fila do STJ de novo.
+      const semDadosDatajud = !hits.length;
+      const d = semDadosDatajud
+        ? { numero, tribunal: null, _datajudIndex: index, classe: null, orgaoJulgador: null, dataAjuizamento: null, partes: [], movimentos: [] }
+        : normalizarDescoberta(hits[0]._source, index);
       d.numero     = numero;
-      d.movimentos = movimentosDosHits(hits);
+      d.movimentos = semDadosDatajud ? [] : movimentosDosHits(hits);
 
       // Número tradicional do STJ (ex: "AREsp 3254978") — o advogado usa pra
       // consultar direto no site do tribunal, nunca é apagado depois disso.
@@ -504,6 +504,9 @@ async function rodarFilaStj(admin, res) {
         status:        'importado',
         processo_id:   processoId,
         processado_em: new Date().toISOString(),
+        erro_mensagem: semDadosDatajud
+          ? 'Número CNJ gravado; DataJud ainda não tinha dados deste processo — a sincronização normal completa quando disponível.'
+          : null,
       }).eq('id', linha.id);
 
     } catch (e) {

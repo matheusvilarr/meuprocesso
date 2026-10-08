@@ -1249,22 +1249,51 @@ async function buscarProcesso() {
   }
 }
 
-// Grava números no formato STJ/STF (ex: "AREsp 3254978") na fila de resolução.
-// upsert com ignoreDuplicates: se já estava na fila (em qualquer status), não
-// mexe — evita reiniciar uma consulta que já deu erro ou já foi resolvida.
+// Grava números no formato STJ/STF (ex: "AREsp 3254978") na fila de resolução
+// E já cria o card do processo na hora — não espera a sincronização pra
+// aparecer. O advogado edita cliente/apelido/etc normalmente enquanto espera;
+// quando a fila resolver, o número CNJ substitui o número provisório sem
+// apagar nada que foi editado (mesma lógica de _importarComMerge).
 async function _enfileirarSTJ(linhasSigla) {
-  const rows = linhasSigla.map(l => ({
-    user_id:           window._escritorioId,
-    entrada_original:  l,
+  const termos = linhasSigla.map(l => ({
+    entrada: l,
     // remove sufixo de UF tipo " - AL", que não faz parte do número no STJ
-    termo_busca:        l.replace(/\s*-\s*[A-Z]{2}\s*$/i, '').trim(),
+    termo: l.replace(/\s*-\s*[A-Z]{2}\s*$/i, '').trim(),
+  }));
+
+  const rows = termos.map(t => ({
+    user_id:           window._escritorioId,
+    entrada_original:  t.entrada,
+    termo_busca:        t.termo,
     tribunal:           'stj',
     status:             'pendente',
   }));
   try {
+    // ignoreDuplicates: se já estava na fila (em qualquer status), não mexe —
+    // evita reiniciar uma consulta que já deu erro ou já foi resolvida.
     await _supabase.from('fila_consulta_stj')
       .upsert(rows, { onConflict: 'user_id,termo_busca', ignoreDuplicates: true });
   } catch (_) {}
+
+  let criados = 0;
+  for (const t of termos) {
+    try {
+      const { data: existente } = await _supabase.from('processos')
+        .select('id').eq('user_id', window._escritorioId).eq('numero', t.termo).maybeSingle();
+      if (existente) continue; // já tem card (cadastro manual anterior, por ex.)
+      const { error } = await _supabase.from('processos').upsert({
+        user_id:                  window._escritorioId,
+        numero:                   t.termo,
+        nome:                     t.termo,
+        cliente:                  '',
+        area:                     'Cível',
+        tribunal:                 '',
+        numero_registro_superior: t.termo,
+      }, { onConflict: 'user_id,numero' });
+      if (!error) criados++;
+    } catch (_) {}
+  }
+  if (criados) await carregarProcessos();
 }
 
 // Busca continha só sigla(s) do STJ, nenhum número CNJ válido — mostra a fila
@@ -1564,13 +1593,6 @@ async function salvarProcesso() {
 
   if (!nome) { showToast('Preencha o nome / assunto do processo.'); return; }
 
-  // Cadastro manual com número no formato STJ (ex: "AREsp 3254978") também
-  // entra na fila de resolução — não só a busca. O processo é salvo do jeito
-  // que foi digitado; quando a fila resolver, o número CNJ substitui este.
-  if (numero && !_validarNumeroProcessoCNJ(numero) && /^a?resp\.?\s*\d/i.test(numero)) {
-    await _enfileirarSTJ([numero]);
-  }
-
   // Verifica duplicata comparando só os dígitos — antes, o mesmo processo
   // digitado com e sem pontuação passava como se fosse outro.
   if (numero) {
@@ -1607,6 +1629,9 @@ async function salvarProcesso() {
     movimentos_hash:     window._importMovimentos?.length
       ? window._importMovimentos.map(m => m.data + m.nome).join('|') : null,
     ultima_verificacao:  window._importMovimentos?.length ? new Date().toISOString() : null,
+    // Formato STJ (ex: "AREsp 3254978") fica pesquisável mesmo depois que a
+    // fila trocar "numero" pelo número CNJ — ver filtrarProcessos/topbarSearch.
+    numero_registro_superior: /^a?resp\.?\s*\d/i.test(numero) ? numero : null,
   };
 
   const { error } = await _supabase.from('processos').insert(payload);
@@ -1617,6 +1642,15 @@ async function salvarProcesso() {
   if (error) {
     showToast('Erro ao salvar: ' + error.message);
     return;
+  }
+
+  // Cadastro manual com número no formato STJ (ex: "AREsp 3254978") também
+  // entra na fila de resolução — não só a busca. O processo já foi salvo do
+  // jeito que o advogado digitou; quando a fila resolver, o número CNJ
+  // substitui este, preservando tudo que foi editado (_enfileirarSTJ só cria
+  // um card novo se ainda não existir um com esse número — aqui já existe).
+  if (numero && !_validarNumeroProcessoCNJ(numero) && /^a?resp\.?\s*\d/i.test(numero)) {
+    await _enfileirarSTJ([numero]);
   }
 
   closeModal('modal-novo-processo');
@@ -2121,6 +2155,7 @@ function filtrarProcessos() {
   if (q) {
     lista = lista.filter(p =>
       (p.numero  || '').toLowerCase().includes(q) ||
+      (p.numero_registro_superior || '').toLowerCase().includes(q) ||
       (p.nome    || '').toLowerCase().includes(q) ||
       (p.apelido || '').toLowerCase().includes(q) ||
       (p.cliente || '').toLowerCase().includes(q) ||
@@ -2149,6 +2184,7 @@ function topbarSearch(q) {
 
   const resultados = (window._processosDB || []).filter(p =>
     (p.numero  || '').toLowerCase().includes(term) ||
+    (p.numero_registro_superior || '').toLowerCase().includes(term) ||
     (p.nome    || '').toLowerCase().includes(term) ||
     (p.apelido || '').toLowerCase().includes(term) ||
     (p.cliente || '').toLowerCase().includes(term)

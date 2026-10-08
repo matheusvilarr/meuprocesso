@@ -52,12 +52,58 @@ def consulta_normalizada(texto):
     return re.split(r"\s*-\s*[A-Z]{2}\s*$", texto.strip())[0].strip()
 
 
+def varrer_processos_orfaos(supa):
+    """Processos cadastrados ANTES da fila existir (ou por algum caminho que
+    não passa pela detecção, ex: editar processo) ficam com "AREsp 3254978"
+    direto no campo numero, pra sempre fora da sincronização. Roda a cada
+    execução e enfileira os que ainda não foram enfileirados.
+    """
+    processos = supa.table("processos").select("id, user_id, numero").execute().data or []
+
+    vistos = set()
+    novas = []
+    for p in processos:
+        numero = (p.get("numero") or "").strip()
+        if not numero:
+            continue
+        if len(re.sub(r"\D", "", numero)) == 20:
+            continue  # já é número CNJ válido
+        if not re.match(r"^a?resp\.?\s*\d", numero, re.IGNORECASE):
+            continue  # não é formato reconhecido do STJ
+        termo = consulta_normalizada(numero)
+        chave = (p["user_id"], termo)
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        novas.append({
+            "user_id": p["user_id"],
+            "entrada_original": numero,
+            "termo_busca": termo,
+            "tribunal": "stj",
+            "status": "pendente",
+        })
+
+    if not novas:
+        return 0
+
+    # upsert com ignore_duplicates: não reinicia uma linha que já estava
+    # pendente/resolvida/com erro (ver unique(user_id, termo_busca))
+    supa.table("fila_consulta_stj").upsert(
+        novas, on_conflict="user_id,termo_busca", ignore_duplicates=True
+    ).execute()
+    return len(novas)
+
+
 def main():
     if not SUPABASE_SERVICE_KEY:
         print("ERRO: SUPABASE_SERVICE_KEY não configurada em scripts/fila_stj/.env")
         sys.exit(1)
 
     supa = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+    varridos = varrer_processos_orfaos(supa)
+    if varridos:
+        print(f"Encontrados {varridos} processo(s) antigo(s) com número do STJ — adicionados à fila.")
 
     pendentes = (
         supa.table("fila_consulta_stj")
