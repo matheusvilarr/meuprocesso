@@ -46,15 +46,26 @@ Repositório: `github.com/matheusvilarr/meuprocesso`
 │   ├── salvar-evento.js    # Salva eventos de calendário
 │   ├── upload-avatar.js    # Upload de foto de perfil
 │   └── cron/
-│       └── verificar-atualizacoes.js  # Cron diário: verifica novos movimentos
+│       ├── sincronizar.js             # Cron principal: DataJud (?tipo=datajud), DJEN
+│       │                               # (?tipo=djen), OAB scan (?tipo=oab) e fila STJ
+│       │                               # (?tipo=fila_stj — ver seção própria abaixo)
+│       └── verificar-atualizacoes.js  # Cron de e-mail: lê o que sincronizar.js gravou
+├── lib/
+│   ├── sync-comum.js       # Funções compartilhadas entre crons (DataJud, e-mail, etc.)
+│   └── djen-cadernos.js    # Lógica do cron de cadernos do DJEN
 ├── scripts/
 │   ├── api.py              # FastAPI — expõe scrapers como REST (porta 8000)
 │   ├── scraper_pje.py      # Playwright: scraping do portal PJe TJDFT
 │   ├── monitor_dje.py      # Busca intimações no DJe TJDFT via API
-│   └── requirements.txt    # playwright, fastapi, uvicorn, requests
+│   ├── requirements.txt    # playwright, fastapi, uvicorn, requests
+│   └── fila_stj/           # Worker da fila STJ/STF — ver seção própria abaixo
+│       ├── worker.py
+│       ├── requirements.txt
+│       ├── rodar.bat       # Duplo-clique pra rodar (venv fica fora do repo)
+│       └── .env            # Local, fora do git (SUPABASE_SERVICE_KEY, STJ_FILA_SECRET)
 ├── supabase/
 │   ├── schema.sql          # Schema completo — rode no SQL Editor do Supabase
-│   └── migration_tarefas_v2.sql  # Migration para adicionar colunas (não destrói dados)
+│   └── migration_*.sql     # Migrations aditivas (não destroem dados) — rodar uma por uma
 ├── Dockerfile              # Para rodar o backend Python em servidor (ex: Railway)
 └── vercel.json             # Rotas, cache e cron job da Vercel
 ```
@@ -78,6 +89,17 @@ Campos importantes:
 - `novos_movimentos` (jsonb) — movimentos novos desde última leitura
 - `datajud_index` — ex: `api_publica_tjdft` (identifica de qual tribunal veio)
 - `notas_manuais` (jsonb) — array `[{ texto, created_at, id }]`
+- `numero_registro_superior` — número tradicional do STJ/STF (ex: "AREsp 3254978"), quando o processo veio da fila de conversão. Nunca é apagado por um sync normal.
+- `historico_numeros` (jsonb) — array `[{ numero, etiqueta, origem, data }]`, só cresce — todos os números que a causa já teve (1ª instância, STJ, STF...)
+- `aviso_stj_pendente` (boolean) — true logo após a fila importar/mesclar; o dashboard mostra um toast e desliga
+
+### `fila_consulta_stj`
+Números no formato STJ/STF ("AREsp 3254978") colados na busca ou no cadastro manual entram aqui — ver seção "Fila de conversão STJ/STF" abaixo.
+- `user_id`, `entrada_original`, `termo_busca` (normalizado, sem sufixo de UF)
+- `status` — `pendente` | `processando` | `resolvido` | `nao_encontrado` | `erro` | `importado`
+- `numero_cnj`, `classe_descricao`, `numero_registro_tribunal` — preenchidos pelo worker
+- `processo_id` — FK pro processo criado/mesclado, preenchido na importação
+- `unique(user_id, termo_busca)`
 
 ### `tarefas`
 - `titulo` (not null) — descrição da tarefa
@@ -151,6 +173,7 @@ O Supabase é sempre remoto — localhost não afeta o banco.
 - Colaboradores
 - Arquivamento de processos
 - DJe TJDFT: busca por OAB/nome direto do browser (sem Python)
+- **Fila de conversão STJ/STF**: número tradicional (AREsp/REsp) na busca ou cadastro manual → card criado na hora → worker local resolve o número único via scraping → importa/mescla automaticamente, preservando o número do STJ e um histórico completo — ver seção própria abaixo
 
 ### 🔧 Em manutenção / incompleto
 - **Página TJDFT**: desabilitada visualmente com aviso "em manutenção"
@@ -165,6 +188,45 @@ O Supabase é sempre remoto — localhost não afeta o banco.
 - Servidor Python para produção (Railway ou servidor próprio do cliente)
 - Notificação automática DJe: cron que busca OAB de cada usuário e push notification
 - Busca por OAB no DataJud retorna campos limitados por LGPD (partes podem vir vazias)
+
+---
+
+## Fila de conversão STJ/STF
+
+A API pública do DataJud só aceita o número único (CNJ, 20 dígitos) — nunca o número
+tradicional do STJ/STF (ex: "AREsp 3254978"). Esse número não dá pra resolver sozinho:
+o site do STJ (`processo.stj.jus.br`) tem Cloudflare, então a resolução roda um navegador
+real local (Scrapling), fora da Vercel.
+
+**Fluxo:**
+1. `js/dashboard.js` detecta o padrão (`/^a?resp\.?\s*\d/i`) na busca ou no cadastro manual,
+   já cria o card na hora (editável, enquanto espera) e grava em `fila_consulta_stj`.
+2. `scripts/fila_stj/rodar.bat` — rodado manualmente, quando o Matheus quiser (sem agendamento
+   automático por enquanto) — abre um navegador headless via Scrapling, resolve o Cloudflare
+   e cada número pendente, grava o resultado na fila. Também varre `processos` por números
+   STJ "antigos" que nunca passaram pela fila (ex: cadastrados manualmente antes dela existir).
+3. No final, chama `api/cron/sincronizar.js?tipo=fila_stj`, que busca no DataJud pelo número
+   resolvido e importa/mescla em `processos` (mesma lógica de merge do `_importarComMerge`),
+   em paralelo via `comPool` (uma consulta por item sequencial estoura o `maxDuration`).
+4. Manda 1 e-mail por advogado (resumo de tudo resolvido naquela execução, só quando cria
+   processo novo — não quando só mescla/corrige um existente já acompanhado).
+
+**Ambiente do worker (fora do repo, fora do OneDrive):**
+- venv: `C:\Users\mathe\scrapling-env\.venv` — criado com `uv`, tem Scrapling + supabase-py +
+  python-dotenv. Fica fora do OneDrive de propósito (binário de navegador é pesado, sem
+  necessidade de sincronizar pra nuvem).
+- Credenciais em `scripts/fila_stj/.env` (local, fora do git): `SUPABASE_SERVICE_KEY`,
+  `STJ_FILA_SECRET`.
+
+**`STJ_FILA_SECRET` ≠ `CRON_SECRET`:** o `CRON_SECRET` nativo da Vercel só aceita "Rotate"
+no painel (gera valor aleatório próprio, não aceita colar um valor manual) — por isso o
+worker usa uma variável própria (`STJ_FILA_SECRET`, tipo "Config", editável normalmente),
+que `api/cron/sincronizar.js` aceita como credencial alternativa.
+
+**Armadilha de produção já pisada:** `meuprocesso.app.br` (sem `www`) faz redirect 308 pra
+`www.meuprocesso.app.br`, e `requests`/curl descartam o header `Authorization` ao seguir
+redirect pra outro host — isso parecia "CRON_SECRET errado" (401) mas na real nunca chegava
+no handler. `SYNC_ENDPOINT` no `.env` do worker já aponta pro host `www.` direto.
 
 ---
 
@@ -216,3 +278,7 @@ const result = await _importarComMerge(d);
 - **NUNCA rodar `schema.sql` em produção** — ele faz `DROP TABLE` em processos/tarefas e apaga dados de clientes reais
 - Migrations novas devem ser só aditivas (sem DROP TABLE / DELETE / UPDATE em massa de dados)
 - Erro "schema cache" → rodar `NOTIFY pgrst, 'reload schema';` no SQL Editor
+- **Todo `DELETE`/`UPDATE` em massa direto no banco (fora da UI) precisa filtrar por `user_id`**
+  e mostrar um `SELECT` de prévia antes de rodar — em 08/10/2026 um delete sem esse filtro
+  apagou um processo real de outro usuário junto com o de teste que era pra apagar. Sem backup
+  recente daquele registro específico, a recuperação teve que ser manual.
