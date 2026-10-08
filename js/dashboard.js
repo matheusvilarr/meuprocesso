@@ -1564,6 +1564,13 @@ async function salvarProcesso() {
 
   if (!nome) { showToast('Preencha o nome / assunto do processo.'); return; }
 
+  // Cadastro manual com número no formato STJ (ex: "AREsp 3254978") também
+  // entra na fila de resolução — não só a busca. O processo é salvo do jeito
+  // que foi digitado; quando a fila resolver, o número CNJ substitui este.
+  if (numero && !_validarNumeroProcessoCNJ(numero) && /^a?resp\.?\s*\d/i.test(numero)) {
+    await _enfileirarSTJ([numero]);
+  }
+
   // Verifica duplicata comparando só os dígitos — antes, o mesmo processo
   // digitado com e sem pontuação passava como se fosse outro.
   if (numero) {

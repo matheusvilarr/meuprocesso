@@ -409,7 +409,7 @@ async function buscarNoDatajud(index, numero) {
 async function rodarFilaStj(admin, res) {
   const { data: fila, error: filaErr } = await admin
     .from('fila_consulta_stj')
-    .select('id, user_id, termo_busca, numero_cnj')
+    .select('id, user_id, entrada_original, termo_busca, numero_cnj')
     .eq('status', 'resolvido');
   if (filaErr) return res.status(500).json({ erro: filaErr.message });
   if (!fila?.length) return res.status(200).json({ ok: true, tipo: 'fila_stj', processados: 0 });
@@ -440,12 +440,17 @@ async function rodarFilaStj(admin, res) {
       // consultar direto no site do tribunal, nunca é apagado depois disso.
       const registroSuperior = linha.termo_busca;
 
-      const { data: existente } = await admin
+      // Casa tanto pelo número único (já cadastrado certo) quanto pelo texto
+      // original digitado/buscado (ex: alguém cadastrou manualmente com
+      // numero="AREsp 3254978" antes de existir essa fila) — sem isso, um
+      // processo assim virava duplicado em vez de corrigido.
+      const candidatosNumero = [...new Set([numero, linha.entrada_original, linha.termo_busca].filter(Boolean))];
+      const { data: achados } = await admin
         .from('processos')
-        .select('id, movimentos_recentes, tribunal')
+        .select('id, numero, movimentos_recentes, tribunal')
         .eq('user_id', linha.user_id)
-        .eq('numero', numero)
-        .maybeSingle();
+        .in('numero', candidatosNumero);
+      const existente = (achados || []).find(p => p.numero === numero) || (achados || [])[0] || null;
 
       let processoId;
       if (existente) {
@@ -457,11 +462,15 @@ async function rodarFilaStj(admin, res) {
           numero_registro_superior: registroSuperior,
           aviso_stj_pendente:       true,
         };
+        // Achado pelo texto antigo (ex: "AREsp 3254978"), não pelo número
+        // único — corrige o número, senão o processo continua fora da fila
+        // de sincronização pra sempre.
+        if (existente.numero !== numero) updates.numero = numero;
         if (!existente.tribunal && d.tribunal) updates.tribunal = d.tribunal;
         if (d.orgaoJulgador)   updates.orgao_julgador  = d.orgaoJulgador;
         if (d.classe)          updates.classe          = d.classe;
         if (d.dataAjuizamento) updates.data_ajuizamento = d.dataAjuizamento;
-        if (d._datajudIndex)   updates.datajud_index   = d._datajudIndex;
+        if (d._datajudIndex)   updates.datajud_index    = d._datajudIndex;
 
         const { error } = await admin.from('processos').update(updates).eq('id', existente.id);
         if (error) throw new Error(error.message);
