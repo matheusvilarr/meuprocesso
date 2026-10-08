@@ -17,7 +17,7 @@ import {
   parsarData, decodificarBuffer, logErro, chaveMov, movimentosDosHits,
   ehMovDJEN, datajudIndexFromNumero, buscarOabsUsuarios, corrigirMojibake,
   normalizarNumeroCNJ, tituloProcesso, limparLogsAntigos,
-  abrirExecucao, fecharExecucao, enviarEmail,
+  abrirExecucao, fecharExecucao, enviarEmail, cabecalho, rodape, btnDashboard,
 } from '../../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
@@ -575,17 +575,27 @@ async function rodarFilaStj(admin, res) {
           ${it.semDadosDatajud ? `<div style="font-size:11px;color:#b45309;margin-top:2px">DataJud ainda não tinha dados deste processo — detalhes completam na próxima sincronização.</div>` : ''}
         </div>`;
 
-      const html = `
-        <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
-          <h2 style="color:#1a2b4a">Número${itens.length > 1 ? 's' : ''} do STJ resolvido${itens.length > 1 ? 's' : ''}</h2>
-          <p style="color:#374151">O número do STJ continua salvo e pesquisável no sistema — não foi apagado.</p>
-          ${itens.map(linhaItem).join('')}
-          <p style="margin-top:20px"><a href="https://meuprocesso.app.br/dashboard" style="color:#1a2b4a">Abrir no Meu Processo →</a></p>
-        </div>`;
-
       const assunto = itens.length === 1
         ? `Número do STJ resolvido — ${itens[0].nomeExibicao}`
         : `${itens.length} números do STJ resolvidos`;
+
+      const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+<div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
+  ${cabecalho(`Número${itens.length > 1 ? 's' : ''} do STJ resolvido${itens.length > 1 ? 's' : ''}`)}
+  <div style="padding:16px 24px">
+    <div style="font-size:13px;color:#374151;line-height:1.5;margin-bottom:14px">
+      O STJ identifica processos por um número de registro próprio (ex: AREsp, REsp), diferente
+      do número único (CNJ) usado para consultar movimentações. ${itens.length > 1 ? 'Os processos abaixo foram localizados' : 'O processo abaixo foi localizado'}
+      no site do STJ e tiveram o número único convertido automaticamente — o número do STJ
+      continua salvo e pesquisável no sistema, não foi apagado.
+    </div>
+    ${itens.map(linhaItem).join('')}
+  </div>
+  ${btnDashboard('#1a2e6b')}
+  ${rodape()}
+</div>
+</body></html>`;
 
       await enviarEmail(email, assunto, html);
     } catch (e) {
