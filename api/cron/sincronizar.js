@@ -414,6 +414,7 @@ async function buscarNoDatajud(index, numero) {
 // função — mesma regra de _importarComMerge() (js/dashboard.js), só que aqui
 // com a service key porque não existe sessão de usuário.
 async function rodarFilaStj(admin, res) {
+  const startAt = Date.now();
   const { data: fila, error: filaErr } = await admin
     .from('fila_consulta_stj')
     .select('id, user_id, entrada_original, termo_busca, numero_cnj')
@@ -421,9 +422,16 @@ async function rodarFilaStj(admin, res) {
   if (filaErr) return res.status(500).json({ erro: filaErr.message });
   if (!fila?.length) return res.status(200).json({ ok: true, tipo: 'fila_stj', processados: 0 });
 
-  let importados = 0, mesclados = 0, erros = 0;
+  // Um e-mail por processo era irritante (lote de 6 = 6 e-mails seguidos) —
+  // junta tudo que essa execução resolveu e manda um só por advogado, no
+  // final. Cada entrada carrega o que entra no resumo do e-mail.
+  const avisosPorUsuario = {};
 
-  for (const linha of fila) {
+  // Em série isso estourava o maxDuration com poucos itens (cada consulta ao
+  // DataJud pode levar dezenas de segundos). Mesmo pool contínuo usado pelo
+  // sync normal — concorrência bem menor porque a fila do STJ é tipicamente
+  // pequena (poucas dezenas, não milhares).
+  const resultados = await comPool(fila, Math.min(10, fila.length), startAt + JANELA_INICIAR_MS, async (linha) => {
     try {
       const numero = normalizarNumeroCNJ(linha.numero_cnj);
       const index  = datajudIndexFromNumero(numero);
@@ -454,13 +462,14 @@ async function rodarFilaStj(admin, res) {
       const candidatosNumero = [...new Set([numero, linha.entrada_original, linha.termo_busca].filter(Boolean))];
       const { data: achados } = await admin
         .from('processos')
-        .select('id, numero, apelido, nome, movimentos_recentes, tribunal')
+        .select('id, numero, apelido, nome, cliente, movimentos_recentes, tribunal')
         .eq('user_id', linha.user_id)
         .in('numero', candidatosNumero);
       const existente = (achados || []).find(p => p.numero === numero) || (achados || [])[0] || null;
 
       let processoId;
       let nomeExibicao = existente?.apelido || existente?.nome || d.classe || numero;
+      let clienteNovo  = null;
       if (existente) {
         const novasMovs = d.movimentos.length ? d.movimentos : (existente.movimentos_recentes || []);
         const updates = {
@@ -483,9 +492,9 @@ async function rodarFilaStj(admin, res) {
         const { error } = await admin.from('processos').update(updates).eq('id', existente.id);
         if (error) throw new Error(error.message);
         processoId = existente.id;
-        mesclados++;
       } else {
         const clientePart = (d.partes || []).find(p => /autor|requerente|reclamante/i.test(p.tipo || ''));
+        clienteNovo = clientePart?.nome || null;
         const { data: inserido, error } = await admin.from('processos').upsert({
           user_id:                  linha.user_id,
           numero,
@@ -505,7 +514,6 @@ async function rodarFilaStj(admin, res) {
         }, { onConflict: 'user_id,numero' }).select('id').single();
         if (error) throw new Error(error.message);
         processoId = inserido?.id || null;
-        importados++;
       }
 
       await admin.from('fila_consulta_stj').update({
@@ -517,31 +525,20 @@ async function rodarFilaStj(admin, res) {
           : null,
       }).eq('id', linha.id);
 
-      // Notifica o advogado por e-mail assim que o número é resolvido — não
-      // espera o digest diário (igual pedido: "notificar imediatamente").
-      // Falha de e-mail nunca derruba a importação em si.
-      try {
-        const { data: ud } = await admin.auth.admin.getUserById(linha.user_id);
-        const email = ud?.user?.email;
-        if (email) {
-          const html = `
-            <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto">
-              <h2 style="color:#1a2b4a">Número do STJ resolvido</h2>
-              <p>O número <b>${registroSuperior}</b> foi convertido para o número único do processo:</p>
-              <p style="font-size:16px;font-weight:bold;font-family:monospace">${numero}</p>
-              <p>Processo: <b>${nomeExibicao}</b></p>
-              <p style="color:#666;font-size:13px">O número do STJ continua salvo e pesquisável no sistema — não foi apagado.</p>
-              <p><a href="https://meuprocesso.app.br/dashboard" style="color:#1a2b4a">Abrir no Meu Processo →</a></p>
-            </div>`;
-          await enviarEmail(email, `Número do STJ resolvido — ${nomeExibicao}`, html);
-        }
-      } catch (e) {
-        await logErro(admin, 'cron:fila-stj-email', String(e.message || e).slice(0, 300),
-          { filaId: linha.id, processoId }, linha.user_id);
+      // Avisa só quando é processo NOVO — mesclar em um que o advogado já
+      // acompanhava (ex: só corrigindo o número) não gera e-mail, por pedido.
+      if (!existente) {
+        (avisosPorUsuario[linha.user_id] ||= []).push({
+          numero, registroSuperior, nomeExibicao,
+          classe: d.classe || null,
+          cliente: clienteNovo,
+          dataAjuizamento: d.dataAjuizamento || null,
+          semDadosDatajud,
+        });
       }
 
+      return existente ? 'mesclado' : 'importado';
     } catch (e) {
-      erros++;
       await logErro(admin, 'cron:fila-stj', String(e.message || e).slice(0, 300),
         { filaId: linha.id, termo: linha.termo_busca }, linha.user_id);
       await admin.from('fila_consulta_stj').update({
@@ -549,6 +546,50 @@ async function rodarFilaStj(admin, res) {
         erro_mensagem: String(e.message || e).slice(0, 300),
         processado_em: new Date().toISOString(),
       }).eq('id', linha.id).then(() => {}, () => {});
+      return 'erro';
+    }
+  });
+
+  const importados = resultados.filter(r => r === 'importado').length;
+  const mesclados  = resultados.filter(r => r === 'mesclado').length;
+  const erros      = resultados.filter(r => r === 'erro').length;
+
+  // Um e-mail por advogado com o resumo de tudo que essa execução resolveu —
+  // nunca derruba a resposta da rota se o envio falhar.
+  for (const userId of Object.keys(avisosPorUsuario)) {
+    try {
+      const itens = avisosPorUsuario[userId];
+      const { data: ud } = await admin.auth.admin.getUserById(userId);
+      const email = ud?.user?.email;
+      if (!email) continue;
+
+      const linhaItem = (it) => `
+        <div style="padding:12px 0;border-bottom:1px solid #e5e7eb">
+          <div style="font-size:14px;font-weight:700;color:#1a2b4a">${it.nomeExibicao}</div>
+          ${it.cliente ? `<div style="font-size:12px;color:#374151">Cliente: ${it.cliente}</div>` : ''}
+          ${it.classe ? `<div style="font-size:12px;color:#374151">${it.classe}</div>` : ''}
+          <div style="font-size:12px;color:#6b7280;margin-top:4px">
+            STJ: <b>${it.registroSuperior}</b> → CNJ: <b style="font-family:monospace">${it.numero}</b>
+          </div>
+          ${it.dataAjuizamento ? `<div style="font-size:11px;color:#9ca3af;margin-top:2px">Distribuído em ${new Date(it.dataAjuizamento).toLocaleDateString('pt-BR')}</div>` : ''}
+          ${it.semDadosDatajud ? `<div style="font-size:11px;color:#b45309;margin-top:2px">DataJud ainda não tinha dados deste processo — detalhes completam na próxima sincronização.</div>` : ''}
+        </div>`;
+
+      const html = `
+        <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto">
+          <h2 style="color:#1a2b4a">Número${itens.length > 1 ? 's' : ''} do STJ resolvido${itens.length > 1 ? 's' : ''}</h2>
+          <p style="color:#374151">O número do STJ continua salvo e pesquisável no sistema — não foi apagado.</p>
+          ${itens.map(linhaItem).join('')}
+          <p style="margin-top:20px"><a href="https://meuprocesso.app.br/dashboard" style="color:#1a2b4a">Abrir no Meu Processo →</a></p>
+        </div>`;
+
+      const assunto = itens.length === 1
+        ? `Número do STJ resolvido — ${itens[0].nomeExibicao}`
+        : `${itens.length} números do STJ resolvidos`;
+
+      await enviarEmail(email, assunto, html);
+    } catch (e) {
+      await logErro(admin, 'cron:fila-stj-email', String(e.message || e).slice(0, 300), { userId });
     }
   }
 
