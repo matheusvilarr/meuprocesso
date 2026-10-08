@@ -2157,6 +2157,7 @@ function filtrarProcessos() {
     lista = lista.filter(p =>
       (p.numero  || '').toLowerCase().includes(q) ||
       (p.numero_registro_superior || '').toLowerCase().includes(q) ||
+      (p.historico_numeros || []).some(h => (h.numero || '').toLowerCase().includes(q)) ||
       (p.nome    || '').toLowerCase().includes(q) ||
       (p.apelido || '').toLowerCase().includes(q) ||
       (p.cliente || '').toLowerCase().includes(q) ||
@@ -2186,6 +2187,7 @@ function topbarSearch(q) {
   const resultados = (window._processosDB || []).filter(p =>
     (p.numero  || '').toLowerCase().includes(term) ||
     (p.numero_registro_superior || '').toLowerCase().includes(term) ||
+    (p.historico_numeros || []).some(h => (h.numero || '').toLowerCase().includes(term)) ||
     (p.nome    || '').toLowerCase().includes(term) ||
     (p.apelido || '').toLowerCase().includes(term) ||
     (p.cliente || '').toLowerCase().includes(term)
@@ -2399,9 +2401,17 @@ function popularDetalhe(proc) {
   }
 
   // Número e órgão (+ número de registro no STJ, quando veio da fila de conversão)
-  document.getElementById('detalhe-numero-orgao').textContent =
+  const numeroOrgaoEl = document.getElementById('detalhe-numero-orgao');
+  numeroOrgaoEl.textContent =
     [proc.numero, proc.numero_registro_superior ? `STJ: ${proc.numero_registro_superior}` : null, proc.orgao_julgador, proc.tribunal]
       .filter(Boolean).join(' · ');
+  // Histórico de todos os números que essa causa já teve (1ª instância, STJ,
+  // STF...) — nunca apagado, só cresce. Por enquanto só no hover pra não
+  // precisar de um bloco novo no layout.
+  const historico = proc.historico_numeros || [];
+  numeroOrgaoEl.title = historico.length
+    ? 'Histórico de números:\n' + historico.map(h => `${h.etiqueta}: ${h.numero}`).join('\n')
+    : '';
 
   // Grid de campos
   const fmt = iso => iso ? new Date(iso).toLocaleDateString('pt-BR') : '—';

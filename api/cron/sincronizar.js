@@ -417,7 +417,7 @@ async function rodarFilaStj(admin, res) {
   const startAt = Date.now();
   const { data: fila, error: filaErr } = await admin
     .from('fila_consulta_stj')
-    .select('id, user_id, entrada_original, termo_busca, numero_cnj')
+    .select('id, user_id, entrada_original, termo_busca, numero_cnj, tribunal')
     .eq('status', 'resolvido');
   if (filaErr) return res.status(500).json({ erro: filaErr.message });
   if (!fila?.length) return res.status(200).json({ ok: true, tipo: 'fila_stj', processados: 0 });
@@ -462,10 +462,29 @@ async function rodarFilaStj(admin, res) {
       const candidatosNumero = [...new Set([numero, linha.entrada_original, linha.termo_busca].filter(Boolean))];
       const { data: achados } = await admin
         .from('processos')
-        .select('id, numero, apelido, nome, cliente, movimentos_recentes, tribunal')
+        .select('id, numero, apelido, nome, cliente, movimentos_recentes, tribunal, historico_numeros')
         .eq('user_id', linha.user_id)
         .in('numero', candidatosNumero);
       const existente = (achados || []).find(p => p.numero === numero) || (achados || [])[0] || null;
+
+      // Histórico de números da causa (1ª instância, 2ª instância se mudou,
+      // STJ, STF...) — só cresce, nunca apaga uma entrada antiga. Registra
+      // o número de registro do STJ/STF resolvido agora e, se o número
+      // único do processo estiver mudando, preserva o valor anterior antes
+      // de sobrescrever (senão esse rastro se perde pra sempre).
+      const agoraIso = new Date().toISOString();
+      const etiquetaTribunal = (linha.tribunal || 'stj').toUpperCase();
+      const historicoBase = existente?.historico_numeros || [];
+      const novasEntradas = [
+        { numero: registroSuperior, etiqueta: etiquetaTribunal, origem: 'fila_stj', data: agoraIso },
+      ];
+      if (existente && existente.numero !== numero) {
+        novasEntradas.push({ numero: existente.numero, etiqueta: 'Número anterior', origem: 'fila_stj', data: agoraIso });
+      }
+      const historicoAtualizado = [
+        ...historicoBase,
+        ...novasEntradas.filter(nv => !historicoBase.some(h => h.numero === nv.numero)),
+      ];
 
       let processoId;
       let nomeExibicao = existente?.apelido || existente?.nome || d.classe || numero;
@@ -477,6 +496,7 @@ async function rodarFilaStj(admin, res) {
           movimentos_hash:          novasMovs.length ? novasMovs.slice(0, 6).map(m => m.data + m.nome).join('|') : null,
           ultima_verificacao:       new Date().toISOString(),
           numero_registro_superior: registroSuperior,
+          historico_numeros:        historicoAtualizado,
           aviso_stj_pendente:       true,
         };
         // Achado pelo texto antigo (ex: "AREsp 3254978"), não pelo número
@@ -510,6 +530,7 @@ async function rodarFilaStj(admin, res) {
           movimentos_hash:          d.movimentos.length ? d.movimentos.slice(0, 6).map(m => m.data + m.nome).join('|') : null,
           ultima_verificacao:       d.movimentos.length ? new Date().toISOString() : null,
           numero_registro_superior: registroSuperior,
+          historico_numeros:        historicoAtualizado,
           aviso_stj_pendente:       true,
         }, { onConflict: 'user_id,numero' }).select('id').single();
         if (error) throw new Error(error.message);
