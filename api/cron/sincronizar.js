@@ -17,7 +17,7 @@ import {
   parsarData, decodificarBuffer, logErro, chaveMov, movimentosDosHits,
   ehMovDJEN, datajudIndexFromNumero, buscarOabsUsuarios, corrigirMojibake,
   normalizarNumeroCNJ, tituloProcesso, limparLogsAntigos,
-  abrirExecucao, fecharExecucao,
+  abrirExecucao, fecharExecucao, enviarEmail,
 } from '../../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
@@ -447,12 +447,13 @@ async function rodarFilaStj(admin, res) {
       const candidatosNumero = [...new Set([numero, linha.entrada_original, linha.termo_busca].filter(Boolean))];
       const { data: achados } = await admin
         .from('processos')
-        .select('id, numero, movimentos_recentes, tribunal')
+        .select('id, numero, apelido, nome, movimentos_recentes, tribunal')
         .eq('user_id', linha.user_id)
         .in('numero', candidatosNumero);
       const existente = (achados || []).find(p => p.numero === numero) || (achados || [])[0] || null;
 
       let processoId;
+      let nomeExibicao = existente?.apelido || existente?.nome || d.classe || numero;
       if (existente) {
         const novasMovs = d.movimentos.length ? d.movimentos : (existente.movimentos_recentes || []);
         const updates = {
@@ -508,6 +509,29 @@ async function rodarFilaStj(admin, res) {
           ? 'Número CNJ gravado; DataJud ainda não tinha dados deste processo — a sincronização normal completa quando disponível.'
           : null,
       }).eq('id', linha.id);
+
+      // Notifica o advogado por e-mail assim que o número é resolvido — não
+      // espera o digest diário (igual pedido: "notificar imediatamente").
+      // Falha de e-mail nunca derruba a importação em si.
+      try {
+        const { data: ud } = await admin.auth.admin.getUserById(linha.user_id);
+        const email = ud?.user?.email;
+        if (email) {
+          const html = `
+            <div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto">
+              <h2 style="color:#1a2b4a">Número do STJ resolvido</h2>
+              <p>O número <b>${registroSuperior}</b> foi convertido para o número único do processo:</p>
+              <p style="font-size:16px;font-weight:bold;font-family:monospace">${numero}</p>
+              <p>Processo: <b>${nomeExibicao}</b></p>
+              <p style="color:#666;font-size:13px">O número do STJ continua salvo e pesquisável no sistema — não foi apagado.</p>
+              <p><a href="https://meuprocesso.app.br/dashboard" style="color:#1a2b4a">Abrir no Meu Processo →</a></p>
+            </div>`;
+          await enviarEmail(email, `Número do STJ resolvido — ${nomeExibicao}`, html);
+        }
+      } catch (e) {
+        await logErro(admin, 'cron:fila-stj-email', String(e.message || e).slice(0, 300),
+          { filaId: linha.id, processoId }, linha.user_id);
+      }
 
     } catch (e) {
       erros++;

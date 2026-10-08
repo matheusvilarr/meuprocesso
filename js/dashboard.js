@@ -1210,14 +1210,25 @@ async function buscarProcesso() {
     // o worker local resolve via scraping do site do STJ (ver
     // scripts/fila_stj/worker.py) e devolve como processo importado sozinho.
     const linhasSigla = linhas.filter(l => l.replace(/\D/g, '').length !== 20 && /^a?resp\.?\s*\d/i.test(l));
-    if (linhasSigla.length) await _enfileirarSTJ(linhasSigla);
+    let idsCriadosSTJ = [];
+    if (linhasSigla.length) idsCriadosSTJ = await _enfileirarSTJ(linhasSigla);
 
     if (numerosValidos.length > 1 || (numerosValidos.length >= 1 && linhasSigla.length)) {
       await _buscarLoteInterno(numerosValidos, btn, linhasSigla);
       return;
     }
     if (!numerosValidos.length && linhasSigla.length) {
-      _mostrarApenasFilaSTJ(linhasSigla);
+      // Caso mais comum: um AREsp/REsp só. O card já existe (_enfileirarSTJ
+      // acabou de criar) — leva direto pro detalhe em vez de deixar só uma
+      // linha "na fila" no modal, que o advogado não associa a um card criado.
+      closeModal('modal-busca-tribunal');
+      if (idsCriadosSTJ.length === 1) {
+        showToast('Processo criado — acompanhando a resolução automática do número.', 'success');
+        abrirProcesso(idsCriadosSTJ[0]);
+      } else {
+        showToast(`${linhasSigla.length} processo(s) na fila do STJ — já aparecem em "Meus Processos".`, 'success');
+        showPage('processos');
+      }
       return;
     }
   }
@@ -1275,13 +1286,14 @@ async function _enfileirarSTJ(linhasSigla) {
       .upsert(rows, { onConflict: 'user_id,termo_busca', ignoreDuplicates: true });
   } catch (_) {}
 
+  const processoIds = [];
   let criados = 0;
   for (const t of termos) {
     try {
       const { data: existente } = await _supabase.from('processos')
         .select('id').eq('user_id', window._escritorioId).eq('numero', t.termo).maybeSingle();
-      if (existente) continue; // já tem card (cadastro manual anterior, por ex.)
-      const { error } = await _supabase.from('processos').upsert({
+      if (existente) { processoIds.push(existente.id); continue; } // já tem card (cadastro manual anterior, por ex.)
+      const { data: novo, error } = await _supabase.from('processos').upsert({
         user_id:                  window._escritorioId,
         numero:                   t.termo,
         nome:                     t.termo,
@@ -1289,24 +1301,12 @@ async function _enfileirarSTJ(linhasSigla) {
         area:                     'Cível',
         tribunal:                 '',
         numero_registro_superior: t.termo,
-      }, { onConflict: 'user_id,numero' });
-      if (!error) criados++;
+      }, { onConflict: 'user_id,numero' }).select('id').single();
+      if (!error && novo) { processoIds.push(novo.id); criados++; }
     } catch (_) {}
   }
   if (criados) await carregarProcessos();
-}
-
-// Busca continha só sigla(s) do STJ, nenhum número CNJ válido — mostra a fila
-// sem acionar o DataJud (que rejeitaria com "tribunal não identificado").
-function _mostrarApenasFilaSTJ(linhasSigla) {
-  _loteResultados = linhasSigla.map(l => ({ numero: l, status: 'na_fila_stj', data: null, selecionado: false }));
-  const progressEl   = document.getElementById('lote-progress');
-  const resultadosEl = document.getElementById('lote-resultados');
-  if (progressEl)   progressEl.style.display = 'none';
-  if (resultadosEl) resultadosEl.style.display = 'flex';
-  document.getElementById('lote-importar-wrap').style.display = 'none';
-  renderizarLoteResultados();
-  showToast(`${linhasSigla.length} número(s) do STJ na fila de conversão — você será avisado quando forem resolvidos.`);
+  return processoIds;
 }
 
 async function _buscarPJeTJDFT(numero, btn) {
