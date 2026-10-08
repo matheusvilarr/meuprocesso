@@ -46,6 +46,8 @@ export default async function handler(req, res) {
   if (process.env.VERCEL && !CRON_SECRET) {
     return res.status(503).json({ erro: 'CRON_SECRET não configurado no servidor.' });
   }
+  // Marcador pra forçar rebuild completo (sem cache) — 08/10/2026, depurando
+  // CRON_SECRET desatualizado após "Redeploy" rápido pelo painel da Vercel.
   if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}`) {
     return res.status(401).json({ erro: 'Não autorizado.' });
   }

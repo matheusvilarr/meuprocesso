@@ -94,6 +94,41 @@ def varrer_processos_orfaos(supa):
     return len(novas)
 
 
+def importar_resolvidos(supa):
+    """Chama a importação sempre que existir QUALQUER linha 'resolvido' na
+    fila — inclusive sobras de uma execução anterior que resolveu o número
+    mas não chegou a importar (ex: CRON_SECRET errado, conexão caiu). Sem
+    isso, uma rodada sem nada *novo* pra resolver nunca tentava de novo o
+    que já tinha ficado pra trás.
+    """
+    pendentes_import = (
+        supa.table("fila_consulta_stj")
+        .select("id", count="exact")
+        .eq("status", "resolvido")
+        .execute()
+    )
+    total = pendentes_import.count or 0
+    if not total:
+        print("\nNenhum número resolvido pendente de importação.")
+        return
+
+    print(f"\nImportando {total} número(s) resolvido(s) no sistema (DataJud + mesclagem em `processos`)...")
+    try:
+        import requests
+
+        r = requests.get(
+            SYNC_ENDPOINT,
+            headers={"Authorization": f"Bearer {CRON_SECRET}"},
+            timeout=60,
+        )
+        if r.ok:
+            print(f"  OK: {r.json()}")
+        else:
+            print(f"  Falhou ({r.status_code}): {r.text[:300]}")
+    except Exception as e:
+        print(f"  Falhou ao chamar {SYNC_ENDPOINT}: {e}")
+
+
 def main():
     if not SUPABASE_SERVICE_KEY:
         print("ERRO: SUPABASE_SERVICE_KEY não configurada em scripts/fila_stj/.env")
@@ -114,7 +149,8 @@ def main():
     )
 
     if not pendentes:
-        print("Fila vazia — nada pra resolver agora.")
+        print("Fila vazia — nada novo pra resolver agora.")
+        importar_resolvidos(supa)
         return
 
     print(f"{len(pendentes)} número(s) na fila. Abrindo navegador e resolvendo o Cloudflare do STJ...")
@@ -187,24 +223,7 @@ def main():
         f"Erros: {resultados['erro']}"
     )
 
-    if resultados["resolvido"] > 0:
-        print("\nImportando no sistema (DataJud + mesclagem em `processos`)...")
-        try:
-            import requests
-
-            r = requests.get(
-                SYNC_ENDPOINT,
-                headers={"Authorization": f"Bearer {CRON_SECRET}"},
-                timeout=60,
-            )
-            if r.ok:
-                print(f"  OK: {r.json()}")
-            else:
-                print(f"  Falhou ({r.status_code}): {r.text[:300]}")
-        except Exception as e:
-            print(f"  Falhou ao chamar {SYNC_ENDPOINT}: {e}")
-    else:
-        print("\nNenhum número novo resolvido — nada a importar agora.")
+    importar_resolvidos(supa)
 
 
 if __name__ == "__main__":
