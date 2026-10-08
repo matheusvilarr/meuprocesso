@@ -25,6 +25,11 @@ const SUPA_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const DATAJUD_KEY      = process.env.DATAJUD_API_KEY
   || 'cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==';
 const CRON_SECRET      = process.env.CRON_SECRET;
+// Segredo próprio do worker local da fila STJ — CRON_SECRET é gerenciado
+// pelo "Rotate" nativo de Cron Jobs da Vercel (não aceita valor manual),
+// então o worker (chamada manual, fora da Vercel) usa este aqui, que a
+// gente controla direto por Edit comum no painel.
+const STJ_FILA_SECRET  = process.env.STJ_FILA_SECRET;
 
 const ESTADOS_SIGLAS = ['ac','al','ap','am','ba','ce','df','es','go','ma','mt','ms','mg','pa','pb','pr','pe','pi','rj','rn','rs','ro','rr','sc','se','sp','to'];
 const TODOS_TRIBUNAIS = [
@@ -46,9 +51,9 @@ export default async function handler(req, res) {
   if (process.env.VERCEL && !CRON_SECRET) {
     return res.status(503).json({ erro: 'CRON_SECRET não configurado no servidor.' });
   }
-  // Marcador pra forçar rebuild completo (sem cache) — 08/10/2026, depurando
-  // CRON_SECRET desatualizado após "Redeploy" rápido pelo painel da Vercel.
-  if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}`) {
+  const autorizado = (CRON_SECRET && authHeader === `Bearer ${CRON_SECRET}`)
+    || (STJ_FILA_SECRET && authHeader === `Bearer ${STJ_FILA_SECRET}`);
+  if (CRON_SECRET && !autorizado) {
     return res.status(401).json({ erro: 'Não autorizado.' });
   }
   if (!SUPA_SERVICE_KEY) {

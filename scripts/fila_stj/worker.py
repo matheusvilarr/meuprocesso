@@ -31,7 +31,7 @@ load_dotenv(Path(__file__).parent / ".env")
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://ctsjhsdblallguftycqs.supabase.co")
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
-CRON_SECRET = os.environ.get("CRON_SECRET", "")
+STJ_FILA_SECRET = os.environ.get("STJ_FILA_SECRET", "")
 SYNC_ENDPOINT = os.environ.get(
     "SYNC_ENDPOINT", "https://meuprocesso.app.br/api/cron/sincronizar?tipo=fila_stj"
 )
@@ -97,7 +97,7 @@ def varrer_processos_orfaos(supa):
 def importar_resolvidos(supa):
     """Chama a importação sempre que existir QUALQUER linha 'resolvido' na
     fila — inclusive sobras de uma execução anterior que resolveu o número
-    mas não chegou a importar (ex: CRON_SECRET errado, conexão caiu). Sem
+    mas não chegou a importar (ex: STJ_FILA_SECRET errado, conexão caiu). Sem
     isso, uma rodada sem nada *novo* pra resolver nunca tentava de novo o
     que já tinha ficado pra trás.
     """
@@ -118,7 +118,7 @@ def importar_resolvidos(supa):
 
         r = requests.get(
             SYNC_ENDPOINT,
-            headers={"Authorization": f"Bearer {CRON_SECRET}"},
+            headers={"Authorization": f"Bearer {STJ_FILA_SECRET}"},
             timeout=60,
         )
         if r.ok:
