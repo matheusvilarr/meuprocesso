@@ -894,12 +894,29 @@ async function rodarOnboarding(req, res) {
   if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ erro: 'Não autenticado.' });
   if (!SUPA_SERVICE_KEY) return res.status(500).json({ erro: 'SUPABASE_SERVICE_KEY não configurada.' });
 
-  const token    = authHeader.slice(7);
-  const supaAnon = createClient(SUPA_URL, SUPA_ANON_KEY);
-  const { data: { user }, error: authErr } = await supaAnon.auth.getUser(token);
-  if (authErr || !user) return res.status(401).json({ erro: 'Token inválido.' });
-
+  const token = authHeader.slice(7);
   const admin = createClient(SUPA_URL, SUPA_SERVICE_KEY);
+
+  // Chamada administrativa: CRON_SECRET/STJ_FILA_SECRET + ?user_id= dispara
+  // pra uma conta específica ignorando a trava de "conta recém-criada" — uso
+  // manual e pontual (ex: conta antiga que nunca recebeu o aviso porque
+  // cadastrou antes desse recurso existir), nunca automático.
+  const tokenAdmin = (CRON_SECRET && token === CRON_SECRET) || (STJ_FILA_SECRET && token === STJ_FILA_SECRET);
+  let user, ignorarIdadeConta = false;
+
+  if (tokenAdmin) {
+    const userId = req.query?.user_id || req.body?.user_id;
+    if (!userId) return res.status(400).json({ erro: 'user_id obrigatório na chamada administrativa.' });
+    const { data, error } = await admin.auth.admin.getUserById(userId);
+    if (error || !data?.user) return res.status(404).json({ erro: 'Usuário não encontrado.' });
+    user = data.user;
+    ignorarIdadeConta = true;
+  } else {
+    const supaAnon = createClient(SUPA_URL, SUPA_ANON_KEY);
+    const { data: { user: userToken }, error: authErr } = await supaAnon.auth.getUser(token);
+    if (authErr || !userToken) return res.status(401).json({ erro: 'Token inválido.' });
+    user = userToken;
+  }
 
   try {
     // Idempotente — duas chamadas (ex: duas abas abertas) não mandam e-mail em dobro.
@@ -908,8 +925,9 @@ async function rodarOnboarding(req, res) {
     }
 
     // Só pra conta recém-criada — evita mandar "boas-vindas" pra alguém antigo
-    // que hoje só está com 0 processos (ex: arquivou tudo).
-    if (Date.now() - new Date(user.created_at).getTime() > 2 * 86400000) {
+    // que hoje só está com 0 processos (ex: arquivou tudo). Chamada
+    // administrativa pula essa trava de propósito.
+    if (!ignorarIdadeConta && Date.now() - new Date(user.created_at).getTime() > 2 * 86400000) {
       return res.status(200).json({ ok: true, contaAntiga: true });
     }
 
