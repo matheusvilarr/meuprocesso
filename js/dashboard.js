@@ -3691,6 +3691,7 @@ window.addEventListener('DOMContentLoaded', () => {
           iniciarSyncAutomatico();
           sincronizarTodos();
           _tentarOnboardingOAB();
+          _tentarAbrirBuscaOABPorLink();
         });
         carregarTarefasPrazo().then(() => carregarEventosDashboard());
         carregarTarefas();
@@ -3702,10 +3703,22 @@ window.addEventListener('DOMContentLoaded', () => {
   }, 100);
 });
 
+function _abrirBuscaOABAutomatica(oabs) {
+  openModal('modal-busca-tribunal');
+  selecionarAbaBusca('advogado', document.getElementById('tab-btn-advogado'));
+  const q  = document.getElementById('modal-dje-query');
+  const uf = document.getElementById('modal-dje-uf');
+  if (q)  q.value  = oabs[0].num;
+  if (uf) uf.value = oabs[0].uf;
+  buscarAdvogadoDJEN();
+}
+
 // Primeiro acesso com OAB já preenchida (ex: veio no cadastro) e nenhum
 // processo ainda: abre direto a busca por OAB já rodando sozinha, em vez de
 // deixar o advogado descobrir por conta própria que o recurso existe. Uma
-// vez só por conta (localStorage) — não repete em todo login.
+// vez só por conta (localStorage) — não repete em todo login. Também dispara
+// (sem bloquear a UI) o e-mail de boas-vindas + "achamos X processos" no
+// servidor — mesmo gatilho cobre quem entrou por Google ou por e-mail/senha.
 function _tentarOnboardingOAB() {
   if (window._isColaborador || window._oabPendente) return;
   if ((window._processosDB || []).length > 0) return;
@@ -3717,14 +3730,31 @@ function _tentarOnboardingOAB() {
   if (!oabs.length) return;
 
   localStorage.setItem(chave, '1');
+  _dispararEmailOnboarding();
+  _abrirBuscaOABAutomatica(oabs);
+}
 
-  openModal('modal-busca-tribunal');
-  selecionarAbaBusca('advogado', document.getElementById('tab-btn-advogado'));
-  const q  = document.getElementById('modal-dje-query');
-  const uf = document.getElementById('modal-dje-uf');
-  if (q)  q.value  = oabs[0].num;
-  if (uf) uf.value = oabs[0].uf;
-  buscarAdvogadoDJEN();
+async function _dispararEmailOnboarding() {
+  try {
+    const { data: { session } } = await _supabase.auth.getSession();
+    if (!session) return;
+    await fetch('/api/cron/sincronizar?tipo=onboarding', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${session.access_token}` },
+    });
+  } catch (_) {}
+}
+
+// Clique no botão do e-mail de "achamos X processos" (?abrir=busca-oab) —
+// roda a mesma busca automática, mas sem as travas do onboarding silencioso
+// (o clique já é uma ação explícita, não precisa checar "já visto"/0 processos).
+function _tentarAbrirBuscaOABPorLink() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('abrir') !== 'busca-oab') return;
+  history.replaceState(null, '', '/dashboard');
+  const oabs = window._oabsValidas(window._user?.user_metadata?.oab);
+  if (!oabs.length) return;
+  _abrirBuscaOABAutomatica(oabs);
 }
 
 function mostrarErroBusca(msg) {

@@ -4,6 +4,10 @@
 // ?tipo=oab     — varre todos os tribunais pela OAB do advogado buscando processos novos
 //                 (fora do vercel.json: a API pública do DataJud não expõe "partes",
 //                 então a busca por OAB nunca retorna nada — testado set/2026)
+// ?tipo=onboarding — chamado pelo próprio dashboard (token do usuário, não o
+//                 CRON_SECRET) no primeiro login com OAB e 0 processos: manda
+//                 e-mail de boas-vindas + busca no DJEN (esse sim funciona
+//                 por OAB) + e-mail avisando o que foi encontrado.
 //
 // O DJEN é servido por esta função porque o plano Hobby da Vercel aceita no
 // máximo 12 funções em api/ — a 13ª (api/cron/djen-cadernos.js) fez todos os
@@ -22,6 +26,10 @@ import {
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
 const SUPA_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
+// Chave pública (anon/publishable) — mesma usada em api/processos-descobertos.js.
+// Só serve pra validar o token do próprio usuário logado, nunca acessa dado
+// de outra conta.
+const SUPA_ANON_KEY    = 'sb_publishable_i2UzINt5Xv1QthMl1M0Tgw_iNkiO0K1';
 const DATAJUD_KEY      = process.env.DATAJUD_API_KEY
   || 'cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==';
 const CRON_SECRET      = process.env.CRON_SECRET;
@@ -43,6 +51,14 @@ const TODOS_TRIBUNAIS = [
 
 export default async function handler(req, res) {
   const authHeader = req.headers['authorization'];
+  const tipo = req.query?.tipo || 'datajud';
+
+  // ?tipo=onboarding não usa o CRON_SECRET — é chamado pelo próprio navegador
+  // do usuário, então o segredo do cron não pode viajar pro client. Se
+  // mandasse o CRON_SECRET pro browser pra autorizar essa chamada, qualquer
+  // um veria o segredo no código-fonte da página.
+  if (tipo === 'onboarding') return rodarOnboarding(req, res);
+
   // Fecha por padrão: se a variável CRON_SECRET desaparecer da Vercel (num
   // deploy novo, um erro de digitação), antes isso liberava o cron para
   // qualquer pessoa da internet disparar. Agora falta de segredo em produção
@@ -60,7 +76,6 @@ export default async function handler(req, res) {
     return res.status(500).json({ erro: 'SUPABASE_SERVICE_KEY não configurada.' });
   }
 
-  const tipo = req.query?.tipo || 'datajud';
   if (tipo === 'djen') return djenCadernos(req, res);
 
   const admin = createClient(SUPA_URL, SUPA_SERVICE_KEY);
@@ -744,4 +759,185 @@ function normalizarDescoberta(p, index) {
       .slice(0, 20)
       .map(m => ({ nome: m.nome, data: m.dataHora })),
   };
+}
+
+// ── ONBOARDING (boas-vindas + descoberta por OAB via DJEN) ────────────────────
+// Diferente do resto do arquivo: chamado pelo navegador do próprio usuário
+// (token de sessão), não pelo cron da Vercel. Busca por OAB aqui usa o DJEN,
+// não o DataJud — é o único dos dois que realmente funciona por OAB (ver
+// buscarPorOabNoDatajud acima e o comentário no topo do arquivo).
+
+const DJEN_API = 'https://comunicaapi.pje.jus.br/api/v1/comunicacao';
+
+// "count" do DJEN é publicação, não processo — um processo com 3 intimações
+// conta 3. Pra não inflar o número no e-mail, deduplica por número de
+// processo; o total só é exato se PAGINAS_MAX cobrir tudo (senão vira
+// "pelo menos X", nunca um número inventado maior que o real).
+const DJEN_PAGINAS_MAX = 4;
+const DJEN_TAMANHO_PAGINA = 100;
+
+async function buscarDJENPorOab(oab) {
+  const base = {
+    numeroOab: oab.num,
+    ufOab: oab.uf,
+    dataDisponibilizacaoInicio: new Date(Date.now() - 2 * 365 * 86400000).toISOString().slice(0, 10),
+    dataDisponibilizacaoFim: new Date().toISOString().slice(0, 10),
+    tamanhoPagina: DJEN_TAMANHO_PAGINA,
+  };
+  const buscarPagina = async (pagina) => {
+    try {
+      const params = new URLSearchParams({ ...base, pagina });
+      const r = await fetch(`${DJEN_API}?${params}`, { signal: AbortSignal.timeout(20000) });
+      if (!r.ok) return { count: 0, items: [] };
+      return await r.json();
+    } catch {
+      return { count: 0, items: [] };
+    }
+  };
+
+  const primeira = await buscarPagina(1);
+  const totalPublicacoes = primeira.count || 0;
+  let itens = primeira.items || [];
+
+  const numPaginas = Math.min(Math.ceil(totalPublicacoes / DJEN_TAMANHO_PAGINA), DJEN_PAGINAS_MAX);
+  if (numPaginas > 1) {
+    const extras = await Promise.all(
+      Array.from({ length: numPaginas - 1 }, (_, i) => buscarPagina(i + 2))
+    );
+    itens = itens.concat(...extras.map(e => e.items || []));
+  }
+
+  const distintos = new Map();
+  for (const it of itens) {
+    const num = it.numeroprocessocommascara;
+    if (num && !distintos.has(num)) distintos.set(num, it);
+  }
+
+  // Só é um total exato se a gente trouxe todas as páginas que existem.
+  const completo = totalPublicacoes <= numPaginas * DJEN_TAMANHO_PAGINA;
+  return { totalProcessos: distintos.size, exato: completo, itens: [...distintos.values()] };
+}
+
+async function enviarBoasVindas(email, nome) {
+  const assunto = 'Bem-vindo(a) ao Meu Processo';
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+<div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
+  ${cabecalho('Bem-vindo(a)!')}
+  <div style="padding:20px 24px">
+    <div style="font-size:14px;color:#374151;line-height:1.6">
+      Olá, ${nome}. A partir de agora o Meu Processo acompanha seus processos automaticamente:
+      monitoramos movimentações, publicações no DJEN e prazos, e avisamos você quando algo mudar —
+      sem precisar consultar nenhum portal manualmente todo dia.
+    </div>
+  </div>
+  ${btnDashboard('#1a2e6b')}
+  ${rodape()}
+</div>
+</body></html>`;
+  await enviarEmail(email, assunto, html);
+}
+
+async function enviarEmailDescoberta(email, nome, oab, totalProcessos, exato, itens) {
+  const preview = [...itens]
+    .sort((a, b) => (b.data_disponibilizacao || '').localeCompare(a.data_disponibilizacao || ''))
+    .slice(0, 4);
+
+  const fmt = iso => iso ? new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR') : '';
+  const linhaItem = (it) => {
+    const parteAtiva = (it.destinatarios || []).find(d => ['A', 'AT', 'ATIVO'].includes((d.polo || '').toUpperCase()));
+    const cliente = parteAtiva?.nome ? corrigirMojibake(parteAtiva.nome) : null;
+    const classe  = it.nomeClasse ? corrigirMojibake(it.nomeClasse) : null;
+    const trib    = it.siglaTribunal || '';
+    const idPartes = [classe, trib].filter(Boolean).join(' · ');
+    return `
+      <div style="padding:12px 0;border-bottom:1px solid #e5e7eb">
+        <div style="font-size:13px;font-weight:700;color:#1a2b4a;font-family:monospace">${it.numeroprocessocommascara}</div>
+        ${cliente || idPartes ? `<div style="font-size:12px;color:#374151;margin-top:2px">${cliente ? `<b>${cliente}</b>` : ''}${cliente && idPartes ? ' · ' : ''}${idPartes}</div>` : ''}
+        ${it.data_disponibilizacao ? `<div style="font-size:11px;color:#9ca3af;margin-top:2px">Publicado em ${fmt(it.data_disponibilizacao)}</div>` : ''}
+      </div>`;
+  };
+
+  // Quando não paginou tudo, "totalProcessos" é só o que coube nas páginas
+  // buscadas — nunca inventa um número maior que o real, só admite que pode
+  // ter mais ("pelo menos X" em vez de "X").
+  const prefixo  = exato ? '' : 'pelo menos ';
+  const resto    = Math.max(0, totalProcessos - preview.length);
+  const assunto  = `Encontramos ${prefixo}${totalProcessos} processo(s) na sua OAB ${oab.uf} ${oab.num}`;
+
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+<div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
+  ${cabecalho(`${prefixo}${totalProcessos} processo(s) encontrado(s)`)}
+  <div style="padding:16px 24px">
+    <div style="font-size:13px;color:#374151;line-height:1.5;margin-bottom:14px">
+      ${nome}, localizamos publicações no DJEN com a sua OAB (${oab.uf} ${oab.num}) em
+      ${totalProcessos === 1 && exato ? 'um processo que ainda não está' : `${prefixo}${totalProcessos} processos que ainda não estão`}
+      cadastrados no seu painel. Veja ${preview.length > 1 ? 'alguns dos mais recentes' : 'o mais recente'}:
+    </div>
+    ${preview.map(linhaItem).join('')}
+    ${resto > 0 ? `<div style="font-size:12px;color:#6b7280;padding-top:10px;text-align:center">+ ${resto} processo(s) a mais encontrados${!exato ? ' (pode ter ainda mais)' : ''}</div>` : ''}
+  </div>
+  <div style="text-align:center;margin-top:8px;padding:0 24px 24px">
+    <a href="https://meuprocesso.app.br/dashboard?abrir=busca-oab" style="display:inline-block;background:#1a2e6b;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:600">Comece a monitorar agora →</a>
+  </div>
+  ${rodape()}
+</div>
+</body></html>`;
+
+  await enviarEmail(email, assunto, html);
+}
+
+async function rodarOnboarding(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ erro: 'Método não permitido.' });
+  const authHeader = req.headers['authorization'];
+  if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ erro: 'Não autenticado.' });
+  if (!SUPA_SERVICE_KEY) return res.status(500).json({ erro: 'SUPABASE_SERVICE_KEY não configurada.' });
+
+  const token    = authHeader.slice(7);
+  const supaAnon = createClient(SUPA_URL, SUPA_ANON_KEY);
+  const { data: { user }, error: authErr } = await supaAnon.auth.getUser(token);
+  if (authErr || !user) return res.status(401).json({ erro: 'Token inválido.' });
+
+  const admin = createClient(SUPA_URL, SUPA_SERVICE_KEY);
+
+  try {
+    // Idempotente — duas chamadas (ex: duas abas abertas) não mandam e-mail em dobro.
+    if (user.user_metadata?.onboarding_email_enviado) {
+      return res.status(200).json({ ok: true, jaEnviado: true });
+    }
+
+    // Só pra conta recém-criada — evita mandar "boas-vindas" pra alguém antigo
+    // que hoje só está com 0 processos (ex: arquivou tudo).
+    if (Date.now() - new Date(user.created_at).getTime() > 2 * 86400000) {
+      return res.status(200).json({ ok: true, contaAntiga: true });
+    }
+
+    const { count } = await admin.from('processos')
+      .select('id', { count: 'exact', head: true }).eq('user_id', user.id);
+    if (count > 0) return res.status(200).json({ ok: true, jaTemProcessos: true });
+
+    const oabsPorUsuario = await buscarOabsUsuarios(admin, [user.id]);
+    const oabs = oabsPorUsuario[user.id] || [];
+    if (!oabs.length) return res.status(200).json({ ok: true, semOab: true });
+
+    // Marca ANTES de mandar — se der erro no meio do caminho, não tenta nas
+    // próximas chamadas em loop.
+    await admin.auth.admin.updateUserById(user.id, {
+      user_metadata: { ...user.user_metadata, onboarding_email_enviado: true },
+    });
+
+    const nome = (user.user_metadata?.full_name || user.user_metadata?.nome || '').trim().split(' ')[0] || 'Advogado(a)';
+    await enviarBoasVindas(user.email, nome);
+
+    const { totalProcessos, exato, itens } = await buscarDJENPorOab(oabs[0]);
+    if (totalProcessos > 0 && itens.length) {
+      await enviarEmailDescoberta(user.email, nome, oabs[0], totalProcessos, exato, itens);
+    }
+
+    return res.status(200).json({ ok: true, enviouBoasVindas: true, processosEncontrados: totalProcessos });
+  } catch (e) {
+    await logErro(admin, 'onboarding-email', String(e.message || e).slice(0, 300), {}, user.id);
+    return res.status(500).json({ erro: 'Falha ao processar onboarding.' });
+  }
 }

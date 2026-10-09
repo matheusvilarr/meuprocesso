@@ -12,7 +12,10 @@ window._oabsValidas = function (raw) {
 (async () => {
   const { data: { session } } = await _supabase.auth.getSession();
   if (!session) {
-    window.location.href = '/login';
+    // Preserva pra onde a pessoa tentou ir (ex: link de e-mail com
+    // ?abrir=busca-oab) — login.js já sabe ler esse "redirect" de volta.
+    const destino = window.location.pathname + window.location.search;
+    window.location.href = '/login?redirect=' + encodeURIComponent(destino);
     return;
   }
   window._session = session;
