@@ -31,7 +31,8 @@
   --sidebar-w:           240px;
   --sidebar-w-collapsed: 68px;
   /* Paleta da repaginada (kit "Sidebar Navigation" do Figma que o Matheus mandou).
-     --navy aponta pra cá agora, então isto já vale pro site inteiro. */
+     --navy aponta pra cá agora, então isto já vale pro site inteiro.
+     (Testamos bronze/grafite em 08/10/2026 — revertido, não agradou.) */
   --primary-900: #053958;
   --primary-800: #0a4a7a;
   --primary-700: #0d5a96;
@@ -47,12 +48,16 @@
 }
 
 body {
-  font-family: 'Roboto', sans-serif;
+  font-family: 'Montserrat', sans-serif;
   background: var(--cream);
   color: var(--gray-800);
   font-size: 14px;
   line-height: 1.6;
   min-height: 100vh;
+  /* Teste local, 08/10/2026: aumenta tudo proporcionalmente (fonte, espaço,
+     ícones) sem precisar reescrever cada tamanho fixo em px do site. Ajustar
+     esse número pra mais/menos conforme o gosto. */
+  zoom: 112%;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -299,7 +304,7 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
   width: 260px;
 }
 
-.topbar-search input { border: none; background: none; font-size: 13px; color: var(--gray-800); outline: none; width: 100%; font-family: 'Roboto', sans-serif; }
+.topbar-search input { border: none; background: none; font-size: 13px; color: var(--gray-800); outline: none; width: 100%; font-family: 'Montserrat', sans-serif; }
 .topbar-search input::placeholder { color: var(--gray-400); }
 .topbar-search .ti { color: var(--gray-400); font-size: 16px; }
 
@@ -338,7 +343,7 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
 /* ── DASHBOARD ── */
 .dash-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; }
 
-.dash-greeting { font-size: 22px; font-family: 'Roboto', sans-serif; font-weight: 500; color: var(--navy); }
+.dash-greeting { font-size: 22px; font-family: 'Montserrat', sans-serif; font-weight: 500; color: var(--navy); }
 .dash-sub { font-size: 13px; color: var(--gray-600); margin-top: 2px; }
 
 .btn-primary {
@@ -352,7 +357,7 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
   cursor: pointer;
   display: flex; align-items: center; gap: 6px;
   transition: background 0.15s;
-  font-family: 'Roboto', sans-serif;
+  font-family: 'Montserrat', sans-serif;
 }
 
 .btn-primary:hover { background: var(--navy-mid); }
@@ -368,7 +373,7 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
   cursor: pointer;
   display: flex; align-items: center; gap: 6px;
   transition: all 0.15s;
-  font-family: 'Roboto', sans-serif;
+  font-family: 'Montserrat', sans-serif;
 }
 
 .btn-secondary:hover { background: var(--gray-50); border-color: var(--gray-400); }
@@ -575,7 +580,7 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
 
 /* ── PROCESSOS ── */
 .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; }
-.page-title { font-size: 20px; font-family: 'Roboto', sans-serif; font-weight: 500; color: var(--navy); }
+.page-title { font-size: 20px; font-family: 'Montserrat', sans-serif; font-weight: 500; color: var(--navy); }
 .page-sub { font-size: 13px; color: var(--gray-600); margin-top: 2px; }
 
 .filter-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
@@ -586,13 +591,13 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
   border-radius: var(--radius); padding: 7px 12px; gap: 8px; flex: 1; min-width: 200px;
 }
 
-.filter-search input { border: none; background: none; font-size: 13px; color: var(--gray-800); outline: none; width: 100%; font-family: 'Roboto', sans-serif; }
+.filter-search input { border: none; background: none; font-size: 13px; color: var(--gray-800); outline: none; width: 100%; font-family: 'Montserrat', sans-serif; }
 .filter-search input::placeholder { color: var(--gray-400); }
 
 .filter-select {
   padding: 7px 10px; border: 1px solid var(--gray-200);
   border-radius: var(--radius); font-size: 13px; color: var(--gray-800);
-  background: var(--white); cursor: pointer; font-family: 'Roboto', sans-serif; outline: none;
+  background: var(--white); cursor: pointer; font-family: 'Montserrat', sans-serif; outline: none;
 }
 
 /* align-items: start evita que o Grid estique todo card da linha até a
@@ -655,7 +660,7 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
   border-radius: var(--radius-lg); padding: 24px 28px; margin-bottom: 20px;
 }
 
-.detail-title { font-size: 20px; font-family: 'Roboto', sans-serif; font-weight: 500; color: var(--navy); margin-bottom: 6px; }
+.detail-title { font-size: 20px; font-family: 'Montserrat', sans-serif; font-weight: 500; color: var(--navy); margin-bottom: 6px; }
 .detail-tags  { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
 
 .detail-grid {
@@ -682,7 +687,7 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
   border-bottom: 2px solid transparent; margin-bottom: -1px;
   transition: all 0.12s; background: none;
   border-top: none; border-left: none; border-right: none;
-  font-family: 'Roboto', sans-serif;
+  font-family: 'Montserrat', sans-serif;
   display: flex; align-items: center; gap: 6px;
 }
 
@@ -739,7 +744,7 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
 
 .comment-input {
   flex: 1; border: 1px solid var(--gray-200); border-radius: var(--radius);
-  padding: 10px 12px; font-size: 13px; font-family: 'Roboto', sans-serif;
+  padding: 10px 12px; font-size: 13px; font-family: 'Montserrat', sans-serif;
   outline: none; resize: none; min-height: 72px; color: var(--gray-800);
   transition: border-color 0.12s;
 }
@@ -754,7 +759,7 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
   display: flex; align-items: center; justify-content: space-between;
 }
 
-.full-cal-month { font-size: 18px; font-family: 'Roboto', sans-serif; font-weight: 500; color: var(--navy); }
+.full-cal-month { font-size: 18px; font-family: 'Montserrat', sans-serif; font-weight: 500; color: var(--navy); }
 
 .full-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
 
@@ -818,7 +823,7 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
 .cal-exp-titulo-btn {
   background: none; border: none; font-size: 20px; font-weight: 700;
   color: var(--navy); cursor: pointer; padding: 4px 10px; border-radius: 8px;
-  font-family: 'Roboto', sans-serif; letter-spacing: .01em;
+  font-family: 'Montserrat', sans-serif; letter-spacing: .01em;
   transition: background .15s;
 }
 .cal-exp-titulo-btn:hover { background: var(--gray-100); }
@@ -1009,7 +1014,10 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
    Só borda + tag coloridas, sem fundo tingido — mais limpo. */
 .tc-prazo-baixo   { border-left-color: #6b7280; }
 .tc-prazo-medio   { border-left-color: #d97706; }
-.tc-prazo-urgente { border-left-color: #dc2626; }
+.tc-prazo-urgente {
+  border-left-color: #dc2626;
+  animation: tcFatalPulse 1.6s ease-in-out infinite;
+}
 .tc-prazo-fatal {
   border-left-color: #be123c;
   animation: tcFatalPulse 1.6s ease-in-out infinite;
@@ -1017,6 +1025,16 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
 @keyframes tcFatalPulse {
   0%, 100% { box-shadow: 0 0 0 0 rgba(190,18,60,.38); }
   50%      { box-shadow: 0 0 0 6px rgba(190,18,60,0); }
+}
+
+/* Destaque pro botão "Importar todos" nos resultados de OAB/DJEN — chama
+   atenção, principalmente no onboarding automático do primeiro acesso. */
+.btn-destaque-pulse {
+  animation: btnDestaquePulse 1.8s ease-in-out infinite;
+}
+@keyframes btnDestaquePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(12,127,218,.45); transform: scale(1); }
+  50%      { box-shadow: 0 0 0 8px rgba(12,127,218,0); transform: scale(1.035); }
 }
 
 .tc-dot-novo {
@@ -1165,7 +1183,7 @@ body.kanban-dragging .task-col-body {
 .busca-tab {
   padding: 6px 8px; border: none; background: none; border-radius: 6px;
   font-size: 12px; font-weight: 500; color: var(--gray-600);
-  cursor: pointer; transition: all .12s; font-family: 'Roboto', sans-serif;
+  cursor: pointer; transition: all .12s; font-family: 'Montserrat', sans-serif;
 }
 .busca-tab:hover  { background: var(--white); color: var(--navy); }
 .busca-tab.active { background: var(--white); color: var(--navy); box-shadow: 0 1px 4px rgba(0,0,0,.1); }
@@ -1195,7 +1213,7 @@ body.kanban-dragging .task-col-body {
 .form-input, .form-select, .form-textarea {
   width: 100%; padding: 8px 12px;
   border: 1px solid var(--gray-200); border-radius: var(--radius);
-  font-size: 13px; font-family: 'Roboto', sans-serif;
+  font-size: 13px; font-family: 'Montserrat', sans-serif;
   color: var(--gray-800); outline: none; transition: border-color 0.12s; background: var(--white);
 }
 

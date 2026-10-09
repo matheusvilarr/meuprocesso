@@ -94,7 +94,10 @@ function showPage(id) {
   }
   window._filtroSemanaNavegando = false;
   if (id === 'tarefas')       { carregarQuadros(); carregarTarefas(); const b = document.getElementById('badge-tarefas'); if(b){b.style.display='none';} }
-  if (id === 'arquivados')    carregarArquivados();
+  if (id === 'arquivados') {
+    carregarArquivados();
+    const ba = document.getElementById('badge-arquivados'); if (ba) ba.style.display = 'none';
+  }
   if (id === 'configuracoes') carregarConfiguracoes();
   if (id === 'colaboradores') {
     carregarParceiros();
@@ -107,6 +110,10 @@ function showPage(id) {
   }
   if (id === 'tjdft') { verificarBackendPython(); inicializarDatesDJe(); }
   if (id === 'clientes')      carregarClientes();
+  // Esse badge não é "novidade não vista" — é a contagem ao vivo de honorários
+  // vencidos (_atualizarBadgeHon, chamada dentro de carregarHonorarios). Não
+  // dá pra esconder ao clicar: carregarHonorarios() recalcula e já reescreve
+  // ele de volta; só some de verdade quando o vencido for pago/resolvido.
   if (id === 'honorarios') { carregarHonorarios(); _aplicarVisHonorarios(); }
   if (id === 'assinatura')   carregarAssinatura();
 
@@ -199,6 +206,29 @@ function closeModal(id) {
 function closeModalOutside(e, id) {
   if (e.target.id === id) closeModal(id);
 }
+
+// Esc fecha qualquer popup/modal/painel flutuante aberto no site, do mais
+// "por cima" pra o mais "por baixo" — só o primeiro que estiver aberto fecha,
+// pra não fechar tudo de uma vez se tiver mais de um empilhado.
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape') return;
+
+  const notif = document.getElementById('notif-panel');
+  if (notif && notif.style.display !== 'none') { toggleNotifPanel(); return; }
+
+  const vincular = document.getElementById('modal-vincular-tarefa');
+  if (vincular && vincular.style.display !== 'none') { fecharVincularTarefa(); return; }
+
+  const dia = document.getElementById('dia-popover');
+  if (dia && dia.style.display !== 'none') { fecharDiaPopover(); return; }
+
+  const abertos = [...document.querySelectorAll('.modal.open')];
+  if (abertos.length) {
+    const topo = abertos.sort((a, b) =>
+      (parseInt(getComputedStyle(b).zIndex) || 0) - (parseInt(getComputedStyle(a).zIndex) || 0))[0];
+    closeModal(topo.id);
+  }
+});
 
 // ── RECÊNCIA E ORDENAÇÃO ────────────────────────────────────────────────────
 function _ultimaAtividade(proc) {
@@ -384,9 +414,7 @@ function buildMiniCal() {
 function changeCalMonth(dir) {
   miniCalDate.setMonth(miniCalDate.getMonth() + dir);
   buildMiniCal();
-  // Fecha popover ao trocar de mês
-  const pop = document.getElementById('dia-popover');
-  if (pop) pop.style.display = 'none';
+  fecharDiaPopover(); // fecha popover ao trocar de mês
 }
 
 let _diaSelecionado  = null;
@@ -418,11 +446,15 @@ function abrirDiaPopover(ano, mes, dia, celEl) {
 
   const htmlEventos = eventos.map(e => {
     const sh = e.processo_id ? window._sharedSet?.[e.processo_id] : null;
+    const tituloEstilo = e.concluido ? 'text-decoration:line-through;opacity:.55' : '';
     return `
-    <div style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:8px;background:var(--gray-50)">
+    <div data-evento-linha style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:8px;background:var(--gray-50)">
+      <input type="checkbox" ${e.concluido ? 'checked' : ''} title="Marcar como concluído"
+        onchange="toggleEventoConcluido('${e.id}', this.checked, this)"
+        style="width:15px;height:15px;cursor:pointer;flex-shrink:0;margin-top:2px;accent-color:var(--navy)">
       <div style="width:3px;min-height:34px;border-radius:4px;background:${corTipo[e.tipo] || '#94a3b8'};flex-shrink:0;margin-top:2px"></div>
       <div style="flex:1;min-width:0">
-        <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(e.titulo)}</div>
+        <div data-evento-titulo style="font-size:12.5px;font-weight:600;color:var(--gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${tituloEstilo}">${_esc(e.titulo)}</div>
         <div style="font-size:11px;color:var(--gray-400);margin-top:1px">${tipoLabel[e.tipo] || e.tipo}${e.hora ? ' · ' + e.hora : ''}</div>
         ${sh ? `<div style="font-size:10px;color:#7c3aed;margin-top:2px"><i class="ti ti-handshake" style="font-size:10px"></i> ${_esc(sh.owner_nome)}</div>` : ''}
       </div>
@@ -459,23 +491,33 @@ function abrirDiaPopover(ano, mes, dia, celEl) {
          <div style="font-size:12px">Nenhum compromisso</div>
        </div>`;
 
-  // Posiciona o popover perto da célula clicada
+  // Posiciona o popover perto da célula clicada. getBoundingClientRect() dá
+  // pixels reais de tela, mas o popover é filho do <body> com zoom (ver
+  // dashboard.css) — o left/top que a gente escreve nele é lido ANTES do
+  // zoom e escalado de novo ao renderizar, então precisa dividir pelo fator
+  // de zoom na hora de escrever, senão a posição amplifica (zoom em cima
+  // de zoom) e o popover aparece longe da célula clicada.
+  const zoomAtual = parseFloat(getComputedStyle(document.body).zoom) || 1;
   pop.style.display = 'block';
   const rect    = celEl.getBoundingClientRect();
-  const popW    = 280;
+  const popW    = 280 * zoomAtual;
   const popH    = pop.offsetHeight;
   let left      = rect.right + 8;
-  let top       = rect.top + window.scrollY;
+  // #dia-popover é position:fixed — relativo à JANELA, não ao documento.
+  // Não soma window.scrollY aqui (isso seria certo só pra position:absolute);
+  // quanto mais rolada a página ao clicar, mais essa soma jogava o popover
+  // pra fora da tela, embaixo.
+  let top       = rect.top;
 
   // Se sair pela direita, abre para a esquerda
   if (left + popW > window.innerWidth - 16) left = rect.left - popW - 8;
   // Se sair por baixo, sobe
-  if (top + popH > window.innerHeight + window.scrollY - 16) top = Math.max(8, rect.bottom + window.scrollY - popH);
+  if (top + popH > window.innerHeight - 16) top = Math.max(8, rect.bottom - popH);
 
-  pop.style.left = left + 'px';
-  pop.style.top  = top + 'px';
+  pop.style.left = (left / zoomAtual) + 'px';
+  pop.style.top  = (top / zoomAtual) + 'px';
 
-  // Fecha ao clicar fora
+  // Fecha ao clicar fora (Esc é tratado pelo listener global de keydown)
   setTimeout(() => document.addEventListener('click', _fecharDiaFora, { once: true }), 50);
 }
 
@@ -860,7 +902,7 @@ function buildFullCal() {
     const total       = events.length + tarefasDia.length;
 
     const itensHtml = [
-      ...events.map(e => `<div class="fcal-event ${_tipoEvtCls[e.tipo] || 'event-lembrete'}">${_esc(e.titulo)}</div>`),
+      ...events.map(e => `<div class="fcal-event ${_tipoEvtCls[e.tipo] || 'event-lembrete'}">${e.concluido ? '<i class="ti ti-circle-check" style="font-size:9px;margin-right:2px"></i>' : ''}<span style="${e.concluido ? 'text-decoration:line-through;opacity:.6' : ''}">${_esc(e.titulo)}</span></div>`),
       ...tarefasDia.map(t => {
         const concluida = t.coluna === 'concluida';
         const st = _prazoStatus(t.prazo, t.coluna);
@@ -1049,7 +1091,7 @@ async function buscarAdvogadoDJEN() {
     let html = semCadastro.length > 1 ? `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 2px 10px">
         <span style="font-size:12px;color:var(--gray-500)">${semCadastro.length} processo(s) não cadastrado(s)</span>
-        <button class="btn-primary" style="font-size:11px;padding:5px 14px" onclick="importarTodosDJe()">
+        <button class="btn-primary btn-destaque-pulse" style="font-size:11px;padding:5px 14px" onclick="importarTodosDJe()">
           <i class="ti ti-download"></i> Importar todos
         </button>
       </div>` : '';
@@ -1976,12 +2018,17 @@ function atualizarPrazosDash() {
     }
 
     const e = item.raw;
+    const tituloEstilo = e.concluido ? 'text-decoration:line-through;opacity:.55' : '';
     return `
       <div class="prazo-item" onclick="irParaCalendarioMes(${dt.getFullYear()},${dt.getMonth()})">
+        <input type="checkbox" ${e.concluido ? 'checked' : ''} title="Marcar como concluído"
+          onclick="event.stopPropagation()"
+          onchange="toggleEventoConcluido('${e.id}', this.checked, this)"
+          style="width:15px;height:15px;cursor:pointer;flex-shrink:0;accent-color:var(--navy)">
         <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
         <div class="prazo-urgency ${urgCls[e.urgencia] || 'urgency-baixa'}"></div>
         <div class="prazo-info">
-          <div class="prazo-name"><i class="ti ti-calendar-event" style="font-size:11px;color:var(--gray-400);margin-right:3px"></i>${escHtml(e.titulo)}</div>
+          <div class="prazo-name" style="${tituloEstilo}"><i class="ti ti-calendar-event" style="font-size:11px;color:var(--gray-400);margin-right:3px"></i>${escHtml(e.titulo)}</div>
           <div class="prazo-type">${tipoLabel[e.tipo] || 'Lembrete'}</div>
         </div>
         <span class="dias-badge ${badgeCls}">${diasTxt}</span>
@@ -3338,6 +3385,7 @@ function toggleNotifPanel() {
   if (_notifPanelAberto) {
     _renderNotifPanel();
     panel.style.display = 'flex';
+    const tb = document.getElementById('topbar-notif-badge'); if (tb) tb.style.display = 'none';
     setTimeout(() => document.addEventListener('click', _fecharNotifFora, { once: true }), 50);
   } else {
     panel.style.display = 'none';
@@ -3642,6 +3690,7 @@ window.addEventListener('DOMContentLoaded', () => {
         carregarProcessos().then(() => {
           iniciarSyncAutomatico();
           sincronizarTodos();
+          _tentarOnboardingOAB();
         });
         carregarTarefasPrazo().then(() => carregarEventosDashboard());
         carregarTarefas();
@@ -3652,6 +3701,31 @@ window.addEventListener('DOMContentLoaded', () => {
     }
   }, 100);
 });
+
+// Primeiro acesso com OAB já preenchida (ex: veio no cadastro) e nenhum
+// processo ainda: abre direto a busca por OAB já rodando sozinha, em vez de
+// deixar o advogado descobrir por conta própria que o recurso existe. Uma
+// vez só por conta (localStorage) — não repete em todo login.
+function _tentarOnboardingOAB() {
+  if (window._isColaborador || window._oabPendente) return;
+  if ((window._processosDB || []).length > 0) return;
+
+  const chave = `onboarding_oab_${window._user.id}`;
+  if (localStorage.getItem(chave)) return;
+
+  const oabs = window._oabsValidas(window._user.user_metadata?.oab);
+  if (!oabs.length) return;
+
+  localStorage.setItem(chave, '1');
+
+  openModal('modal-busca-tribunal');
+  selecionarAbaBusca('advogado', document.getElementById('tab-btn-advogado'));
+  const q  = document.getElementById('modal-dje-query');
+  const uf = document.getElementById('modal-dje-uf');
+  if (q)  q.value  = oabs[0].num;
+  if (uf) uf.value = oabs[0].uf;
+  buscarAdvogadoDJEN();
+}
 
 function mostrarErroBusca(msg) {
   const el = document.getElementById('busca-erro');
@@ -5012,6 +5086,29 @@ async function excluirEvento(id) {
   showToast('Evento excluído.');
   fecharDiaPopover(); // evita lista do popover ficar com o item já apagado
   carregarEventos();
+}
+
+// Marca/desmarca concluído sem abrir o modal grande de editar evento — pedido
+// explícito: "antes de abrir o evento inteiro". O evento nunca some da tela,
+// só muda o visual (risco no título); funciona tanto no popover do dia
+// quanto na lista "Próximos Prazos" do dashboard.
+async function toggleEventoConcluido(id, concluido, checkboxEl) {
+  const evento = (_eventosDB || []).find(e => e.id === id);
+  if (evento) evento.concluido = concluido;
+
+  // Atualiza a própria linha na hora, sem esperar o round-trip do banco
+  const linha = checkboxEl?.closest('.prazo-item, [data-evento-linha]');
+  const titulo = linha?.querySelector('.prazo-name, [data-evento-titulo]');
+  if (titulo) titulo.style.textDecoration = concluido ? 'line-through' : 'none';
+  if (titulo) titulo.style.opacity = concluido ? '.55' : '1';
+
+  const { error } = await _supabase.from('eventos')
+    .update({ concluido, concluido_em: concluido ? new Date().toISOString() : null })
+    .eq('id', id);
+  if (error) { showToast('Erro ao atualizar evento.'); return; }
+
+  buildFullCal();
+  atualizarPrazosDash();
 }
 
 async function salvarEvento() {
@@ -7204,7 +7301,7 @@ async function rodarMonitorDJe() {
     lista.innerHTML = semCadastro.length > 1 ? `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 2px 10px">
         <span style="font-size:12px;color:var(--gray-500)">${semCadastro.length} processo(s) não cadastrado(s)</span>
-        <button class="btn-primary" style="font-size:11px;padding:5px 14px" onclick="importarTodosDJe()">
+        <button class="btn-primary btn-destaque-pulse" style="font-size:11px;padding:5px 14px" onclick="importarTodosDJe()">
           <i class="ti ti-download"></i> Importar todos
         </button>
       </div>` : '';
