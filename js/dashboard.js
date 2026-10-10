@@ -5009,6 +5009,13 @@ async function salvarEscritorio() {
 
   if (estavaBloqueado && !window._oabPendente) {
     showToast('OAB cadastrada! Sistema liberado.', 'success');
+    // Quem entra pelo Google nunca tem OAB no primeiro acesso (window._oabPendente
+    // fica true) — _tentarOnboardingOAB() só roda no carregamento inicial da
+    // página, e nesse momento ainda estava bloqueada, então sempre saía sem
+    // fazer nada. Esse é o ÚNICO lugar onde "acabou de preencher a OAB pela
+    // primeira vez" acontece pra esse tipo de conta — sem chamar aqui, quem
+    // se cadastra pelo Google nunca recebe o onboarding automático.
+    _tentarOnboardingOAB();
     setTimeout(() => showPage('dashboard'), 900);
     return;
   }
