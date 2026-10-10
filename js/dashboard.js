@@ -1002,41 +1002,59 @@ async function buscarAdvogadoDJEN() {
     const PAGE_SIZE = 100;
     const base = { dataDisponibilizacaoInicio: dataInicio, dataDisponibilizacaoFim: dataFim, pagina: 1, tamanhoPagina: PAGE_SIZE };
 
-    const _fetchDJEN = (params) => fetch(`${DJEN_API}?${new URLSearchParams(params)}`).then(r => r.ok ? r.json() : { items: [], count: 0 });
+    // O DJEN limita 20 requisições/minuto por IP (mesmo limite documentado em
+    // lib/djen-cadernos.js pro cron). Antes disparava todas as páginas em
+    // paralelo via Promise.all — uma OAB grande (ex: 1500+ publicações, 10
+    // páginas) já usava boa parte da cota sozinha, e uma segunda busca logo
+    // em seguida estourava o limite. A resposta negada virava silenciosamente
+    // "zero resultados" (sem erro nenhum), e a tela ficava em branco sem
+    // explicação. Agora: espaça os pedidos (~3,5s, fica em ~17/min de folga)
+    // e avisa claramente quando alguma página falha, em vez de esconder.
+    let houveFalha = false;
+    const _fetchDJEN = async (params) => {
+      const r = await fetch(`${DJEN_API}?${new URLSearchParams(params)}`);
+      if (!r.ok) { houveFalha = true; return { items: [], count: 0 }; }
+      return r.json();
+    };
+    const _fetchDJENEspacado = async (params, indice) => {
+      if (indice > 0) await new Promise(res => setTimeout(res, 3500));
+      return _fetchDJEN(params);
+    };
 
-    let reqs;
-    if (isOAB) {
-      reqs = oabsParsadas.map(oab => _fetchDJEN({ ...base, numeroOab: oab.num, ufOab: oab.uf }));
-    } else {
-      const params = { ...base, nomeAdvogado: rawQuery };
-      if (ufSelecionada) params.ufOab = ufSelecionada;
-      reqs = [_fetchDJEN(params)];
+    const paramsIniciais = isOAB
+      ? oabsParsadas.map(oab => ({ ...base, numeroOab: oab.num, ufOab: oab.uf }))
+      : [{ ...base, nomeAdvogado: rawQuery, ...(ufSelecionada ? { ufOab: ufSelecionada } : {}) }];
+
+    const resultados = [];
+    for (let i = 0; i < paramsIniciais.length; i++) {
+      if (i > 0) titulo.textContent = `Buscando… (${i} de ${paramsIniciais.length})`;
+      resultados.push(await _fetchDJENEspacado(paramsIniciais[i], i));
     }
-
-    const resultados = await Promise.all(reqs);
     const vistos = new Set();
     let items = resultados.flatMap(r => r.items || []).filter(item => { if (vistos.has(item.id)) return false; vistos.add(item.id); return true; });
     const total = resultados.reduce((s, r) => s + (r.count || 0), 0);
 
-    // Paginação: busca as páginas restantes se houver mais resultados
+    // Paginação: busca as páginas restantes se houver mais resultados, uma de cada vez
     if (total > items.length) {
       const numPaginas = Math.min(Math.ceil(total / PAGE_SIZE), 10); // máx 10 páginas (1000 resultados)
-      const reqsExtras = [];
+      const paramsExtras = [];
       for (let pg = 2; pg <= numPaginas; pg++) {
         if (isOAB) {
-          oabsParsadas.forEach(oab => reqsExtras.push(_fetchDJEN({ ...base, pagina: pg, numeroOab: oab.num, ufOab: oab.uf })));
+          oabsParsadas.forEach(oab => paramsExtras.push({ ...base, pagina: pg, numeroOab: oab.num, ufOab: oab.uf }));
         } else {
-          const p = { ...base, pagina: pg, nomeAdvogado: rawQuery };
-          if (ufSelecionada) p.ufOab = ufSelecionada;
-          reqsExtras.push(_fetchDJEN(p));
+          paramsExtras.push({ ...base, pagina: pg, nomeAdvogado: rawQuery, ...(ufSelecionada ? { ufOab: ufSelecionada } : {}) });
         }
       }
-      if (reqsExtras.length) {
+      for (let i = 0; i < paramsExtras.length; i++) {
         titulo.textContent = `Carregando mais resultados (${items.length} de ${total})…`;
-        const extras = await Promise.all(reqsExtras);
-        const maisItems = extras.flatMap(r => r.items || []).filter(item => { if (vistos.has(item.id)) return false; vistos.add(item.id); return true; });
-        items = [...items, ...maisItems];
+        const r = await _fetchDJENEspacado(paramsExtras[i], i + 1); // +1: já esperou antes da 1ª extra também
+        const novos = (r.items || []).filter(item => { if (vistos.has(item.id)) return false; vistos.add(item.id); return true; });
+        items = [...items, ...novos];
       }
+    }
+
+    if (houveFalha) {
+      showToast('O DJEN recusou parte das páginas (limite de requisições por minuto) — os resultados abaixo podem estar incompletos. Espere 1 minuto e busque de novo pra conferir.', 'warning');
     }
 
     items.sort((a, b) => (b.data_disponibilizacao || '').localeCompare(a.data_disponibilizacao || ''));
@@ -1087,10 +1105,15 @@ async function buscarAdvogadoDJEN() {
       showToast(`✓ ${qtdAutoSalvas} processo(s) atualizado(s) automaticamente com publicações do DJEN.`, 'success');
     }
 
+    // semCadastro é 1 linha por PUBLICAÇÃO — um processo pode ter várias
+    // (despacho, decisão, intimação...). O rótulo mostra processo distinto,
+    // senão "347 processos não cadastrados" exagerava pra um advogado com
+    // poucos processos mas muita publicação em cada um.
     const semCadastro = window._djeResultados.filter(d => !d.matches.length && d.processos[0]);
-    let html = semCadastro.length > 1 ? `
+    const distintosSemCadastro = new Set(semCadastro.map(d => _digitos(d.processos[0]))).size;
+    let html = distintosSemCadastro > 1 ? `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 2px 10px">
-        <span style="font-size:12px;color:var(--gray-500)">${semCadastro.length} processo(s) não cadastrado(s)</span>
+        <span style="font-size:12px;color:var(--gray-500)">${distintosSemCadastro} processo(s) não cadastrado(s)${semCadastro.length !== distintosSemCadastro ? ` (${semCadastro.length} publicações)` : ''}</span>
         <button class="btn-primary btn-destaque-pulse" style="font-size:11px;padding:5px 14px" onclick="importarTodosDJe()">
           <i class="ti ti-download"></i> Importar todos
         </button>
@@ -7326,11 +7349,13 @@ async function rodarMonitorDJe() {
       showToast(`✓ ${qtdAutoSalvas} processo(s) atualizado(s) automaticamente com publicações do DJEN.`, 'success');
     }
 
-    // Botão "Importar todos" no topo dos resultados
+    // Botão "Importar todos" no topo dos resultados — mesmo cuidado de
+    // js/dashboard.js:~1110: semCadastro é publicação, não processo distinto.
     const semCadastro = window._djeResultados.filter(d => !d.matches.length && d.processos[0]);
-    lista.innerHTML = semCadastro.length > 1 ? `
+    const distintosSemCadastro = new Set(semCadastro.map(d => _digitos(d.processos[0]))).size;
+    lista.innerHTML = distintosSemCadastro > 1 ? `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 2px 10px">
-        <span style="font-size:12px;color:var(--gray-500)">${semCadastro.length} processo(s) não cadastrado(s)</span>
+        <span style="font-size:12px;color:var(--gray-500)">${distintosSemCadastro} processo(s) não cadastrado(s)${semCadastro.length !== distintosSemCadastro ? ` (${semCadastro.length} publicações)` : ''}</span>
         <button class="btn-primary btn-destaque-pulse" style="font-size:11px;padding:5px 14px" onclick="importarTodosDJe()">
           <i class="ti ti-download"></i> Importar todos
         </button>
@@ -7613,45 +7638,92 @@ async function _enriquecerComDatajud(numero) {
   } catch (_) { /* silently fail — timeline básica do DJEN já foi salva */ }
 }
 
+// Processa um array em pedaços, N de cada vez (aguarda o pedaço inteiro antes
+// do próximo) — evita disparar centenas de chamadas simultâneas no browser.
+async function _emLotes(itens, tamanho, tarefa) {
+  for (let i = 0; i < itens.length; i += tamanho) {
+    await Promise.all(itens.slice(i, i + tamanho).map(tarefa));
+  }
+}
+
 async function importarTodosDJe() {
   const dbNums = new Set((window._processosDB || []).map(p => _digitos(p.numero)).filter(Boolean));
-  const pendentes = (window._djeResultados || []).filter(d =>
+  // _djeResultados é 1 linha por PUBLICAÇÃO — um processo ativo pode ter várias
+  // (despacho, decisão, intimação...). Sem isso, "importar todos" contava
+  // publicação como se fosse processo, e o número batido no final nunca
+  // conferia com o que o advogado via na lista.
+  const publicacoesPendentes = (window._djeResultados || []).filter(d =>
     d.processos[0] && !d.matches?.length && !dbNums.has(_digitos(d.processos[0]))
   );
-  if (!pendentes.length) { showToast('Nenhum processo novo para importar.'); return; }
+  if (!publicacoesPendentes.length) { showToast('Nenhum processo novo para importar.'); return; }
 
-  showToast(`Importando ${pendentes.length} processo(s)...`);
+  // Dedup por número — a lista já vem ordenada por data desc (ver
+  // buscarAdvogadoDJEN), então a primeira ocorrência de cada número já é a
+  // publicação mais recente dele, a certa pra virar o movimento inicial.
+  const porProcesso = new Map();
+  for (const d of publicacoesPendentes) {
+    const num = _digitos(d.processos[0]);
+    if (!porProcesso.has(num)) porProcesso.set(num, d);
+  }
+  const pendentes = [...porProcesso.values()];
+
+  showToast(`Importando ${pendentes.length} processo(s) distinto(s) (${publicacoesPendentes.length} publicação(ões))...`);
   let ok = 0, erros = 0;
 
-  for (const doc of pendentes) {
+  const linhaParaInserir = (doc) => {
     const numero = _numeroCNJ(doc.processos[0]);
-    if (dbNums.has(_digitos(numero))) continue; // skip se chegou ao DB entre iterações
-    try {
-      const { error } = await _supabase.from('processos').insert({
-        user_id:         window._escritorioId || window._user?.id,
-        numero,
-        nome:            _tituloProcesso(doc.nomeClasse, doc.tipoDecisao) || _tituloProcesso(doc.tipoComunicacao) || 'Publicação DJEN',
-        tribunal:        doc.siglaTribunal || '',
-        datajud_index:   _indiceDoNumero(numero),
-        cliente:         doc.partes?.cliente   || null,
-        parte_contraria: doc.partes?.contrario || null,
-        area:            _detectarArea(doc.siglaTribunal, doc.nomeClasse),
-        classe:          _tituloProcesso(doc.nomeClasse) || null,
-        orgao_julgador:  doc.nomeOrgao   || null,
-        movimentos_recentes: [{
-          data: (doc.data_disponibilizacao || '') + 'T00:00:00',
-          nome: `DJEN — ${doc.tipoComunicacao || 'Publicação'}${doc.tipoDecisao ? ' · ' + doc.tipoDecisao : ''}`,
-          _fonte: 'djen',
-          _url:   doc.link || null,
-        }],
-      });
-      if (error) { erros++; }
-      else {
-        ok++;
-        dbNums.add(_digitos(numero));  // evita re-inserir no próximo click
-        doc.matches = [{ numero }]; // evita re-importar sem precisar recarregar resultados
+    return {
+      user_id:         window._escritorioId || window._user?.id,
+      numero,
+      nome:            _tituloProcesso(doc.nomeClasse, doc.tipoDecisao) || _tituloProcesso(doc.tipoComunicacao) || 'Publicação DJEN',
+      tribunal:        doc.siglaTribunal || '',
+      datajud_index:   _indiceDoNumero(numero),
+      cliente:         doc.partes?.cliente   || null,
+      parte_contraria: doc.partes?.contrario || null,
+      area:            _detectarArea(doc.siglaTribunal, doc.nomeClasse),
+      classe:          _tituloProcesso(doc.nomeClasse) || null,
+      orgao_julgador:  doc.nomeOrgao   || null,
+      movimentos_recentes: [{
+        data: (doc.data_disponibilizacao || '') + 'T00:00:00',
+        nome: `DJEN — ${doc.tipoComunicacao || 'Publicação'}${doc.tipoDecisao ? ' · ' + doc.tipoDecisao : ''}`,
+        _fonte: 'djen',
+        _url:   doc.link || null,
+      }],
+    };
+  };
+
+  // Insere em lote (1 chamada pra até 50 processos, em vez de 1 chamada por
+  // processo) — bem mais rápido pra OABs grandes. Um INSERT com várias linhas
+  // é tudo ou nada: se o lote falhar (ex: 1 linha com problema), cai pra
+  // inserir uma por uma só DAQUELE lote, pra não perder os outros 49 bons.
+  const TAMANHO_LOTE = 50;
+  for (let i = 0; i < pendentes.length; i += TAMANHO_LOTE) {
+    const lote = pendentes.slice(i, i + TAMANHO_LOTE);
+    const linhas = lote.map(linhaParaInserir);
+    const { error } = await _supabase.from('processos').insert(linhas);
+    if (!error) {
+      ok += lote.length;
+      for (const doc of lote) {
+        const numero = _numeroCNJ(doc.processos[0]);
+        dbNums.add(_digitos(numero));
+        doc.matches = [{ numero }];
       }
-    } catch (_) { erros++; }
+      continue;
+    }
+    // Lote falhou — tenta um por um só pra isolar qual linha deu problema
+    for (const doc of lote) {
+      const numero = _numeroCNJ(doc.processos[0]);
+      if (dbNums.has(_digitos(numero))) continue;
+      try {
+        const { error: errItem } = await _supabase.from('processos').insert(linhaParaInserir(doc));
+        if (errItem) { erros++; }
+        else {
+          ok++;
+          dbNums.add(_digitos(numero));
+          doc.matches = [{ numero }];
+        }
+      } catch (_) { erros++; }
+    }
   }
 
   await carregarProcessos();
@@ -7662,11 +7734,20 @@ async function importarTodosDJe() {
       d.matches = [{ numero: d.processos[0] }];
     }
   });
-  // Enriquece processos recém-importados com timeline do DataJud em background
-  for (const doc of pendentes) {
-    if (doc.processos[0]) _enriquecerComDatajud(doc.processos[0]);
-  }
-  showToast(`${ok} importado(s)${erros ? ` · ${erros} com falha` : ''}.`, ok > 0 ? 'success' : undefined);
+
+  showToast(
+    ok > 0
+      ? `✓ ${ok} processo(s) importado(s)${erros ? ` · ${erros} com falha` : ''}.`
+      : `Falha ao importar os ${erros} processo(s).`,
+    ok > 0 ? 'success' : 'error',
+  );
+
+  // Enriquece com timeline do DataJud em segundo plano — 5 de cada vez, não
+  // todos de uma vez. Sem isso, uma OAB grande disparava centenas de
+  // requisições simultâneas (cada uma chamando carregarProcessos() de novo)
+  // e travava a aba; o cron de sincronização pega quem ficar de fora de
+  // qualquer forma, então não precisa pressa aqui.
+  _emLotes(pendentes.filter(d => d.processos[0]), 5, d => _enriquecerComDatajud(d.processos[0]));
 }
 
 async function rodarScraperPJe() {
