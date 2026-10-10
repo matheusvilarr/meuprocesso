@@ -22,6 +22,7 @@ import {
   ehMovDJEN, datajudIndexFromNumero, buscarOabsUsuarios, corrigirMojibake,
   normalizarNumeroCNJ, tituloProcesso, limparLogsAntigos,
   abrirExecucao, fecharExecucao, enviarEmail, cabecalho, rodape, btnDashboard,
+  inferirTratamento,
 } from '../../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
@@ -1040,7 +1041,11 @@ async function rodarOnboarding(req, res) {
       user_metadata: { ...user.user_metadata, onboarding_email_enviado: true },
     });
 
-    const nome = (user.user_metadata?.full_name || user.user_metadata?.nome || '').trim().split(' ')[0] || 'Advogado(a)';
+    const primeiroNome = (user.user_metadata?.full_name || user.user_metadata?.nome || '').trim().split(' ')[0] || 'Advogado(a)';
+    // "Dr./Dra." só quando o primeiro nome permite inferir o gênero com
+    // confiança (ver inferirTratamento) — nome ambíguo usa só o primeiro nome.
+    const tratamento = inferirTratamento(primeiroNome);
+    const nome = tratamento ? `${tratamento} ${primeiroNome}` : primeiroNome;
     await enviarBoasVindas(user.email, nome);
 
     const { totalProcessos, exato, itens } = await buscarDJENPorOab(oabs[0]);
