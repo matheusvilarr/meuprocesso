@@ -182,33 +182,18 @@ async function rodarDatajud(admin, res, hoje) {
   });
 }
 
-// Medido em 30/09/2026 contra a API pública (amostras de 8, 20 e 40 paralelas):
-// o DataJud responde a todas, mas o tempo cresce com a concorrência —
-// mediana 20s com 8, 22s com 20, 36s com 40 (máx. 48s). Ou seja: ele enfileira
-// em vez de recusar. Por isso vale manter várias em voo e, principalmente,
-// ESPERAR a resposta: com timeout de 28s a gente desligava no meio de
-// respostas que estavam chegando.
-// Medido em 30/09/2026 à tarde: o próprio CNJ reportou "took" de 51-54s na
-// consulta (é a fila interna do Elasticsearch deles, não a rede). De manhã a
-// mesma consulta levava 15-25s. Por isso a espera subiu pra 55s e o grosso
-// das execuções foi movido pra madrugada no vercel.json.
-// Concorrência 40: com 20 e resposta de 20s (madrugada) davam ~40 processos
-// por execução — 555 processos levariam dias pra fechar um ciclo. A medição
-// mostrou 40 simultâneas com 100% de sucesso, então é daí que vem a vazão.
-// Medido em 05/10/2026, consultas sequenciais a TJDFT, TJGO e TRF1:
-// mediana 34,6s · 3 de 9 devolveram 429 (fila deles cheia) em 14-37s ·
-// 2 de 9 devolveram HTTP 504 em exatos 60,0s.
-// Esse 504 em 60s é o dado novo: o CNJ tem um limite próprio e desiste sozinho
-// nessa marca. Então esperar além de ~60s é tempo jogado fora, e o nosso
-// limite de 55s cortava respostas que ainda chegariam. 58s fica entre os dois.
-const CONCORRENCIA_DATAJUD = 40;
+// Medido em 30/09 e 05/10/2026 contra a API pública: o DataJud enfileira em
+// vez de recusar, mediana de resposta ~35s, e o próprio CNJ tem um limite
+// interno e desiste sozinho aos 60s (HTTP 504). Esperar além disso é tempo
+// jogado fora; por isso a espera por requisição é 58s — entre o que ele
+// costuma levar e o ponto em que ele mesmo desiste.
+// (Até 09/10/2026 havia também uma concorrência de 40 consultas simultâneas,
+// uma por processo — descontinuada quando o sync passou a agrupar por
+// tribunal via query "terms"; ver LOTE_DATAJUD_CONCORRENCIA mais abaixo.)
 const JANELA_INICIAR_MS    = 55000;  // até quando novas consultas são iniciadas
 const ESPERA_DATAJUD_MS    = 58000;  // quanto esperamos cada resposta
 // 55s iniciando + 58s da última resposta + gravação = ~115s, dentro do
-// maxDuration de 120s. Observado nas execuções do fim de semana: mediana 100s,
-// máxima 111s — a margem é pequena, então não dá para subir mais.
-// 55s pra iniciar + 55s da última resposta + gravação = ~112s, dentro do
-// maxDuration de 120s do vercel.json.
+// maxDuration de 120s do vercel.json — a margem é pequena, não dá pra subir mais.
 
 // Pool contínuo: assim que uma consulta termina, a próxima começa. Antes era
 // em lotes, e o lote inteiro ficava parado esperando a consulta mais lenta.
@@ -226,12 +211,105 @@ export async function comPool(itens, limite, prazoParaIniciar, tarefa) {
   return resultados;
 }
 
+// Testado em 09-10/10/2026 contra a API pública: uma query "terms" com vários
+// números de uma vez devolve os mesmos resultados que N queries "match"
+// individuais (conferido processo a processo), e uma única requisição com 194
+// números levou 35s — no mesmo patamar de UMA consulta individual (17-39s).
+// Ou seja, o tempo do DataJud é dominado por um custo fixo por requisição, não
+// pelo tamanho do lote. Isso troca "1 requisição por processo" (até 400 por
+// execução) por "1 requisição por tribunal com pendência" (na prática, 14-90).
+//
+// Tamanho do lote: Elasticsearch recusa size > 10000 sem paginação; 300 por
+// lote com margem de *4 no "size" (um processo pode ter mais de 1 documento —
+// G1, G2, JE) fica bem abaixo disso e mantém a resposta num tamanho razoável
+// (~5MB, extrapolado da medição real de 194 processos = 3,36MB).
+const LOTE_DATAJUD_TAMANHO        = 300;
+const LOTE_DATAJUD_CONCORRENCIA   = 15;
+// Espaça o disparo de cada lote — medido em 09/10: 40 requisições simultâneas
+// no mesmo instante geram um pico de ~240/min (2x o limite de 120/min dos
+// Termos de Uso do CNJ) e foi exatamente aí que vieram os 429 do teste. Com
+// poucas dezenas de lotes (não centenas de processos) isso já é bem mais raro,
+// mas o espaçamento custa pouco e elimina o risco de vez.
+const LOTE_DATAJUD_ESPACAMENTO_MS = 250;
+
+function dividirEmLotes(itens, tamanho) {
+  const lotes = [];
+  for (let i = 0; i < itens.length; i += tamanho) lotes.push(itens.slice(i, i + tamanho));
+  return lotes;
+}
+
+async function buscarLoteDatajud(index, numeros) {
+  const r = await fetch(`https://api-publica.datajud.cnj.jus.br/${index}/_search`, {
+    method: 'POST',
+    headers: { 'Authorization': `ApiKey ${DATAJUD_KEY}`, 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(ESPERA_DATAJUD_MS),
+    body: JSON.stringify({ size: numeros.length * 4, query: { terms: { numeroProcesso: numeros } } }),
+  });
+  if (!r.ok) throw new Error(`DataJud respondeu ${r.status} (${index})`);
+  const json = JSON.parse(decodificarBuffer(await r.arrayBuffer()));
+  return json.hits?.hits || [];
+}
+
 async function sincronizarDatajud(processos, admin, hoje, startAt = Date.now()) {
   const com_datajud = processos.filter(p => p.datajud_index);
-  const resultados = await comPool(
-    com_datajud, CONCORRENCIA_DATAJUD, startAt + JANELA_INICIAR_MS,
-    proc => sincronizarDatajudUm(proc, admin, hoje),
-  );
+
+  // Agrupa por tribunal e quebra em lotes — 1 requisição por lote, não por processo.
+  const porTribunal = new Map();
+  for (const p of com_datajud) {
+    const numeroLimpo = p.numero.replace(/[.\-/ ]/g, '');
+    if (!porTribunal.has(p.datajud_index)) porTribunal.set(p.datajud_index, new Set());
+    porTribunal.get(p.datajud_index).add(numeroLimpo);
+  }
+  const lotesParaBuscar = [];
+  for (const [index, numerosSet] of porTribunal) {
+    for (const lote of dividirEmLotes([...numerosSet], LOTE_DATAJUD_TAMANHO)) {
+      lotesParaBuscar.push({ index, numeros: lote });
+    }
+  }
+
+  // Reserva de vez — garante o espaçamento mesmo com várias buscas de lote em
+  // paralelo (comPool roda LOTE_DATAJUD_CONCORRENCIA trabalhadores ao mesmo
+  // tempo). Mutação síncrona, sem await no meio, então é segura mesmo com
+  // concorrência real do event loop.
+  let proximoDisparo = 0;
+  function reservarVez() {
+    const agora  = Date.now();
+    const inicio = Math.max(agora, proximoDisparo);
+    proximoDisparo = inicio + LOTE_DATAJUD_ESPACAMENTO_MS;
+    return inicio - agora;
+  }
+
+  // numeroLimpo -> hits[] (achou) | [] (não achou) | Error (lote falhou —
+  // cada processo do lote recebe o mesmo erro, cai no caminho de "erro" de
+  // sempre: fim da fila, tenta de novo na próxima execução).
+  const mapaResultados = new Map();
+  await comPool(lotesParaBuscar, LOTE_DATAJUD_CONCORRENCIA, startAt + JANELA_INICIAR_MS, async (lote) => {
+    const esperar = reservarVez();
+    if (esperar > 0) await new Promise(r => setTimeout(r, esperar));
+    try {
+      const hits = await buscarLoteDatajud(lote.index, lote.numeros);
+      const porNumero = new Map();
+      for (const h of hits) {
+        const num = h._source?.numeroProcesso;
+        if (!num) continue;
+        if (!porNumero.has(num)) porNumero.set(num, []);
+        porNumero.get(num).push(h);
+      }
+      for (const n of lote.numeros) mapaResultados.set(n, porNumero.get(n) || []);
+    } catch (e) {
+      for (const n of lote.numeros) mapaResultados.set(n, e);
+    }
+  });
+
+  // Aplica o resultado já buscado, processo por processo — mesma lógica de
+  // sempre (hash, mesclar movimentos, gravar, classificar erro). Não depende
+  // mais de rede aqui, então a concorrência é só sobre I/O do Supabase.
+  const resultados = await comPool(com_datajud, 20, startAt + JANELA_INICIAR_MS + ESPERA_DATAJUD_MS, async (proc) => {
+    const numeroLimpo = proc.numero.replace(/[.\-/ ]/g, '');
+    const resultado = mapaResultados.has(numeroLimpo) ? mapaResultados.get(numeroLimpo) : [];
+    return aplicarResultadoDatajud(proc, resultado, admin, hoje);
+  });
+
   return {
     novos:      resultados.filter(r => r === 'novos').length,
     verificados: resultados.filter(r => r === 'novos' || r === 'atualizado' || r === 'sem-mudanca' || r === 'nao-encontrado').length,
@@ -240,10 +318,8 @@ async function sincronizarDatajud(processos, admin, hoje, startAt = Date.now()) 
   };
 }
 
-// Usado pelo cron e pelo botão "DataJud agora" do painel admin (api/admin.js).
 // proc precisa de: id, user_id, numero, nome, datajud_index, movimentos_hash,
 // movimentos_recentes, notificacao_pendente, novos_movimentos, created_at.
-// Retorna 'novos' | 'atualizado' | 'sem-mudanca' | 'nao-encontrado' | 'pulado' | 'erro'.
 // Campos gravados em toda consulta que deu certo: marca como verificado e
 // zera o contador de falhas da fila.
 function sucessoFila() {
@@ -273,10 +349,29 @@ function enriquecerSeDescoberto(proc, hits) {
   return upd;
 }
 
+// Usado só pelo botão "DataJud agora" do painel admin (1 processo, sob
+// demanda) — busca e aplica. O cron em lote chama aplicarResultadoDatajud()
+// direto, já com os hits buscados em lote (ver sincronizarDatajud acima).
 export async function sincronizarDatajudUm(proc, admin, hoje) {
   if ((proc.created_at || '').slice(0, 10) === hoje) return 'pulado';
+  let hits;
   try {
-    const hits = await buscarComRetentativa(proc.datajud_index, proc.numero);
+    hits = await buscarComRetentativa(proc.datajud_index, proc.numero);
+  } catch (e) {
+    return aplicarResultadoDatajud(proc, e, admin, hoje);
+  }
+  return aplicarResultadoDatajud(proc, hits, admin, hoje);
+}
+
+// hitsOuErro: array de hits do DataJud (pode ser vazio = não achou), ou um
+// Error (a busca em lote falhou pra esse processo — mesmo tratamento de
+// sempre: classifica, loga, vai pro fim da fila). Retorna 'novos' |
+// 'atualizado' | 'sem-mudanca' | 'nao-encontrado' | 'pulado' | 'erro'.
+async function aplicarResultadoDatajud(proc, hitsOuErro, admin, hoje) {
+  if ((proc.created_at || '').slice(0, 10) === hoje) return 'pulado';
+  try {
+    if (hitsOuErro instanceof Error) throw hitsOuErro;
+    const hits = hitsOuErro;
     if (!hits?.length) {
       await admin.from('processos').update(sucessoFila()).eq('id', proc.id);
       return 'nao-encontrado';
