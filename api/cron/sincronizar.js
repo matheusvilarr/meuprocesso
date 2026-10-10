@@ -82,9 +82,34 @@ export default async function handler(req, res) {
   const admin = createClient(SUPA_URL, SUPA_SERVICE_KEY);
   const hoje  = new Date().toISOString().slice(0, 10);
 
-  if (tipo === 'oab')      return rodarOabScan(admin, res, hoje);
-  if (tipo === 'fila_stj') return rodarFilaStj(admin, res);
+  if (tipo === 'oab')          return rodarOabScan(admin, res, hoje);
+  if (tipo === 'fila_stj')     return rodarFilaStj(admin, res);
+  if (tipo === 'email-pessoal') return rodarEmailPessoal(req, res);
   return rodarDatajud(admin, res, hoje);
+}
+
+// Envio administrativo pontual — útil pra e-mails pessoais/um-a-um que não
+// fazem sentido virar um fluxo automático permanente (ex: contato direto do
+// Matheus com os primeiros usuários). Autenticado pelo mesmo segredo de
+// admin já usado pra ?tipo=onboarding com user_id; o conteúdo vem inteiro no
+// corpo da requisição — nada de texto pessoal fica fixado no código.
+async function rodarEmailPessoal(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ erro: 'Método não permitido.' });
+  const destinatarios = req.body?.destinatarios;
+  if (!Array.isArray(destinatarios) || !destinatarios.length) {
+    return res.status(400).json({ erro: 'destinatarios (array de {to, assunto, html}) é obrigatório.' });
+  }
+  const resultados = [];
+  for (const d of destinatarios) {
+    if (!d?.to || !d?.assunto || !d?.html) { resultados.push({ to: d?.to, ok: false, erro: 'to/assunto/html faltando' }); continue; }
+    try {
+      await enviarEmail(d.to, d.assunto, d.html);
+      resultados.push({ to: d.to, ok: true });
+    } catch (e) {
+      resultados.push({ to: d.to, ok: false, erro: String(e.message || e).slice(0, 200) });
+    }
+  }
+  return res.status(200).json({ ok: true, resultados });
 }
 
 // ── DATAJUD SYNC ──────────────────────────────────────────────────────────────
