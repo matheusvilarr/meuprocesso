@@ -1152,7 +1152,7 @@ function mostrarLinkConvite({ email, link, codigo, jaExistia, avisoEmail }) {
   const caixa = document.getElementById('conv-resultado');
   if (!caixa) { alert(`Convite criado.\n\nLink: ${link}`); return; }
 
-  const texto = `Olá! Seu acesso ao Meu Processo está liberado — 7 dias grátis para testar.\n\nCrie sua conta aqui:\n${link}`;
+  const texto = `Olá! Seu acesso ao Meu Processo está liberado — 30 dias grátis para testar.\n\nCrie sua conta aqui:\n${link}`;
   window._convTextoWpp = texto;
   window._convLink     = link;
 
