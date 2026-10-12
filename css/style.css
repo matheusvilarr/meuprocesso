@@ -34,7 +34,8 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(255,255,255,
 
 /* Headline */
 .hero-h1{font-family:'Roboto',sans-serif;font-size:clamp(38px,4vw,58px);font-weight:normal;color:var(--g900);line-height:1.1;letter-spacing:.01em;margin-bottom:8px}
-.hero-h1 .accent,.carousel-label .accent{
+.hero-h1 .accent{color:var(--bluedark)}
+.carousel-label .accent{
   background:linear-gradient(135deg,#0d5a96 0%,#2196f3 60%,#4fa8f5 100%);
   -webkit-background-clip:text;background-clip:text;color:transparent;
   text-shadow:0 0 18px rgba(33,150,243,.35);
