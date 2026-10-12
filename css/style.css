@@ -19,7 +19,7 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(255,255,255,
 .nav-link:hover{color:var(--g900);background:var(--g100)}
 .nav-login{font-size:14px;font-weight:500;color:var(--g700);text-decoration:none;padding:9px 18px;border-radius:9px;border:1.5px solid var(--g200);transition:all .15s}
 .nav-login:hover{border-color:var(--g400);color:var(--g900);background:var(--g50)}
-.nav-cta{background:linear-gradient(135deg,#053958 0%,#0d5a96 55%,#2196f3 100%);color:var(--white);padding:10px 22px;border-radius:9px;font-size:14px;font-weight:700;text-decoration:none;transition:all .15s;border:none;cursor:pointer;font-family:'Roboto',sans-serif;display:flex;align-items:center;gap:6px;letter-spacing:.01em}
+.nav-cta{background:linear-gradient(135deg,#053958 0%,#0d5a96 55%,#2196f3 100%);color:var(--white);padding:10px 22px;border-radius:100px;font-size:14px;font-weight:700;text-decoration:none;transition:all .15s;border:none;cursor:pointer;font-family:'Roboto',sans-serif;display:flex;align-items:center;gap:6px;letter-spacing:.01em}
 .nav-cta:hover{background:linear-gradient(135deg,#0d5a96 0%,#2196f3 100%);transform:translateY(-1px);box-shadow:0 4px 14px rgba(29,78,216,.4)}
 
 /* HERO */
@@ -34,7 +34,16 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(255,255,255,
 
 /* Headline */
 .hero-h1{font-family:'Roboto',sans-serif;font-size:clamp(38px,4vw,58px);font-weight:normal;color:var(--g900);line-height:1.1;letter-spacing:.01em;margin-bottom:8px}
-.hero-h1 .accent{color:var(--bluedark)}
+.hero-h1 .accent,.carousel-label .accent{
+  background:linear-gradient(135deg,#0d5a96 0%,#2196f3 60%,#4fa8f5 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  text-shadow:0 0 18px rgba(33,150,243,.35);
+  animation:accentGlow 3s ease-in-out infinite;
+}
+@keyframes accentGlow{
+  0%,100%{filter:drop-shadow(0 0 6px rgba(33,150,243,.25))}
+  50%{filter:drop-shadow(0 0 14px rgba(33,150,243,.55))}
+}
 
 /* Ticker */
 .ticker-wrap{font-size:clamp(17px,1.8vw,22px);font-weight:400;color:var(--g400);margin-bottom:28px;min-height:34px;display:flex;align-items:center;gap:8px}
@@ -45,7 +54,7 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(255,255,255,
 .hero-desc strong{color:var(--g900);font-weight:600}
 
 /* CTA */
-.cta-primary{display:inline-flex;align-items:center;gap:10px;background:linear-gradient(135deg,#053958 0%,#0d5a96 55%,#2196f3 100%);color:var(--white);padding:16px 32px;border-radius:10px;font-size:16px;font-weight:700;text-decoration:none;transition:all .18s;border:none;cursor:pointer;font-family:'Roboto',sans-serif;box-shadow:0 4px 16px rgba(29,78,216,.25);margin-bottom:16px;width:fit-content}
+.cta-primary{display:inline-flex;align-items:center;gap:10px;background:linear-gradient(135deg,#053958 0%,#0d5a96 55%,#2196f3 100%);color:var(--white);padding:16px 32px;border-radius:100px;font-size:16px;font-weight:700;text-decoration:none;transition:all .18s;border:none;cursor:pointer;font-family:'Roboto',sans-serif;box-shadow:0 4px 16px rgba(29,78,216,.25);margin-bottom:16px;width:fit-content}
 .cta-primary:hover{background:linear-gradient(135deg,#0d5a96 0%,#2196f3 100%);transform:translateY(-2px);box-shadow:0 8px 28px rgba(29,78,216,.35)}
 .cta-arrow{font-size:18px;transition:transform .18s}
 .cta-primary:hover .cta-arrow{transform:translateX(4px)}
@@ -57,6 +66,25 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(255,255,255,
 
 /* Screenshot / Carousel */
 .hero-visual{position:relative}
+
+/* Chips flutuantes sobre o print — "casa" a imagem com o resto do site em
+   vez de deixar ela solta, mesma ideia de referência que vimos num
+   concorrente (Gupy): tag curta, ícone, sombra, levemente sobreposta. */
+.hero-float-badge{
+  position:absolute;display:flex;align-items:center;gap:7px;
+  background:#fff;border-radius:100px;padding:9px 16px 9px 10px;
+  box-shadow:0 8px 24px rgba(13,90,150,.18),0 0 0 1px rgba(13,90,150,.06);
+  font-size:13px;font-weight:700;color:var(--g900);
+  z-index:2;animation:floatBadge 4s ease-in-out infinite;
+}
+.hero-float-badge .fb-icon{
+  width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#0d5a96,#2196f3);color:#fff;font-size:12px;flex-shrink:0;
+}
+.hero-float-badge.fb-top{top:-18px;right:32px}
+.hero-float-badge.fb-bottom{bottom:36px;left:-22px;animation-delay:-2s}
+@keyframes floatBadge{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+@media(max-width:960px){.hero-float-badge{display:none}}
 .carousel-label-wrap{margin-bottom:20px;min-height:88px}
 .carousel-label{font-family:'Roboto',sans-serif;font-size:clamp(26px,2.6vw,36px);font-weight:normal;color:var(--g900);display:none;line-height:1.2;letter-spacing:.01em;animation:labelFadeIn .45s ease forwards}
 .carousel-label.active{display:block}
