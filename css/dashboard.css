@@ -1219,6 +1219,11 @@ body.kanban-dragging .task-col-body {
 
 .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--navy); }
 .form-textarea { min-height: 80px; resize: vertical; }
+
+/* Barra de força de senha — mesmo visual do login.css (css/login.css) */
+.pw-strength { height: 4px; background: var(--gray-200); border-radius: 4px; margin-top: 6px; overflow: hidden; }
+.pw-strength-bar { height: 100%; border-radius: 4px; width: 0%; transition: width .25s, background .25s; }
+.pw-strength-label { font-size: 11px; margin-top: 4px; color: var(--gray-400); min-height: 16px; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 
 /* Campo de texto livre com sugestões — processo/parte no modal de prazo.

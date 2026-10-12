@@ -1066,7 +1066,11 @@
         <div style="padding:20px 24px;display:flex;flex-direction:column;gap:14px">
           <div class="form-field">
             <label class="form-label">Nova senha</label>
-            <input type="password" id="config-senha-nova" class="form-input" placeholder="Mínimo 6 caracteres">
+            <input type="password" id="config-senha-nova" class="form-input" placeholder="Crie uma senha forte" oninput="_avaliarForcaSenha(this.value)">
+            <div class="pw-strength" id="configPwStrengthBar">
+              <div class="pw-strength-bar" id="configPwStrengthFill"></div>
+            </div>
+            <div class="pw-strength-label" id="configPwStrengthLabel"></div>
           </div>
           <div class="form-field">
             <label class="form-label">Confirmar nova senha</label>

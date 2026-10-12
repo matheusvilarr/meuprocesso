@@ -5022,6 +5022,29 @@ async function salvarEscritorio() {
   showToast('Dados do escritório salvos!');
 }
 
+// Mesmos 4 critérios do cadastro (js/login.js) — tamanho, maiúscula, número
+// e símbolo — pra não deixar a troca de senha mais fraca que a criação.
+function _forcaSenha(pw) {
+  return [pw.length >= 8, /[A-Z]/.test(pw), /[0-9]/.test(pw), /[^A-Za-z0-9]/.test(pw)]
+    .filter(Boolean).length; // 0–4
+}
+
+function _avaliarForcaSenha(pw) {
+  const fill  = document.getElementById('configPwStrengthFill');
+  const label = document.getElementById('configPwStrengthLabel');
+  if (!fill || !label) return;
+  const cores  = ['#ef4444', '#f97316', '#eab308', '#22c55e'];
+  const labels = ['Senha muito fraca', 'Senha fraca', 'Senha razoável', 'Senha forte'];
+
+  if (!pw) { fill.style.width = '0%'; label.textContent = ''; return; }
+
+  const score = _forcaSenha(pw);
+  fill.style.width      = (score * 25) + '%';
+  fill.style.background = cores[score - 1] || '#ef4444';
+  label.textContent     = labels[score - 1] || 'Senha muito fraca';
+  label.style.color     = cores[score - 1] || '#ef4444';
+}
+
 async function alterarSenha() {
   const nova     = document.getElementById('config-senha-nova')?.value    || '';
   const confirma = document.getElementById('config-senha-confirma')?.value || '';
@@ -5029,8 +5052,8 @@ async function alterarSenha() {
 
   erroEl.style.display = 'none';
 
-  if (nova.length < 6) {
-    erroEl.textContent   = 'A senha deve ter pelo menos 6 caracteres.';
+  if (_forcaSenha(nova) < 3) {
+    erroEl.textContent   = 'Senha fraca. Use 8+ caracteres, maiúscula, número e símbolo.';
     erroEl.style.display = 'block';
     return;
   }
@@ -5050,6 +5073,7 @@ async function alterarSenha() {
 
   document.getElementById('config-senha-nova').value     = '';
   document.getElementById('config-senha-confirma').value = '';
+  _avaliarForcaSenha('');
   showToast('Senha alterada com sucesso!');
 }
 

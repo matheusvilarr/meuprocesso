@@ -48,7 +48,7 @@ html, body {
 /* Blue top — logo/brand */
 .card-top {
   background: linear-gradient(135deg,#053958 0%,#0d5a96 55%,#2196f3 100%);
-  padding: 36px 48px 32px;
+  padding: 26px 48px 22px;
   display: flex;
   justify-content: center;
   align-items: center;
@@ -70,7 +70,7 @@ html, body {
 }
 
 .logo img {
-  height: 180px;
+  height: 92px;
   width: auto;
 }
 
@@ -401,7 +401,7 @@ html, body {
 
 /* ── RESPONSIVE ── */
 @media (max-width: 520px) {
-  .card-top { padding: 28px 24px 24px; }
+  .card-top { padding: 22px 24px 18px; }
   .card-body { padding: 28px 24px 32px; }
-  .logo img { height: 130px; }
+  .logo img { height: 72px; }
 }
