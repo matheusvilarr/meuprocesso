@@ -33,7 +33,10 @@ SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://ctsjhsdblallguftycqs.supa
 SUPABASE_SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
 STJ_FILA_SECRET = os.environ.get("STJ_FILA_SECRET", "")
 SYNC_ENDPOINT = os.environ.get(
-    "SYNC_ENDPOINT", "https://meuprocesso.app.br/api/cron/sincronizar?tipo=fila_stj"
+    # www. direto: meuprocesso.app.br (sem www) redireciona (308), e o requests
+    # derruba o header Authorization ao seguir redirect pra outro host —
+    # virava 401 mesmo com o STJ_FILA_SECRET certo. Achado em 12/10/2026.
+    "SYNC_ENDPOINT", "https://www.meuprocesso.app.br/api/cron/sincronizar?tipo=fila_stj"
 )
 
 STJ_URL = "https://processo.stj.jus.br/processo/pesquisa/"
