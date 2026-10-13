@@ -8437,7 +8437,7 @@ function honSetCobranca(tipo) {
 }
 
 function honCalcParcela() {
-  const valor = parseFloat(document.getElementById('hon-valor')?.value) || 0;
+  const valor = _parseValorMoeda(document.getElementById('hon-valor')?.value) || 0;
   const qtd   = parseInt(document.getElementById('hon-parcelas-qtd')?.value) || 1;
   const label = document.getElementById('hon-parcela-valor');
   if (label) label.textContent = valor > 0 ? 'R$ ' + _fmtValor(valor / qtd) : 'R$ —';
@@ -8457,7 +8457,7 @@ function honSetCobrancaEdit(tipo) {
 }
 
 function honEditCalcParcela() {
-  const valor = parseFloat(document.getElementById('hon-edit-valor')?.value) || 0;
+  const valor = _parseValorMoeda(document.getElementById('hon-edit-valor')?.value) || 0;
   const qtd   = parseInt(document.getElementById('hon-edit-parcelas-qtd')?.value) || 1;
   const label = document.getElementById('hon-edit-parcela-valor');
   if (label) label.textContent = valor > 0 ? 'R$ ' + _fmtValor(valor / qtd) : 'R$ —';
@@ -8498,7 +8498,7 @@ function _popularSelectsProcessos() {
 async function salvarHonorario() {
   const desc = document.getElementById('hon-desc').value.trim();
   if (!desc) { showToast('Informe a descrição.', 'error'); return; }
-  const valor = parseFloat(document.getElementById('hon-valor').value);
+  const valor = _parseValorMoeda(document.getElementById('hon-valor').value);
   if (!valor || valor <= 0) { showToast('Informe um valor válido.', 'error'); return; }
   const btn = document.getElementById('hon-save-btn');
   btn.disabled = true;
@@ -8531,7 +8531,7 @@ async function salvarHonorario() {
     parcelas_total: isParc ? parcelasQtd : numCobr,
     parcela_atual:  isParc ? 1 : null,
     notas:          document.getElementById('hon-notas').value.trim() || null,
-    valor_entrada:  parseFloat(document.getElementById('hon-entrada')?.value) || null,
+    valor_entrada:  _parseValorMoeda(document.getElementById('hon-entrada')?.value),
   };
 
   const { error } = await _supabase.from('honorarios').insert(payload);
@@ -8568,9 +8568,9 @@ function abrirEditarHonorario(id) {
 
   document.getElementById('hon-edit-id').value    = h.id;
   document.getElementById('hon-edit-desc').value    = h.descricao || '';
-  document.getElementById('hon-edit-valor').value   = h.valor || '';
+  document.getElementById('hon-edit-valor').value   = h.valor ? _fmtValor(h.valor) : '';
   document.getElementById('hon-edit-notas').value   = h.notas || '';
-  document.getElementById('hon-edit-entrada').value = h.valor_entrada || '';
+  document.getElementById('hon-edit-entrada').value = h.valor_entrada ? _fmtValor(h.valor_entrada) : '';
 
   const tipoEl = document.getElementById('hon-edit-tipo');
   if (tipoEl) tipoEl.value = h.tipo || 'fixo';
@@ -8615,7 +8615,7 @@ async function atualizarHonorario() {
   const id   = document.getElementById('hon-edit-id').value;
   const desc = document.getElementById('hon-edit-desc').value.trim();
   if (!desc) { showToast('Informe a descrição.', 'error'); return; }
-  const valor = parseFloat(document.getElementById('hon-edit-valor').value);
+  const valor = _parseValorMoeda(document.getElementById('hon-edit-valor').value);
   if (!valor || valor <= 0) { showToast('Informe um valor válido.', 'error'); return; }
 
   const cobranca    = document.getElementById('hon-edit-cobranca-tipo')?.value || 'avista';
@@ -8643,7 +8643,7 @@ async function atualizarHonorario() {
     periodicidade:   isRecorr ? (document.getElementById('hon-edit-period')?.value || null) : null,
     parcelas_total:  isParc ? parcelasQtd : numCobr,
     notas:           document.getElementById('hon-edit-notas').value.trim() || null,
-    valor_entrada:   parseFloat(document.getElementById('hon-edit-entrada')?.value) || null,
+    valor_entrada:   _parseValorMoeda(document.getElementById('hon-edit-entrada')?.value),
   }).eq('id', id);
   if (error) { showToast('Erro: ' + error.message, 'error'); return; }
   showToast('Honorário atualizado!', 'success');
