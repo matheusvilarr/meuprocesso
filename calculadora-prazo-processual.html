@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Calculadora de Prazo Processual Grátis | Meu Processo</title>
+<meta name="description" content="Calcule prazos processuais em dias úteis ou corridos, com feriados nacionais, recesso forense e o recesso de julho do STF, STJ e TST já descontados. Grátis, sem cadastro.">
+<link rel="canonical" href="https://meuprocesso.app.br/calculadora-prazo-processual">
+<link rel="icon" type="image/png" href="/img/images/logo.png">
+<link rel="apple-touch-icon" href="/img/images/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/style.css">
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3763757554812834" crossorigin="anonymous"></script>
+<style>
+  .cp-fundo{
+    position:relative;
+    background:
+      radial-gradient(900px 420px at 50% -120px, rgba(29,78,216,.10), transparent 70%),
+      radial-gradient(600px 300px at 88% 8%, rgba(59,130,246,.07), transparent 70%),
+      linear-gradient(180deg, var(--bluepale) 0%, var(--white) 46%);
+    overflow:hidden;
+  }
+  .cp-fundo::before{
+    content:'';position:absolute;inset:0;pointer-events:none;
+    background-image:linear-gradient(var(--g200) 1px,transparent 1px),linear-gradient(90deg,var(--g200) 1px,transparent 1px);
+    background-size:64px 64px;
+    -webkit-mask-image:radial-gradient(700px 340px at 50% 0,#000,transparent 75%);
+            mask-image:radial-gradient(700px 340px at 50% 0,#000,transparent 75%);
+    opacity:.5;
+  }
+  .cp-wrap{position:relative;max-width:760px;margin:0 auto;padding:116px 6% 10px}
+
+  .cp-head{text-align:center;margin-bottom:40px}
+  .cp-pill{
+    display:inline-flex;align-items:center;gap:8px;background:var(--white);
+    border:1px solid var(--bluering);border-radius:100px;padding:7px 18px 7px 8px;
+    font-size:12.5px;font-weight:600;color:var(--bluedark);margin-bottom:22px;
+    box-shadow:0 2px 10px rgba(29,78,216,.08);
+  }
+  .cp-pill-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(22,163,74,.16);flex-shrink:0;margin-left:6px}
+  .cp-h1{font-size:clamp(30px,5vw,44px);font-weight:800;color:var(--g900);letter-spacing:-.028em;line-height:1.14;margin-bottom:14px}
+  .cp-h1 .accent{background:linear-gradient(135deg,#0d5a96 0%,#2196f3 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:var(--bluedark)}
+  .cp-sub{font-size:16.5px;color:var(--g500);max-width:540px;margin:0 auto;line-height:1.7;text-wrap:balance}
+
+  /* ── Calculadora ───────────────────────────────────────── */
+  .cp-card{background:var(--white);border:1.5px solid var(--g200);border-radius:18px;padding:30px 28px;box-shadow:0 1px 3px rgba(16,24,40,.04)}
+  .cp-campo{margin-bottom:18px}
+  .cp-campo label{display:block;font-size:13.5px;font-weight:700;color:var(--g700);margin-bottom:7px}
+  .cp-campo .cp-ajuda{display:block;font-size:12.5px;font-weight:400;color:var(--g400);margin-top:5px;line-height:1.5}
+  .cp-row{display:grid;grid-template-columns:1.3fr 1fr;gap:14px}
+  .cp-input{
+    width:100%;padding:12px 14px;border:1.5px solid var(--g200);border-radius:10px;
+    font-size:15px;font-family:'Roboto',sans-serif;color:var(--g900);background:var(--white);
+    transition:border-color .15s;
+  }
+  .cp-input:focus{outline:none;border-color:var(--bluedark);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+
+  .cp-tipo{display:flex;gap:8px}
+  .cp-tipo-opt{flex:1;position:relative}
+  .cp-tipo-opt input{position:absolute;opacity:0;inset:0;cursor:pointer;margin:0}
+  .cp-tipo-opt span{
+    display:block;text-align:center;padding:11px 10px;border:1.5px solid var(--g200);border-radius:10px;
+    font-size:13.5px;font-weight:600;color:var(--g600);transition:all .15s;cursor:pointer;
+  }
+  .cp-tipo-opt input:checked + span{border-color:var(--bluedark);background:var(--bluelight);color:var(--bluedark)}
+
+  .cp-check{display:flex;align-items:flex-start;gap:10px;cursor:pointer;padding:12px 2px 2px}
+  .cp-check input{margin-top:3px;width:16px;height:16px;accent-color:var(--bluedark);cursor:pointer;flex-shrink:0}
+  .cp-check-txt{font-size:13.5px;color:var(--g700);line-height:1.55}
+  .cp-check-txt b{color:var(--g900)}
+
+  .cp-btn{
+    width:100%;margin-top:18px;padding:15px 20px;border:none;border-radius:11px;
+    background:linear-gradient(135deg,#053958 0%,#0d5a96 55%,#2196f3 100%);color:var(--white);
+    font-size:15.5px;font-weight:700;font-family:'Roboto',sans-serif;cursor:pointer;
+    box-shadow:0 4px 16px rgba(29,78,216,.28);transition:all .18s;
+  }
+  .cp-btn:hover{box-shadow:0 10px 30px rgba(29,78,216,.42);transform:translateY(-1px)}
+
+  /* ── Resultado ─────────────────────────────────────────── */
+  .cp-resultado{
+    margin-top:22px;padding:24px 24px;border-radius:14px;background:var(--g50);
+    border:1.5px solid var(--g200);text-align:center;display:none;
+  }
+  .cp-resultado.cp-ativo{display:block}
+  .cp-resultado-label{font-size:12px;font-weight:700;color:var(--g400);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+  .cp-resultado-data{font-size:30px;font-weight:800;color:var(--bluedark);letter-spacing:-.02em;margin-bottom:4px}
+  .cp-resultado-dia{font-size:14.5px;color:var(--g500);font-weight:600;text-transform:capitalize;margin-bottom:14px}
+  .cp-resultado-detalhe{font-size:13px;color:var(--g500);line-height:1.6;max-width:480px;margin:0 auto}
+
+  .cp-aviso{
+    display:flex;gap:10px;align-items:flex-start;margin-top:16px;padding:13px 16px;
+    background:var(--amberbg);border:1px solid #fde68a;border-radius:10px;
+    font-size:13px;color:#92400e;line-height:1.6;
+  }
+  .cp-aviso b{color:#78350f}
+
+  /* ── Explicação ────────────────────────────────────────── */
+  .cp-explica{margin-top:48px}
+  .cp-explica h2{font-size:22px;font-weight:800;color:var(--g900);letter-spacing:-.02em;margin-bottom:14px}
+  .cp-explica p{font-size:14.5px;color:var(--g600);line-height:1.75;margin-bottom:14px}
+  .cp-explica ul{list-style:none;display:flex;flex-direction:column;gap:10px;margin:16px 0}
+  .cp-explica li{display:grid;grid-template-columns:18px 1fr;gap:10px;font-size:14.5px;color:var(--g700);line-height:1.6}
+  .cp-explica li .cp-check-ic{color:var(--green);font-weight:800}
+  .cp-explica code{background:var(--g100);padding:2px 6px;border-radius:5px;font-size:13px;color:var(--g800)}
+
+  .cp-tabela{width:100%;border-collapse:collapse;margin:18px 0;border:1.5px solid var(--g200);border-radius:12px;overflow:hidden}
+  .cp-tabela th{background:var(--g50);font-size:12.5px;font-weight:700;color:var(--g500);text-transform:uppercase;letter-spacing:.06em;text-align:left;padding:11px 14px;border-bottom:1.5px solid var(--g200)}
+  .cp-tabela td{font-size:14px;color:var(--g700);padding:12px 14px;border-bottom:1px solid var(--g100)}
+  .cp-tabela tr:last-child td{border-bottom:none}
+  .cp-tabela td:last-child{white-space:nowrap}
+  .cp-tabela-btn{
+    display:inline-flex;align-items:center;gap:5px;background:var(--bluelight);color:var(--bluedark);
+    border:none;border-radius:7px;padding:6px 12px;font-size:13px;font-weight:700;cursor:pointer;
+    font-family:'Roboto',sans-serif;transition:all .15s;
+  }
+  .cp-tabela-btn:hover{background:var(--bluering)}
+
+  /* ── FAQ ───────────────────────────────────────────────── */
+  .cp-faq{margin-top:56px}
+  .cp-faq h2{font-size:22px;font-weight:800;color:var(--g900);text-align:center;margin-bottom:24px;letter-spacing:-.02em}
+  .cp-faq dl{background:var(--white);border:1.5px solid var(--g200);border-radius:16px;padding:6px 26px}
+  .cp-q{border-bottom:1px solid var(--g100);padding:18px 0}
+  .cp-q:last-child{border-bottom:none}
+  .cp-q dt{font-size:15px;font-weight:700;color:var(--g900);margin-bottom:7px;line-height:1.45}
+  .cp-q dd{font-size:14px;color:var(--g600);line-height:1.7;margin:0}
+  .cp-q a{color:var(--bluedark);font-weight:600;text-decoration:none;border-bottom:1px solid var(--bluering)}
+
+  /* ── Chamada final ─────────────────────────────────────── */
+  .cp-final{
+    margin:56px 0 0;text-align:center;
+    background:linear-gradient(135deg,#053958 0%,#0d5a96 55%,#2196f3 100%);
+    border-radius:18px;padding:38px 32px;color:var(--white);
+    box-shadow:0 16px 44px rgba(29,78,216,.22);
+  }
+  .cp-final h2{font-size:23px;font-weight:800;letter-spacing:-.02em;margin-bottom:10px;color:var(--white)}
+  .cp-final p{font-size:14.5px;color:rgba(255,255,255,.82);margin-bottom:22px;line-height:1.65}
+  .cp-final a{
+    display:inline-flex;align-items:center;gap:9px;background:var(--white);color:#1e3a5f;
+    padding:14px 32px;border-radius:11px;font-size:15.5px;font-weight:700;text-decoration:none;transition:all .18s;
+  }
+  .cp-final a:hover{transform:translateY(-2px);box-shadow:0 10px 28px rgba(0,0,0,.22)}
+
+  .cp-rodape{text-align:center;margin:52px 0 0;padding:26px 0 48px;border-top:1px solid var(--g200);font-size:13px;color:var(--g400)}
+  .cp-rodape a{color:var(--g500);text-decoration:none}
+  .cp-rodape a:hover{color:var(--g900)}
+
+  @media (max-width:620px){
+    .cp-wrap{padding:96px 5% 10px}
+    .cp-row{grid-template-columns:1fr}
+    .cp-card{padding:24px 20px}
+    .cp-faq dl{padding:6px 18px}
+    .cp-final{padding:30px 22px}
+  }
+</style>
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://meuprocesso.app.br/calculadora-prazo-processual">
+<meta property="og:title" content="Calculadora de Prazo Processual Grátis | Meu Processo">
+<meta property="og:description" content="Calcule prazos processuais em dias úteis ou corridos, com feriados nacionais, recesso forense e o recesso de julho do STF, STJ e TST já descontados. Grátis, sem cadastro.">
+<meta property="og:image" content="https://meuprocesso.app.br/img/screenshots/social.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Calculadora de Prazo Processual Grátis | Meu Processo">
+<meta name="twitter:description" content="Calcule prazos processuais em dias úteis ou corridos, com feriados nacionais, recesso forense e o recesso de julho do STF, STJ e TST já descontados. Grátis, sem cadastro.">
+<meta name="twitter:image" content="https://meuprocesso.app.br/img/screenshots/social.jpg">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  "name": "Calculadora de Prazo Processual",
+  "url": "https://meuprocesso.app.br/calculadora-prazo-processual",
+  "applicationCategory": "LegalService",
+  "operatingSystem": "Web",
+  "description": "Calcule prazos processuais em dias úteis ou corridos, descontando feriados nacionais, o recesso forense de 20 de dezembro a 20 de janeiro e o recesso de julho do STF, STJ e TST.",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "BRL" },
+  "publisher": { "@type": "Organization", "name": "Meu Processo", "url": "https://meuprocesso.app.br" }
+}
+</script>
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+    {"@type":"Question","name":"Esse cálculo serve para qualquer tribunal?","acceptedAnswer":{"@type":"Answer","text":"Serve para a regra geral do CPC (art. 219), válida para processos estaduais e federais em todo o Brasil. Selecionando STF, STJ ou TST no campo Tribunal, o recesso de julho desses tribunais também é aplicado. Feriados estaduais e municipais específicos de cada comarca não entram na conta."}},
+    {"@type":"Question","name":"O que essa calculadora considera feriado?","acceptedAnswer":{"@type":"Answer","text":"Os feriados nacionais fixos e móveis (Carnaval, Sexta-feira Santa, Corpus Christi, Tiradentes, Dia do Trabalho, Independência, Nossa Senhora Aparecida, Finados, Proclamação da República, Consciência Negra e Natal), além do recesso forense de 20 de dezembro a 20 de janeiro (todos os tribunais) e de 1 a 31 de julho (STF, STJ e TST), quando a opção está marcada."}},
+    {"@type":"Question","name":"A contagem inclui o dia da intimação ou publicação?","acceptedAnswer":{"@type":"Answer","text":"Não. Pelo art. 224 do CPC, o dia do começo do prazo não é contado: a contagem começa no dia seguinte à intimação, citação ou publicação."}},
+    {"@type":"Question","name":"E se o prazo terminar em um fim de semana ou feriado?","acceptedAnswer":{"@type":"Answer","text":"O prazo é prorrogado automaticamente para o próximo dia útil, conforme o art. 224, §1º do CPC."}},
+    {"@type":"Question","name":"Por que existe a opção de dias corridos?","acceptedAnswer":{"@type":"Answer","text":"A regra geral do CPC para prazos processuais é em dias úteis (art. 219), mas alguns prazos contratuais, administrativos ou previstos em lei específica contam em dias corridos. Escolha conforme o que a intimação, o edital ou a lei aplicável determinar."}},
+    {"@type":"Question","name":"Esse resultado substitui a conferência no processo?","acceptedAnswer":{"@type":"Answer","text":"Não. É uma estimativa para apoiar seu planejamento. Sempre confirme o prazo no andamento oficial do processo e no calendário forense do seu tribunal, especialmente em relação a feriados locais."}}
+  ]
+}
+</script>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-logo">
+    <img src="img/images/logo.png" alt="Meu Processo">
+    <span class="nav-logo-name">MEU PROCESSO</span>
+  </a>
+  <div class="nav-right">
+    <a href="/#showcase" class="nav-link">Funcionalidades</a>
+    <a href="/#faq" class="nav-link">Dúvidas</a>
+    <a href="/blog/" class="nav-link">Blog</a>
+    <a href="/login" class="nav-login">Entrar</a>
+    <a href="/login?tab=signup" class="nav-cta">Começar grátis <span>→</span></a>
+  </div>
+</nav>
+
+<div class="cp-fundo">
+<div class="cp-wrap">
+
+  <div class="cp-head">
+    <div class="cp-pill"><span class="cp-pill-dot"></span> Grátis · sem cadastro</div>
+    <h1 class="cp-h1">Calculadora de<br><span class="accent">prazo processual</span></h1>
+    <p class="cp-sub">
+      Informe a data da intimação ou publicação e a quantidade de dias.
+      A gente já desconta fins de semana, feriados e o recesso forense.
+    </p>
+  </div>
+
+  <div class="cp-card">
+    <div class="cp-campo">
+      <label for="cpData">Data da intimação, citação ou publicação</label>
+      <input type="date" id="cpData" class="cp-input">
+      <span class="cp-ajuda">A contagem começa no dia seguinte a essa data (art. 224 do CPC).</span>
+    </div>
+
+    <div class="cp-row">
+      <div class="cp-campo">
+        <label for="cpDias">Quantidade de dias</label>
+        <input type="number" id="cpDias" class="cp-input" min="1" max="999" value="15">
+      </div>
+      <div class="cp-campo">
+        <label>Tipo de contagem</label>
+        <div class="cp-tipo">
+          <label class="cp-tipo-opt">
+            <input type="radio" name="cpTipo" value="util" checked>
+            <span>Dias úteis</span>
+          </label>
+          <label class="cp-tipo-opt">
+            <input type="radio" name="cpTipo" value="corrido">
+            <span>Dias corridos</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="cp-campo">
+      <label for="cpTribunal">Tribunal</label>
+      <select id="cpTribunal" class="cp-input">
+        <option value="padrao" selected>Padrão (TJs e TRFs)</option>
+        <option value="stf">STF</option>
+        <option value="stj">STJ</option>
+        <option value="tst">TST</option>
+      </select>
+      <span class="cp-ajuda">STF, STJ e TST têm um recesso adicional em julho, além do recesso de dezembro/janeiro.</span>
+    </div>
+
+    <label class="cp-check">
+      <input type="checkbox" id="cpRecesso" checked>
+      <span class="cp-check-txt"><b>Aplicar recesso forense</b>: suspende a contagem nos períodos de recesso do tribunal selecionado (dezembro/janeiro para todos, mais julho inteiro para STF, STJ e TST), conforme o art. 220 do CPC e as resoluções desses tribunais.</span>
+    </label>
+
+    <button class="cp-btn" onclick="cpCalcular()">Calcular prazo final</button>
+
+    <div class="cp-resultado" id="cpResultado">
+      <div class="cp-resultado-label">O prazo termina em</div>
+      <div class="cp-resultado-data" id="cpResultadoData"></div>
+      <div class="cp-resultado-dia" id="cpResultadoDia"></div>
+      <div class="cp-resultado-detalhe" id="cpResultadoDetalhe"></div>
+    </div>
+
+    <div class="cp-aviso">
+      <span>⚠️</span>
+      <span>Não inclui feriados estaduais ou municipais específicos de cada comarca, que variam por tribunal. Sempre confirme no andamento oficial do processo.</span>
+    </div>
+  </div>
+
+  <div class="cp-explica">
+    <h2>Como funciona esse cálculo</h2>
+    <p>Essa calculadora segue a regra geral do Código de Processo Civil para prazos processuais:</p>
+    <ul>
+      <li><span class="cp-check-ic">✓</span><span>O dia da intimação, citação ou publicação não é contado: a contagem começa no dia seguinte (<code>art. 224, caput</code>).</span></li>
+      <li><span class="cp-check-ic">✓</span><span>Por padrão, os prazos processuais são contados apenas em dias úteis, excluindo fins de semana e feriados (<code>art. 219</code>).</span></li>
+      <li><span class="cp-check-ic">✓</span><span>Se o prazo final cair em dia não útil, ele é prorrogado automaticamente para o próximo dia útil (<code>art. 224, §1º</code>).</span></li>
+      <li><span class="cp-check-ic">✓</span><span>O recesso forense, de 20 de dezembro a 20 de janeiro, suspende a contagem de qualquer prazo em curso nesse período (<code>art. 220</code>).</span></li>
+      <li><span class="cp-check-ic">✓</span><span>Selecionando STF, STJ ou TST, a calculadora também aplica o recesso de julho inteiro (01 a 31), específico desses tribunais por resolução própria.</span></li>
+    </ul>
+    <p>
+      TJs estaduais e TRFs também costumam suspender prazos em julho, mas cada tribunal publica sua própria resolução
+      com datas que variam, então essa calculadora não assume um período fixo pra eles. Feriados estaduais e municipais
+      também não entram na conta, por mudarem de comarca pra comarca. Para mais detalhes sobre o recesso forense,
+      veja o <a href="/blog/recesso-ferias-forenses-2026.html">guia completo do recesso e férias forenses</a>.
+    </p>
+  </div>
+
+  <div class="cp-explica">
+    <h2>Prazos mais comuns no processo civil</h2>
+    <p>A maioria dos prazos do CPC é de 15 dias úteis. Clique num item da tabela pra já preencher a quantidade de dias na calculadora:</p>
+    <table class="cp-tabela">
+      <thead><tr><th>Ato processual</th><th>Prazo</th></tr></thead>
+      <tbody>
+        <tr><td>Contestação (art. 335)</td><td><button class="cp-tabela-btn" onclick="cpPreencher(15)">15 dias úteis</button></td></tr>
+        <tr><td>Apelação (art. 1.003, §5º)</td><td><button class="cp-tabela-btn" onclick="cpPreencher(15)">15 dias úteis</button></td></tr>
+        <tr><td>Agravo de instrumento e agravo interno</td><td><button class="cp-tabela-btn" onclick="cpPreencher(15)">15 dias úteis</button></td></tr>
+        <tr><td>Recurso especial e extraordinário</td><td><button class="cp-tabela-btn" onclick="cpPreencher(15)">15 dias úteis</button></td></tr>
+        <tr><td>Resposta ao cumprimento de sentença (art. 525)</td><td><button class="cp-tabela-btn" onclick="cpPreencher(15)">15 dias úteis</button></td></tr>
+        <tr><td>Embargos de declaração (art. 1.023)</td><td><button class="cp-tabela-btn" onclick="cpPreencher(5)">5 dias úteis</button></td></tr>
+      </tbody>
+    </table>
+    <p>Fazenda Pública, Ministério Público e Defensoria Pública têm prazo em dobro na maioria dos casos (arts. 180, 183 e 186 do CPC). Confira sempre o prazo específico do seu caso no andamento do processo, essa tabela é só uma referência rápida para os prazos mais comuns.</p>
+  </div>
+
+  <div class="cp-faq">
+    <h2>Dúvidas sobre o cálculo</h2>
+    <dl>
+      <div class="cp-q">
+        <dt>Esse cálculo serve para qualquer tribunal?</dt>
+        <dd>Serve para a regra geral do CPC, válida para processos estaduais e federais em todo o Brasil. Selecionando STF, STJ ou TST no campo "Tribunal", o recesso de julho desses tribunais também é aplicado. Feriados estaduais e municipais específicos de cada comarca não entram na conta.</dd>
+      </div>
+      <div class="cp-q">
+        <dt>O que essa calculadora considera feriado?</dt>
+        <dd>Os feriados nacionais fixos e móveis (Carnaval, Sexta-feira Santa, Corpus Christi, Tiradentes, Dia do Trabalho, Independência, Nossa Senhora Aparecida, Finados, Proclamação da República, Consciência Negra e Natal), além do recesso forense de 20/12 a 20/01 (todos os tribunais) e de 01 a 31 de julho (STF, STJ e TST), quando a opção está marcada.</dd>
+      </div>
+      <div class="cp-q">
+        <dt>A contagem inclui o dia da intimação ou publicação?</dt>
+        <dd>Não. Pelo art. 224 do CPC, o dia do começo do prazo não é contado: a contagem começa no dia seguinte.</dd>
+      </div>
+      <div class="cp-q">
+        <dt>E se o prazo terminar em um fim de semana ou feriado?</dt>
+        <dd>O prazo é prorrogado automaticamente para o próximo dia útil, conforme o art. 224, §1º do CPC.</dd>
+      </div>
+      <div class="cp-q">
+        <dt>Por que existe a opção de dias corridos?</dt>
+        <dd>A regra geral do CPC para prazos processuais é em dias úteis, mas alguns prazos contratuais, administrativos ou previstos em lei específica contam em dias corridos. Escolha conforme o que a intimação, o edital ou a lei aplicável determinar.</dd>
+      </div>
+      <div class="cp-q">
+        <dt>Esse resultado substitui a conferência no processo?</dt>
+        <dd>Não. É uma estimativa para apoiar seu planejamento. Sempre confirme o prazo no andamento oficial do processo e no calendário forense do seu tribunal, especialmente em relação a feriados locais.</dd>
+      </div>
+    </dl>
+  </div>
+
+  <div class="cp-final">
+    <h2>Nunca mais perca um prazo</h2>
+    <p>Cadastre seus processos no Meu Processo e receba alertas automáticos com 1, 3 ou 7 dias de antecedência de cada prazo.</p>
+    <a href="/login?tab=signup">Criar minha conta grátis <span>→</span></a>
+  </div>
+
+  <div class="cp-rodape">
+    © 2026 · Meu Processo ·
+    <a href="/precos">Preços</a> ·
+    <a href="/termos">Termos</a> ·
+    <a href="/privacidade">Privacidade</a> ·
+    <a href="/">Início</a>
+  </div>
+
+</div>
+</div>
+
+<script>
+(function(){
+
+  function pascoa(ano){
+    var a=ano%19,b=Math.floor(ano/100),c=ano%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25);
+    var g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4;
+    var l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451);
+    var mes=Math.floor((h+l-7*m+114)/31),dia=((h+l-7*m+114)%31)+1;
+    return new Date(ano,mes-1,dia);
+  }
+
+  function addDias(d,n){ var r=new Date(d); r.setDate(r.getDate()+n); return r; }
+
+  var _feriadosCache = {};
+  function feriadosDoAno(ano){
+    if(_feriadosCache[ano]) return _feriadosCache[ano];
+    var pasc = pascoa(ano);
+    var lista = [
+      new Date(ano,0,1),
+      addDias(pasc,-48), addDias(pasc,-47), // segunda e terça de Carnaval
+      addDias(pasc,-2),                     // sexta-feira santa
+      addDias(pasc,60),                     // Corpus Christi
+      new Date(ano,3,21),
+      new Date(ano,4,1),
+      new Date(ano,8,7),
+      new Date(ano,9,12),
+      new Date(ano,10,2),
+      new Date(ano,10,15),
+      new Date(ano,10,20),
+      new Date(ano,11,25)
+    ];
+    var chaves = lista.map(function(d){ return d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate(); });
+    _feriadosCache[ano] = chaves;
+    return chaves;
+  }
+
+  function chaveDia(d){ return d.getFullYear()+'-'+d.getMonth()+'-'+d.getDate(); }
+  function ehFeriado(d){ return feriadosDoAno(d.getFullYear()).indexOf(chaveDia(d)) !== -1; }
+  function ehFimDeSemana(d){ var wd=d.getDay(); return wd===0||wd===6; }
+
+  // Recesso de fim de ano (art. 220 do CPC): 20/dez a 20/jan pra todos; STF
+  // estende o próprio recesso de fim de ano até 31 de janeiro (resolução interna).
+  function ehRecessoDezJan(d, tribunal){
+    var mes=d.getMonth(), dia=d.getDate();
+    if(mes===11 && dia>=20) return true;
+    if(tribunal==='stf') return mes===0;
+    return mes===0 && dia<=20;
+  }
+
+  // Recesso de julho, só nos tribunais que têm essa suspensão documentada por
+  // resolução própria (STF 02-31/07, STJ e TST 01-31/07). TJs e TRFs variam
+  // tribunal a tribunal, por isso não entram aqui.
+  function ehRecessoJulho(d, tribunal){
+    var mes=d.getMonth(), dia=d.getDate();
+    if(mes!==6) return false;
+    if(tribunal==='stf') return dia>=2;
+    return tribunal==='stj' || tribunal==='tst';
+  }
+
+  function ehRecesso(d, tribunal){
+    return ehRecessoDezJan(d, tribunal) || ehRecessoJulho(d, tribunal);
+  }
+
+  function ehDiaUtil(d, aplicarRecesso, tribunal){
+    return !ehFimDeSemana(d) && !ehFeriado(d) && !(aplicarRecesso && ehRecesso(d, tribunal));
+  }
+
+  function calcularDataFinal(inicio, dias, tipo, aplicarRecesso, tribunal){
+    var atual = addDias(inicio,1);
+    var contados = 0;
+    var pulos = {fds:0, feriado:0, recesso:0};
+
+    while(contados < dias){
+      var contaEsseDia = (tipo === 'util')
+        ? ehDiaUtil(atual, aplicarRecesso, tribunal)
+        : !(aplicarRecesso && ehRecesso(atual, tribunal));
+
+      if(contaEsseDia){
+        contados++;
+      } else {
+        if(ehFimDeSemana(atual)) pulos.fds++;
+        else if(aplicarRecesso && ehRecesso(atual, tribunal)) pulos.recesso++;
+        else pulos.feriado++;
+      }
+
+      if(contados === dias) break;
+      atual = addDias(atual,1);
+    }
+
+    while(!ehDiaUtil(atual, aplicarRecesso, tribunal)){
+      if(ehFimDeSemana(atual)) pulos.fds++;
+      else if(aplicarRecesso && ehRecesso(atual, tribunal)) pulos.recesso++;
+      else pulos.feriado++;
+      atual = addDias(atual,1);
+    }
+
+    return { final: atual, pulos: pulos };
+  }
+
+  function parseInputDate(str){
+    var p = str.split('-').map(Number);
+    return new Date(p[0], p[1]-1, p[2]);
+  }
+
+  function fmt(d){ return d.toLocaleDateString('pt-BR'); }
+
+  window.cpPreencher = function(dias){
+    document.getElementById('cpDias').value = dias;
+    document.querySelector('input[name="cpTipo"][value="util"]').checked = true;
+    cpCalcular();
+    document.querySelector('.cp-card').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
+  window.cpCalcular = function(){
+    var dataStr = document.getElementById('cpData').value;
+    var dias = parseInt(document.getElementById('cpDias').value, 10);
+    var tipo = document.querySelector('input[name="cpTipo"]:checked').value;
+    var aplicarRecesso = document.getElementById('cpRecesso').checked;
+    var tribunal = document.getElementById('cpTribunal').value;
+    var resultEl = document.getElementById('cpResultado');
+
+    if(!dataStr || !dias || dias < 1){
+      resultEl.classList.remove('cp-ativo');
+      return;
+    }
+
+    var inicio = parseInputDate(dataStr);
+    var r = calcularDataFinal(inicio, dias, tipo, aplicarRecesso, tribunal);
+    var diasSemana = ['domingo','segunda-feira','terça-feira','quarta-feira','quinta-feira','sexta-feira','sábado'];
+    var nomesTribunal = { stf:'STF', stj:'STJ', tst:'TST' };
+
+    document.getElementById('cpResultadoData').textContent = fmt(r.final);
+    document.getElementById('cpResultadoDia').textContent = diasSemana[r.final.getDay()];
+
+    var detalhe = 'Contando ' + dias + ' dia' + (dias>1?'s':'') + ' ' + (tipo==='util'?'úteis':'corridos') + ' a partir de ' + fmt(inicio);
+    var partes = [];
+    if(r.pulos.fds) partes.push(r.pulos.fds + ' fim' + (r.pulos.fds>1?'s':'') + ' de semana');
+    if(r.pulos.feriado) partes.push(r.pulos.feriado + ' feriado' + (r.pulos.feriado>1?'s':''));
+    if(r.pulos.recesso){
+      var rotuloRecesso = nomesTribunal[tribunal] ? ('de recesso (' + nomesTribunal[tribunal] + ')') : 'de recesso forense';
+      partes.push(r.pulos.recesso + ' dia' + (r.pulos.recesso>1?'s':'') + ' ' + rotuloRecesso);
+    }
+    if(partes.length) detalhe += ', descontando ' + partes.join(', ');
+    detalhe += '.';
+    document.getElementById('cpResultadoDetalhe').textContent = detalhe;
+
+    resultEl.classList.add('cp-ativo');
+  };
+
+  document.addEventListener('DOMContentLoaded', function(){
+    var hoje = new Date();
+    var iso = hoje.getFullYear() + '-' + String(hoje.getMonth()+1).padStart(2,'0') + '-' + String(hoje.getDate()).padStart(2,'0');
+    document.getElementById('cpData').value = iso;
+    cpCalcular();
+    ['cpData','cpDias','cpRecesso','cpTribunal'].forEach(function(id){
+      document.getElementById(id).addEventListener('change', cpCalcular);
+    });
+    document.querySelectorAll('input[name="cpTipo"]').forEach(function(el){
+      el.addEventListener('change', cpCalcular);
+    });
+  });
+
+})();
+</script>
+
+</body>
+</html>
