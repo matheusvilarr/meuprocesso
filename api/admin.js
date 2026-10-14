@@ -153,7 +153,7 @@ async function acaoDados(req, res, admin, adminUser) {
         ultimoLogin:    u.user_metadata?.ultimo_acesso || null,
         ultimoSignIn:   u.last_sign_in_at || null,
         emailConfirmado: !!u.email_confirmed_at,
-        bloqueado:      !!(u.banned_until && new Date(u.banned_until) > new Date()),
+        bloqueado:      assinaturaMap[u.id]?.status === 'bloqueado',
         numProcessos:     contagemProcessos[u.id] || 0,
         numSincronizados: syncStats[u.id]?.sincronizados || 0,
         numNotificacoes:  syncStats[u.id]?.comNotificacao || 0,
@@ -527,10 +527,28 @@ async function acaoToggleStatus(req, res, admin, adminUser) {
     return res.status(400).json({ erro: 'Você não pode bloquear sua própria conta.' });
   }
 
-  const { error } = await admin.auth.admin.updateUserById(userId, {
-    ban_duration: bloquear ? '876000h' : 'none',
-  });
-  if (error) return res.status(500).json({ erro: error.message });
+  // Bloqueio é via assinaturas.status, não banned_until do Supabase Auth —
+  // a pessoa consegue logar normalmente (inclusive Google) e o auth-guard.js
+  // já manda pra /assinatura-vencida quando status != 'ativo', mesmo
+  // mecanismo que trial/plano vencido já usa. O banimento nativo do Supabase
+  // impedia o login por completo e o Google devolvia o erro de um jeito que
+  // não dava pra tratar de forma confiável (caía direto na home, sem como
+  // interceptar antes).
+  if (bloquear) {
+    const { error } = await admin.from('assinaturas')
+      .update({ status: 'bloqueado', atualizado_por: adminUser.user.id })
+      .eq('escritorio_id', userId);
+    if (error) return res.status(500).json({ erro: error.message });
+  } else {
+    // Desbloquear só restaura 'ativo' — não mexe em data_expiracao, então
+    // quem estava bloqueado em plena validade volta a usar o que sobrava;
+    // quem estava com o plano já vencido antes de ser bloqueado continua
+    // vencido (correto: desbloquear não é o mesmo que renovar).
+    const { error } = await admin.from('assinaturas')
+      .update({ status: 'ativo', atualizado_por: adminUser.user.id })
+      .eq('escritorio_id', userId).eq('status', 'bloqueado');
+    if (error) return res.status(500).json({ erro: error.message });
+  }
   return res.json({ ok: true });
 }
 
@@ -1163,7 +1181,7 @@ async function acaoDetalheUsuario(req, res, admin) {
       ultimoLogin: meta.ultimo_acesso || null,   // ver o comentário em acaoDados
       ultimoSignIn: u.last_sign_in_at || null,
       emailConfirmado: !!u.email_confirmed_at,
-      bloqueado: !!(u.banned_until && new Date(u.banned_until) > new Date()),
+      bloqueado: assinatura?.status === 'bloqueado',
       provider: u.app_metadata?.provider || 'email',
     },
     assinatura: assinatura || null,
