@@ -557,17 +557,26 @@ async function acaoToggleStatus(req, res, admin, adminUser) {
   // Notifica o usuário — fire-and-forget (não falha a operação se o e-mail falhar)
   if (alvo?.email && process.env.RESEND_API_KEY) {
     const nome = alvo.user_metadata?.full_name || alvo.user_metadata?.nome || '';
-    enviarEmailStatusConta(alvo.email, nome, !!bloquear).catch(() => {});
+    enviarEmailStatusConta(alvo.email, nome, !!bloquear, userId, admin).catch(() => {});
   }
 
   return res.json({ ok: true });
 }
 
-async function enviarEmailStatusConta(email, nome, bloquear) {
+async function enviarEmailStatusConta(email, nome, bloquear, userId, adminClient) {
   const RESEND_KEY = process.env.RESEND_API_KEY;
   if (!RESEND_KEY) return;
 
   const primeiroNome = (nome || '').split(' ')[0] || 'Advogado(a)';
+
+  let totalProcessos = 0;
+  if (bloquear && userId && adminClient) {
+    const { count } = await adminClient.from('processos')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .eq('arquivado', false);
+    totalProcessos = count || 0;
+  }
   const subject = bloquear
     ? 'Seu acesso ao Meu Processo foi pausado'
     : 'Seu acesso ao Meu Processo foi reativado';
@@ -598,6 +607,7 @@ async function enviarEmailStatusConta(email, nome, bloquear) {
           <p style="font-size:15px;color:#6b7280;margin:0">Olá, ${primeiroNome}.</p>
         </div>
         <p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 28px;text-align:center">${corpo}</p>
+        ${bloquear && totalProcessos > 0 ? `<div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:14px 20px;text-align:center;margin:0 0 24px;font-size:14px;color:#1e40af;font-weight:600">Não deixe de acompanhar os seus ${totalProcessos} ${totalProcessos === 1 ? 'processo' : 'processos'} — ative agora e continue de onde parou.</div>` : ''}
         <p style="font-size:15px;font-weight:700;color:#111827;text-align:center;margin:0 0 20px">
           <a href="mailto:contato@meuprocesso.app.br" style="color:#053958;text-decoration:none">contato@meuprocesso.app.br</a>
         </p>
