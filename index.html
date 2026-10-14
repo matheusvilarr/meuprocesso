@@ -7,6 +7,14 @@
   // Redireciona link de redefinição de senha que veio parar na homepage
   var _code = new URLSearchParams(window.location.search).get('code');
   if (_code) window.location.replace('/redefinir-senha?code=' + _code);
+
+  // Login com Google de conta banida: o Supabase manda o erro direto pro
+  // domínio raiz (ignora o redirectTo configurado no botão), não pro /login
+  // nem pro /dashboard — por isso essa verificação precisa estar aqui, na
+  // home, e não só no login.js. Vem duplicado em querystring e hash.
+  if (/error_code=user_banned/.test(window.location.search + window.location.hash)) {
+    window.location.replace('/login?banned=1');
+  }
 </script>
 <!-- Google tag (gtag.js) -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=G-S036MFTGEC"></script>

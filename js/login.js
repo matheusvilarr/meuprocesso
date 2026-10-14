@@ -1,11 +1,11 @@
 // ── Conta bloqueada via Google OAuth ────────────────────────────────────────
-// O Supabase redireciona de volta pra cá com #error_code=user_banned na hash
-// quando a conta tá banida (ban via admin) — o login por senha trata isso em
-// signInWithPassword, mas o OAuth volta direto com erro na URL, sem exception
-// pra capturar num try/catch.
-if (/error_code=user_banned/.test(window.location.hash)) {
+// O Supabase redireciona o erro de conta banida direto pro domínio raiz
+// (ignora o redirectTo do botão), não pra cá — então index.html detecta e
+// manda ?banned=1 pra cá. Mantém a checagem de hash também, de brinde, caso
+// o Supabase mude esse comportamento e volte a cair direto no /login.
+if (/error_code=user_banned/.test(window.location.hash) || new URLSearchParams(window.location.search).get('banned') === '1') {
   document.addEventListener('DOMContentLoaded', () => mostrarAvisoBloqueado());
-  history.replaceState(null, '', window.location.pathname + window.location.search);
+  history.replaceState(null, '', window.location.pathname);
 }
 
 // ── Sessão já ativa → não mostra o login ────────────────────────────────────
