@@ -137,7 +137,7 @@
     <div class="topbar-search" style="position:relative">
       <i class="ti ti-search"></i>
       <input id="topbar-search-input" type="search" placeholder="Buscar processo, cliente, número..."
-        autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+        autocomplete="one-time-code" autocorrect="off" autocapitalize="off" spellcheck="false"
         oninput="topbarSearch(this.value)"
         onkeydown="if(event.key==='Escape'){this.value='';topbarSearch('')}"
         onblur="setTimeout(()=>{const d=document.getElementById('topbar-search-drop');if(d)d.style.display='none'},180)">
@@ -199,7 +199,7 @@
             <div class="atv-tools">
               <div class="atv-search">
                 <i class="ti ti-search"></i>
-                <input type="text" id="atv-busca" placeholder="Buscar processo…" oninput="_atvBuscar(this.value)" autocomplete="off">
+                <input type="text" id="atv-busca" placeholder="Buscar processo…" oninput="_atvBuscar(this.value)" autocomplete="one-time-code">
               </div>
               <div class="atv-filtro">
                 <button class="atv-filtro-btn active" id="atv-filtro-tudo" onclick="_atvSetFiltro('tudo')">Tudo</button>
@@ -275,7 +275,7 @@
 <div class="filter-bar">
       <div class="filter-search">
         <i class="ti ti-search" style="color:var(--gray-400);font-size:16px"></i>
-        <input id="filter-texto" type="text" placeholder="Número, cliente ou assunto..." oninput="filtrarProcessos()">
+        <input id="filter-texto" type="text" placeholder="Número, cliente ou assunto..." autocomplete="one-time-code" oninput="filtrarProcessos()">
       </div>
       <select id="filter-area" class="filter-select" onchange="filtrarProcessos()">
         <option value="">Todas as áreas</option>
@@ -1130,7 +1130,7 @@
 
           <div class="form-field">
             <label class="form-label">OAB ou Nome do Advogado</label>
-            <input id="dje-query" type="search" autocomplete="off" class="form-input"
+            <input id="dje-query" type="search" autocomplete="one-time-code" class="form-input"
               placeholder="DF00000 · DF00000, SP00000 · Nome do Advogado"
               onkeydown="if(event.key==='Enter') rodarMonitorDJe()">
             <div style="font-size:11px;color:var(--gray-400);margin-top:4px">
@@ -1315,7 +1315,7 @@
     <div class="filter-bar">
       <div class="filter-search" style="max-width:360px">
         <i class="ti ti-search" style="color:var(--gray-400);font-size:16px"></i>
-        <input type="search" id="clientes-search" placeholder="Nome, CPF/CNPJ, e-mail…"
+        <input type="search" id="clientes-search" placeholder="Nome, CPF/CNPJ, e-mail…" autocomplete="one-time-code"
           oninput="filtrarClientes(this.value)" autocomplete="off">
       </div>
     </div>
@@ -1410,7 +1410,7 @@
     <div class="filter-bar">
       <div class="filter-search" style="flex:1;max-width:340px">
         <i class="ti ti-search" style="color:var(--gray-400);font-size:16px"></i>
-        <input type="search" id="hon-search" placeholder="Cliente, processo, descrição…"
+        <input type="search" id="hon-search" placeholder="Cliente, processo, descrição…" autocomplete="one-time-code"
           oninput="filtrarHonorarios()" autocomplete="off">
       </div>
       <select id="hon-filtro-status" class="filter-select" onchange="filtrarHonorarios()">
