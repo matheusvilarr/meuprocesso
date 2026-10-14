@@ -4,7 +4,10 @@
   "redirects": [
     {
       "source": "/",
-      "has": [{ "type": "query", "key": "code", "value": "(?<code>.*)" }],
+      "has": [
+        { "type": "query", "key": "type", "value": "recovery" },
+        { "type": "query", "key": "code", "value": "(?<code>.*)" }
+      ],
       "destination": "/redefinir-senha?code=:code",
       "permanent": false
     }

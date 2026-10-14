@@ -403,7 +403,7 @@ async function enviarEmailConvite(email, codigo) {
             <td align="center" style="padding-bottom:24px;">
               <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                 <tr>
-                  <td style="background-color:#1a2e6b;border-radius:12px;padding:14px 28px;">
+                  <td style="background-color:#053958;border-radius:12px;padding:14px 28px;">
                     <span style="font-size:20px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;">MeuProcesso</span><span style="font-size:20px;font-weight:400;color:#e8b400;">.App</span>
                   </td>
                 </tr>
@@ -437,7 +437,7 @@ async function enviarEmailConvite(email, codigo) {
                     </p>
 
                     <p style="margin:0 0 20px;font-size:15px;color:#6b7280;line-height:1.6;">
-                      Você foi convidado para usar o <strong style="color:#1a2e6b;">MeuProcesso.App</strong>, sistema de gestão jurídica para advogados. Clique no botão abaixo para criar sua conta.
+                      Você foi convidado para usar o <strong style="color:#053958;">MeuProcesso.App</strong>, sistema de gestão jurídica para advogados. Clique no botão abaixo para criar sua conta.
                     </p>
 
                     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
@@ -448,7 +448,7 @@ async function enviarEmailConvite(email, codigo) {
 
                     <table role="presentation" cellpadding="0" cellspacing="0" border="0">
                       <tr>
-                        <td style="border-radius:10px;background-color:#1a2e6b;">
+                        <td style="border-radius:10px;background-color:#0c7fda;">
                           <a href="${link}"
                              target="_blank"
                              style="display:inline-block;padding:15px 36px;font-size:15px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:10px;letter-spacing:0.2px;">
@@ -459,7 +459,7 @@ async function enviarEmailConvite(email, codigo) {
                     </table>
 
                     <p style="margin:20px 0 0;font-size:13px;color:#9ca3af;line-height:1.5;">
-                      Ou use o código de acesso <strong style="color:#1a2e6b;letter-spacing:.06em;">${codigo}</strong> na tela de cadastro. Se você não esperava este convite, pode ignorar este email com segurança.
+                      Ou use o código de acesso <strong style="color:#053958;letter-spacing:.06em;">${codigo}</strong> na tela de cadastro. Se você não esperava este convite, pode ignorar este email com segurança.
                     </p>
 
                   </td>
@@ -473,7 +473,7 @@ async function enviarEmailConvite(email, codigo) {
                       Se o botão não funcionar, copie e cole este link no seu navegador:
                     </p>
                     <p style="margin:0;font-size:11px;color:#6b7280;word-break:break-all;line-height:1.6;">
-                      <a href="${link}" style="color:#1a2e6b;text-decoration:underline;">${link}</a>
+                      <a href="${link}" style="color:#0c7fda;text-decoration:underline;">${link}</a>
                     </p>
                   </td>
                 </tr>
@@ -527,6 +527,10 @@ async function acaoToggleStatus(req, res, admin, adminUser) {
     return res.status(400).json({ erro: 'Você não pode bloquear sua própria conta.' });
   }
 
+  // Busca e-mail/nome antes da alteração para o e-mail de notificação
+  const { data: alvoData } = await admin.auth.admin.getUserById(userId);
+  const alvo = alvoData?.user;
+
   // Bloqueio é via assinaturas.status, não banned_until do Supabase Auth —
   // a pessoa consegue logar normalmente (inclusive Google) e o auth-guard.js
   // já manda pra /assinatura-vencida quando status != 'ativo', mesmo
@@ -549,7 +553,81 @@ async function acaoToggleStatus(req, res, admin, adminUser) {
       .eq('escritorio_id', userId).eq('status', 'bloqueado');
     if (error) return res.status(500).json({ erro: error.message });
   }
+
+  // Notifica o usuário — fire-and-forget (não falha a operação se o e-mail falhar)
+  if (alvo?.email && process.env.RESEND_API_KEY) {
+    const nome = alvo.user_metadata?.full_name || alvo.user_metadata?.nome || '';
+    enviarEmailStatusConta(alvo.email, nome, !!bloquear).catch(() => {});
+  }
+
   return res.json({ ok: true });
+}
+
+async function enviarEmailStatusConta(email, nome, bloquear) {
+  const RESEND_KEY = process.env.RESEND_API_KEY;
+  if (!RESEND_KEY) return;
+
+  const primeiroNome = (nome || '').split(' ')[0] || 'Advogado(a)';
+  const subject = bloquear
+    ? 'Seu acesso ao Meu Processo foi pausado'
+    : 'Seu acesso ao Meu Processo foi reativado';
+
+  const corHeader = bloquear ? '#7c3aed' : '#053958';
+  const icone     = bloquear ? '🔒' : '✅';
+  const titulo    = bloquear ? 'Acesso pausado' : 'Acesso reativado';
+  const corpo     = bloquear
+    ? `Seu acesso ao <strong>Meu Processo</strong> foi pausado temporariamente. Para entender o motivo ou solicitar a reativação, entre em contato:`
+    : `Seu acesso ao <strong>Meu Processo</strong> foi reativado. Você já pode entrar normalmente e continuar de onde parou.`;
+  const cta = bloquear
+    ? `<a href="mailto:contato@meuprocesso.app.br" style="display:inline-block;background:#7c3aed;color:#fff;text-decoration:none;font-size:15px;font-weight:700;padding:14px 36px;border-radius:10px">Entrar em contato</a>`
+    : `<a href="https://www.meuprocesso.app.br/login" style="display:inline-block;background:linear-gradient(135deg,#053958,#2196f3);color:#fff;text-decoration:none;font-size:15px;font-weight:700;padding:14px 36px;border-radius:10px">Acessar minha conta →</a>`;
+
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:'Helvetica Neue',Arial,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;padding:40px 0">
+  <tr><td align="center">
+    <table width="580" cellpadding="0" cellspacing="0" border="0" style="max-width:580px;width:100%">
+      <tr><td style="background:${corHeader};border-radius:16px 16px 0 0;padding:36px 40px;text-align:center">
+        <div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:-.5px">Meu Processo</div>
+        <div style="font-size:13px;color:rgba(255,255,255,.6);margin-top:4px">Gestão jurídica inteligente</div>
+      </td></tr>
+      <tr><td style="background:#fff;padding:40px 40px 32px;border-radius:0 0 16px 16px">
+        <div style="text-align:center;margin-bottom:28px">
+          <div style="font-size:48px">${icone}</div>
+          <p style="font-size:20px;font-weight:700;color:#111827;margin:12px 0 8px">${titulo}</p>
+          <p style="font-size:15px;color:#6b7280;margin:0">Olá, ${primeiroNome}.</p>
+        </div>
+        <p style="font-size:15px;color:#374151;line-height:1.7;margin:0 0 28px;text-align:center">${corpo}</p>
+        <p style="font-size:15px;font-weight:700;color:#111827;text-align:center;margin:0 0 20px">
+          <a href="mailto:contato@meuprocesso.app.br" style="color:#053958;text-decoration:none">contato@meuprocesso.app.br</a>
+        </p>
+        <div style="text-align:center;margin-bottom:32px">${cta}</div>
+        <div style="border-top:1px solid #e5e7eb;padding-top:24px;text-align:center">
+          <p style="font-size:13px;color:#6b7280;margin:0">
+            Qualquer dúvida, responda este e-mail ou escreva para<br>
+            <strong style="color:#111827">contato@meuprocesso.app.br</strong>
+          </p>
+        </div>
+      </td></tr>
+      <tr><td style="padding:20px 0;text-align:center">
+        <p style="font-size:12px;color:#9ca3af;margin:0">Meu Processo · <a href="https://meuprocesso.app.br" style="color:#6b7280;text-decoration:none">meuprocesso.app.br</a></p>
+      </td></tr>
+    </table>
+  </td></tr>
+</table></body></html>`;
+
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${RESEND_KEY}`, 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(10000),
+    body: JSON.stringify({
+      from:    'Meu Processo <contato@meuprocesso.app.br>',
+      to:      email,
+      subject,
+      html,
+    }),
+  });
+  if (!r.ok) throw new Error(`Resend ${r.status}`);
 }
 
 async function acaoEmails(req, res, admin) {
@@ -1288,7 +1366,7 @@ function emailAprovado(nome) {
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;padding:40px 0">
   <tr><td align="center">
     <table width="580" cellpadding="0" cellspacing="0" border="0" style="max-width:580px;width:100%">
-      <tr><td style="background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 55%,#1d4ed8 100%);border-radius:16px 16px 0 0;padding:36px 40px;text-align:center">
+      <tr><td style="background:linear-gradient(135deg,#053958 0%,#0d5a96 55%,#2196f3 100%);border-radius:16px 16px 0 0;padding:36px 40px;text-align:center">
         <div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:-.5px">Meu Processo</div>
         <div style="font-size:13px;color:rgba(255,255,255,.6);margin-top:4px">Gestão jurídica inteligente</div>
       </td></tr>
@@ -1302,7 +1380,7 @@ function emailAprovado(nome) {
           Agora você tem acesso completo à plataforma — monitore seus processos, acompanhe prazos e receba alertas automáticos de movimentações.
         </p>
         <div style="text-align:center;margin-bottom:32px">
-          <a href="https://meuprocesso.app.br/login" style="display:inline-block;background:linear-gradient(135deg,#1e3a5f,#1d4ed8);color:#fff;text-decoration:none;font-size:16px;font-weight:700;padding:16px 40px;border-radius:12px">
+          <a href="https://meuprocesso.app.br/login" style="display:inline-block;background:linear-gradient(135deg,#0d5a96,#2196f3);color:#fff;text-decoration:none;font-size:16px;font-weight:700;padding:16px 40px;border-radius:12px">
             Acessar minha conta →
           </a>
         </div>

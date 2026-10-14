@@ -4,9 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script>
-  // Redireciona link de redefinição de senha que veio parar na homepage
-  var _code = new URLSearchParams(window.location.search).get('code');
-  if (_code) window.location.replace('/redefinir-senha?code=' + _code);
+  // Redireciona link de redefinição de senha que veio parar na homepage.
+  // Só redireciona quando type=recovery para não capturar códigos OAuth ou
+  // de confirmação de e-mail que erroneamente caiam nesta URL.
+  var _qp = new URLSearchParams(window.location.search);
+  if (_qp.get('code') && _qp.get('type') === 'recovery') {
+    window.location.replace('/redefinir-senha?code=' + _qp.get('code'));
+  }
 
   // Login com Google de conta banida: o Supabase manda o erro direto pro
   // domínio raiz (ignora o redirectTo configurado no botão), não pro /login
