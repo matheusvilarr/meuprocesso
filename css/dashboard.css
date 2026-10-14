@@ -493,6 +493,79 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
 .tl-text strong { font-weight: 500; }
 .tl-time { font-size: 11px; color: var(--gray-400); margin-top: 2px; }
 
+/* ── ATIVIDADE RECENTE (dashboard) ───────────────────────── */
+.atv-header { flex-wrap: wrap; gap: 10px 14px; }
+.atv-tools  { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+.atv-search {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 8px;
+  padding: 6px 10px; min-width: 150px;
+}
+.atv-search i { color: var(--gray-400); font-size: 14px; flex-shrink: 0; }
+.atv-search input { border: none; background: none; outline: none; font-size: 12.5px; color: var(--gray-800); width: 100%; font-family: inherit; }
+
+.atv-filtro { display: flex; background: var(--gray-50); border: 1px solid var(--gray-200); border-radius: 8px; padding: 2px; }
+.atv-filtro-btn {
+  border: none; background: none; cursor: pointer; font-family: inherit;
+  font-size: 11.5px; font-weight: 600; color: var(--gray-400);
+  padding: 5px 10px; border-radius: 6px; transition: all .15s;
+}
+.atv-filtro-btn.active { background: var(--white); color: var(--navy); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+
+.atv-grupo-titulo {
+  padding: 10px 20px 4px; font-size: 10.5px; font-weight: 700; color: var(--gray-300);
+  text-transform: uppercase; letter-spacing: .07em; background: var(--gray-50);
+}
+/* Hoje se destaca um pouco dos outros grupos — mesma escala, cor da marca */
+.atv-grupo-hoje { color: var(--blue); background: #eff6ff; }
+
+.atv-item {
+  padding: 12px 20px; border-bottom: 1px solid var(--gray-100);
+  display: flex; align-items: center; gap: 12px; cursor: pointer; transition: background .12s;
+}
+.atv-item:last-child { border-bottom: none; }
+.atv-item:hover { background: var(--gray-50); }
+
+.atv-icon {
+  width: 32px; height: 32px; border-radius: 9px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center; font-size: 14px;
+}
+.atv-icon.navy   { background: #e8edf5; color: var(--navy); }
+.atv-icon.gold   { background: #fefbe7; color: var(--gold); }
+.atv-icon.green  { background: var(--green-light); color: var(--green); }
+.atv-icon.red    { background: var(--red-light); color: var(--red); }
+.atv-icon.purple { background: #f3e8ff; color: #7c3aed; }
+.atv-icon.blue   { background: #eff6ff; color: var(--blue); }
+
+.atv-body   { flex: 1; min-width: 0; }
+.atv-titulo { font-size: 13px; font-weight: 500; color: var(--gray-800); display: flex; align-items: center; gap: 5px; }
+.atv-titulo-txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.atv-num    { font-size: 10px; font-weight: 600; color: var(--gray-600); background: #e8edf5; padding: 2px 6px; border-radius: 4px; white-space: nowrap; flex-shrink: 0; }
+.atv-sub    { font-size: 11.5px; color: var(--gray-400); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.atv-meta   { font-size: 10.5px; color: var(--gray-300); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.atv-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.atv-time  { font-size: 11px; color: var(--gray-400); white-space: nowrap; margin-right: 2px; }
+.atv-star, .atv-edit {
+  font-size: 14px; color: var(--gray-300); cursor: pointer; transition: color .15s, background .15s;
+  width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 6px; flex-shrink: 0;
+}
+.atv-star:hover, .atv-edit:hover { background: var(--gray-100); color: var(--navy); }
+.atv-star.marcado { color: var(--gold); }
+.atv-titulo .ti-star-filled { color: var(--gold); font-size: 12px; }
+
+.atv-dots { display: flex; justify-content: center; align-items: center; gap: 6px; padding: 12px 0 14px; }
+.atv-dot {
+  width: 7px; height: 7px; border-radius: 50%; background: var(--gray-200);
+  cursor: pointer; transition: all .15s; border: none; padding: 0;
+}
+.atv-dot:hover   { background: var(--gray-300); }
+.atv-dot.active  { background: var(--navy); width: 18px; border-radius: 4px; }
+
+.atv-empty { text-align: center; padding: 36px 20px; color: var(--gray-400); }
+.atv-empty i { font-size: 30px; display: block; margin-bottom: 10px; opacity: .35; }
+
 /* Prazos */
 .prazo-item {
   padding: 12px 20px;

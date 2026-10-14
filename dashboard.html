@@ -193,24 +193,26 @@
     <div class="dash-grid">
       <div class="dash-left">
 
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title"><i class="ti ti-briefcase"></i> Processos Recentes</div>
-            <a class="card-link" onclick="showPage('processos')">Ver todos</a>
+        <div class="card atv-card">
+          <div class="card-header atv-header">
+            <div class="card-title"><i class="ti ti-activity"></i> Atividade Recente</div>
+            <div class="atv-tools">
+              <div class="atv-search">
+                <i class="ti ti-search"></i>
+                <input type="text" id="atv-busca" placeholder="Buscar processo…" oninput="_atvBuscar(this.value)" autocomplete="off">
+              </div>
+              <div class="atv-filtro">
+                <button class="atv-filtro-btn active" id="atv-filtro-tudo" onclick="_atvSetFiltro('tudo')">Tudo</button>
+                <button class="atv-filtro-btn" id="atv-filtro-processos" onclick="_atvSetFiltro('processos')">Processos</button>
+              </div>
+            </div>
           </div>
-          <div id="dash-processos-recentes">
+          <div id="atv-lista">
             <div style="text-align:center;padding:30px;color:var(--gray-400);font-size:13px">
               <i class="ti ti-loader-2" style="animation:spin .8s linear infinite"></i> Carregando...
             </div>
           </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header">
-            <div class="card-title"><i class="ti ti-activity"></i> Últimas Atualizações</div>
-            <span style="font-size:12px;color:var(--gray-400)">Hoje</span>
-          </div>
-          <div id="dash-atualizacoes-recentes"></div>
+          <div id="atv-dots" class="atv-dots"></div>
         </div>
 
       </div>

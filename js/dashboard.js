@@ -1871,88 +1871,252 @@ function atualizarDashboard(processos, totalArquivados) {
   set('stat-arquivados', totalArquivados);
 
   atualizarPrazosDash();
-
-  // Processos Recentes
-  const wrap = document.getElementById('dash-processos-recentes');
-  if (!wrap) return;
-
-  if (!processos.length) {
-    wrap.innerHTML = `<div style="text-align:center;padding:36px 20px">
-      <i class="ti ti-briefcase" style="font-size:36px;display:block;margin-bottom:12px;color:var(--gray-200)"></i>
-      <div style="font-size:14px;font-weight:600;color:var(--navy);margin-bottom:6px">Nenhum processo ainda</div>
-      <div style="font-size:12px;color:var(--gray-400);margin-bottom:18px">Adicione processos para acompanhar aqui</div>
-      <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-        <button class="btn-primary" style="font-size:12px;padding:7px 14px" onclick="openModal('modal-novo-processo')"><i class="ti ti-plus"></i> Novo processo</button>
-        <button class="btn-secondary" style="font-size:12px;padding:7px 14px" onclick="openModal('modal-busca-tribunal')"><i class="ti ti-search"></i> Buscar no CNJ</button>
-      </div>
-    </div>`;
-    return;
-  }
-
-  const areaMap = { 'Cível':'civil','Trabalhista':'trabalhista','Criminal':'criminal','Tributário':'tributario','Família':'familia','Previdenciário':'previdenciario' };
-  wrap.innerHTML = processos.slice(0, 5).map(p => `
-    <div class="process-row" onclick="abrirProcesso('${p.id}')">
-      <div class="process-num">${_esc(p.numero) || '—'}</div>
-      <div class="process-info">
-        <div class="process-name">${_esc(_nomeProc(p))}${p.notificacao_pendente ? ` <span title="Nova movimentação" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--amber);vertical-align:middle"></span>` : ''}</div>
-        <div class="process-meta">
-          ${p.datajud_index
-            ? `<i class="ti ti-cloud-check" style="font-size:10px;color:var(--green)"></i> CNJ DataJud`
-            : `<i class="ti ti-pencil" style="font-size:10px"></i> Manual`
-          }
-          ${p.orgao_julgador ? ` · ${_esc(p.orgao_julgador)}` : ''}
-          ${p.notificacao_pendente ? formatarHorarioMov(p.novos_movimentos?.[0]?.data) : ''}
-        </div>
-      </div>
-      <span class="badge badge-${areaMap[p.area] || 'civil'}">${p.area || 'Cível'}</span>
-    </div>`).join('');
-
-  atualizarTimelineDash(processos);
-  atualizarPrazosDash();
+  _renderAtividadeRecente();
 }
 
-function atualizarTimelineDash(processos) {
-  const wrap = document.getElementById('dash-atualizacoes-recentes');
-  if (!wrap) return;
+// ── ATIVIDADE RECENTE (dashboard) ────────────────────────────────────────
+// Substitui os antigos cards "Processos Recentes" + "Últimas Atualizações"
+// (ficavam redundantes e viravam uma lista fixa de 5 itens, sem jeito de
+// navegar). Agora é uma timeline só, paginada (bolinhas) e agrupada por
+// quando aconteceu. Por ora só olha pra trás (movimentos, notas, honorários
+// pagos/vencidos) — tarefas e eventos são compromissos futuros, não
+// "atividade recente", então ficam de fora por enquanto.
+window._atvFiltro      = 'tudo';
+window._atvPagina      = 0;
+window._atvBuscaTermo  = '';
+const ATV_POR_PAGINA = 6;
 
-  const atualizacoes = [];
-  for (const p of processos) {
-    const movs = p.novos_movimentos?.length
-      ? p.novos_movimentos
-      : (p.movimentos_recentes || []).slice(0, 1);
+// Datas "YYYY-MM-DD" puras (sem hora) vêm de colunas tipo `date` do Postgres
+// (data_pagamento, data_vencimento) — new Date() direto nelas interpreta como
+// UTC meia-noite, que no horário de Brasília (UTC-3) já é o dia anterior às
+// 21h. Isso bagunça tanto o agrupamento (Hoje/Ontem) quanto o horário exibido.
+function _atvParseData(str) {
+  if (!str) return new Date(NaN);
+  if (typeof str === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    const [y, m, d] = str.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  return new Date(str);
+}
+
+// Teto de itens: isso é um resumo do dashboard, não o histórico completo (que
+// já existe na timeline de cada processo) — sem teto, uma conta bem ativa
+// gera dezenas de páginas e a fileira de bolinhas de navegação vira poluição
+// visual em vez de ajudar.
+const ATV_MAX_ITENS = 30;
+
+function _coletarAtividadeRecente() {
+  const itens = [];
+  const agora = new Date();
+
+  for (const p of (window._processosDB || [])) {
+    const movs = p.novos_movimentos?.length ? p.novos_movimentos : (p.movimentos_recentes || []).slice(0, 2);
     for (const m of movs.slice(0, 2)) {
-      atualizacoes.push({ processo: _nomeProc(p), texto: m.nome, data: m.data, novo: !!p.novos_movimentos?.length });
+      if (!m.data || _atvParseData(m.data) > agora) continue;
+      itens.push({
+        tipo: 'processo', icone: p.novos_movimentos?.length ? 'ti-sparkles' : 'ti-gavel',
+        cor: p.novos_movimentos?.length ? 'gold' : 'navy',
+        titulo: _nomeProc(p), sub: m.nome, data: m.data, processoId: p.id, numero: p.numero,
+        tribunal: p.tribunal, cliente: p.cliente,
+      });
+    }
+    for (const n of (p.notas_manuais || []).slice(-2)) {
+      if (!n.created_at) continue;
+      itens.push({ tipo: 'processo', icone: 'ti-note', cor: 'purple', titulo: _nomeProc(p), sub: n.texto, data: n.created_at, processoId: p.id, numero: p.numero, tribunal: p.tribunal, cliente: p.cliente });
     }
   }
-  atualizacoes.sort((a, b) => new Date(b.data) - new Date(a.data));
 
-  if (!atualizacoes.length) {
-    wrap.innerHTML = `
-      <div style="text-align:center;padding:28px 20px;color:var(--gray-400)">
-        <i class="ti ti-timeline" style="font-size:28px;display:block;margin-bottom:8px;opacity:0.35"></i>
-        <div style="font-size:13px;font-weight:500">Nenhuma atualização ainda</div>
-        <div style="font-size:12px;margin-top:4px;opacity:.75">As atualizações aparecem aqui quando um processo for sincronizado com o CNJ.</div>
-      </div>`;
+  if (window._atvFiltro !== 'processos') {
+    for (const h of (_honorariosDB || [])) {
+      if (h.status === 'pago' && h.data_pagamento) {
+        itens.push({ tipo: 'honorario', icone: 'ti-cash', cor: 'green', titulo: h.cliente_nome || h.descricao, sub: 'Honorário recebido · ' + h.descricao, data: h.data_pagamento });
+      } else if (h.status === 'pendente' && h.data_vencimento && _atvParseData(h.data_vencimento) < agora) {
+        itens.push({ tipo: 'honorario', icone: 'ti-cash-banknote', cor: 'red', titulo: h.cliente_nome || h.descricao, sub: 'Honorário venceu · ' + h.descricao, data: h.data_vencimento });
+      }
+    }
+
+    // Tarefas e eventos são compromissos, não "aconteceu" — por isso só entram
+    // numa janela próxima (passado recente + 7 dias à frente), não a conta
+    // inteira, senão uma tarefa pra daqui 2 meses dominava o topo da lista
+    // (que é ordenada por data) e empurrava atividade de verdade pra fora.
+    const limiteFuturo = new Date(agora); limiteFuturo.setDate(limiteFuturo.getDate() + 7);
+
+    for (const t of (_tarefasPrazoDB || [])) {
+      if (!t.prazo || t.coluna === 'concluida') continue;
+      const d = _atvParseData(t.prazo);
+      if (d > limiteFuturo) continue;
+      itens.push({ tipo: 'tarefa', icone: 'ti-checklist', cor: d < agora ? 'red' : 'blue', titulo: t.titulo, sub: d < agora ? 'Tarefa com prazo vencido' : 'Tarefa', data: t.prazo, cliente: t.cliente_manual });
+    }
+
+    const corEvento = { audiencia: 'red', reuniao: 'green', lembrete: 'gold' };
+    for (const e of (_eventosDB || [])) {
+      if (!e.data) continue;
+      const d = _atvParseData(e.data);
+      if (d > limiteFuturo || d < new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() - 7)) continue;
+      itens.push({ tipo: 'evento', icone: 'ti-calendar-event', cor: corEvento[e.tipo] || 'navy', titulo: e.titulo, sub: d < agora ? 'Evento' : 'Evento agendado', data: e.data, cliente: e.nome_parte });
+    }
+  }
+
+  itens.sort((a, b) => _atvParseData(b.data) - _atvParseData(a.data));
+  return itens.slice(0, ATV_MAX_ITENS);
+}
+
+function _atvBucket(iso) {
+  const d = _atvParseData(iso); d.setHours(0, 0, 0, 0);
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const dias = Math.round((hoje - d) / 86400000); // positivo = passado, negativo = futuro
+  if (dias === 0) return 'Hoje';
+  if (dias === 1) return 'Ontem';
+  if (dias === -1) return 'Amanhã';
+  if (dias > 1 && dias <= 3) return 'Há 3 dias';
+  if (dias < -1) return 'Esta semana';
+  if (dias <= 7) return 'Semana passada';
+  if (d.getMonth() === hoje.getMonth() && d.getFullYear() === hoje.getFullYear()) return 'Este mês';
+  return 'Mais de um mês';
+}
+
+function _atvFmtHora(iso) {
+  const d = _atvParseData(iso);
+  const temHora = !(d.getHours() === 0 && d.getMinutes() === 0);
+  const diffH = (Date.now() - d) / 3600000;
+  if (temHora && diffH >= 0 && diffH < 24) return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+}
+
+function _renderAtividadeRecente() {
+  const wrap = document.getElementById('atv-lista');
+  const dots = document.getElementById('atv-dots');
+  if (!wrap) return;
+
+  if (window._atvBuscaTermo) { _renderAtvBusca(); return; }
+
+  const itens = _coletarAtividadeRecente();
+  if (!itens.length) {
+    wrap.innerHTML = `<div class="atv-empty"><i class="ti ti-activity"></i><div style="font-size:13px;font-weight:600;color:var(--navy)">Nenhuma atividade ainda</div><div style="font-size:12px;margin-top:4px">Movimentos, notas e honorários aparecem aqui conforme acontecem.</div></div>`;
+    if (dots) dots.innerHTML = '';
     return;
   }
 
-  const fmt = iso => {
-    if (!iso) return '';
-    const d    = new Date(iso);
-    const diff = Math.floor((Date.now() - d) / 3600000);
-    if (diff < 1)  return 'Há menos de 1h';
-    if (diff < 24) return `Há ${diff}h`;
-    return d.toLocaleDateString('pt-BR', { day:'2-digit', month:'short' });
-  };
+  const totalPaginas = Math.ceil(itens.length / ATV_POR_PAGINA);
+  if (window._atvPagina >= totalPaginas) window._atvPagina = totalPaginas - 1;
+  if (window._atvPagina < 0) window._atvPagina = 0;
 
-  wrap.innerHTML = atualizacoes.slice(0, 5).map(a => `
-    <div class="timeline-item">
-      <div class="tl-dot ${a.novo ? 'gold' : 'navy'}"></div>
-      <div class="tl-content">
-        <div class="tl-text"><strong>${_esc(a.processo)}</strong> — ${_esc(a.texto)}</div>
-        <div class="tl-time">${fmt(a.data)} · CNJ DataJud</div>
+  const inicio = window._atvPagina * ATV_POR_PAGINA;
+  const pagina = itens.slice(inicio, inicio + ATV_POR_PAGINA);
+
+  let html = '';
+  let bucketAnterior = null;
+  for (const it of pagina) {
+    const bucket = _atvBucket(it.data);
+    if (bucket !== bucketAnterior) { html += `<div class="atv-grupo-titulo${bucket === 'Hoje' ? ' atv-grupo-hoje' : ''}">${bucket}</div>`; bucketAnterior = bucket; }
+    html += _renderAtvItem(it);
+  }
+  wrap.innerHTML = html;
+
+  if (dots) {
+    dots.innerHTML = totalPaginas > 1
+      ? Array.from({ length: totalPaginas }, (_, i) => `<button class="atv-dot${i === window._atvPagina ? ' active' : ''}" onclick="_atvIrPagina(${i})" title="Página ${i + 1}"></button>`).join('')
+      : '';
+  }
+}
+
+function _renderAtvItem(it) {
+  const proc = it.processoId ? (window._processosDB || []).find(p => p.id === it.processoId) : null;
+  const estrela = proc
+    ? `<i class="ti ${proc.importante ? 'ti-star-filled atv-star marcado' : 'ti-star atv-star'}" title="${proc.importante ? 'Remover destaque' : 'Marcar como importante'}" onclick="event.stopPropagation();_toggleImportante('${proc.id}', this)"></i>`
+    : '';
+  const editar = it.processoId
+    ? `<i class="ti ti-pencil atv-edit" title="Editar processo" onclick="event.stopPropagation();_editarProcessoRapido('${it.processoId}')"></i>`
+    : '';
+  const paginaPorTipo = { honorario: 'honorarios', tarefa: 'tarefas', evento: 'calendario' };
+  const onclick = it.processoId ? `abrirProcesso('${it.processoId}')` : (paginaPorTipo[it.tipo] ? `showPage('${paginaPorTipo[it.tipo]}')` : '');
+  const numBadge = it.numero ? `<span class="atv-num">${_esc(it.numero)}</span>` : '';
+  const meta = [it.tribunal, it.cliente].filter(Boolean).map(_esc).join(' · ');
+  return `
+    <div class="atv-item" onclick="${onclick}">
+      <div class="atv-icon ${it.cor}"><i class="ti ${it.icone}"></i></div>
+      <div class="atv-body">
+        <div class="atv-titulo">${numBadge}${proc?.importante ? '<i class="ti ti-star-filled"></i>' : ''}<span class="atv-titulo-txt">${_esc(it.titulo)}</span></div>
+        <div class="atv-sub">${_esc(it.sub)}</div>
+        ${meta ? `<div class="atv-meta">${meta}</div>` : ''}
       </div>
-    </div>`).join('');
+      <div class="atv-right">
+        <span class="atv-time">${_atvFmtHora(it.data)}</span>
+        ${estrela}${editar}
+      </div>
+    </div>`;
+}
+
+function _atvIrPagina(i) { window._atvPagina = i; _renderAtividadeRecente(); }
+
+function _atvSetFiltro(f) {
+  window._atvFiltro = f;
+  window._atvPagina = 0;
+  document.getElementById('atv-filtro-tudo')?.classList.toggle('active', f === 'tudo');
+  document.getElementById('atv-filtro-processos')?.classList.toggle('active', f === 'processos');
+  _renderAtividadeRecente();
+}
+
+function _atvBuscar(termo) {
+  window._atvBuscaTermo = (termo || '').trim();
+  window._atvPagina = 0;
+  _renderAtividadeRecente();
+}
+
+function _renderAtvBusca() {
+  const wrap = document.getElementById('atv-lista');
+  const dots = document.getElementById('atv-dots');
+  if (dots) dots.innerHTML = '';
+  const t = window._atvBuscaTermo.toLowerCase();
+  const resultados = (window._processosDB || []).filter(p =>
+    (_nomeProc(p) || '').toLowerCase().includes(t) ||
+    (p.numero || '').toLowerCase().includes(t) ||
+    (p.cliente || '').toLowerCase().includes(t)
+  ).slice(0, 20);
+
+  if (!resultados.length) {
+    wrap.innerHTML = `<div class="atv-empty"><i class="ti ti-search"></i><div style="font-size:13px;font-weight:600;color:var(--navy)">Nada encontrado</div></div>`;
+    return;
+  }
+  wrap.innerHTML = resultados.map(p => { const meta = [p.tribunal, p.cliente].filter(Boolean).map(_esc).join(' · '); return `
+    <div class="atv-item" onclick="abrirProcesso('${p.id}')">
+      <div class="atv-icon navy"><i class="ti ti-briefcase"></i></div>
+      <div class="atv-body">
+        <div class="atv-titulo">${p.importante ? '<i class="ti ti-star-filled"></i>' : ''}<span class="atv-titulo-txt">${_esc(_nomeProc(p))}</span></div>
+        <div class="atv-sub">${_esc(p.numero) || 'Sem número'}</div>
+        ${meta ? `<div class="atv-meta">${meta}</div>` : ''}
+      </div>
+      <div class="atv-right">
+        <i class="ti ${p.importante ? 'ti-star-filled atv-star marcado' : 'ti-star atv-star'}" title="${p.importante ? 'Remover destaque' : 'Marcar como importante'}" onclick="event.stopPropagation();_toggleImportante('${p.id}', this)"></i>
+        <i class="ti ti-pencil atv-edit" title="Editar processo" onclick="event.stopPropagation();_editarProcessoRapido('${p.id}')"></i>
+      </div>
+    </div>`; }).join('');
+}
+
+async function _toggleImportante(id, el) {
+  const proc = (window._processosDB || []).find(p => p.id === id);
+  if (!proc) return;
+  const novo = !proc.importante;
+  proc.importante = novo;
+  if (el) { el.classList.toggle('ti-star-filled', novo); el.classList.toggle('ti-star', !novo); el.classList.toggle('marcado', novo); }
+
+  const { error } = await _supabase.from('processos').update({ importante: novo }).eq('id', id);
+  if (error) {
+    proc.importante = !novo;
+    showToast('Erro ao marcar: ' + error.message, 'error');
+    if (el) { el.classList.toggle('ti-star-filled', !novo); el.classList.toggle('ti-star', novo); el.classList.toggle('marcado', !novo); }
+    return;
+  }
+  if (window._atvBuscaTermo) _renderAtvBusca(); else _renderAtividadeRecente();
+}
+
+// Abre o modal de edição sem sair do dashboard — abrirEditarProcesso() só
+// depende de _processoAtual, não da página "Detalhe" estar visível.
+function _editarProcessoRapido(id) {
+  const proc = (window._processosDB || []).find(p => p.id === id);
+  if (!proc) return;
+  _processoAtual = { ...proc };
+  abrirEditarProcesso();
 }
 
 function atualizarPrazosDash() {
@@ -5094,18 +5258,22 @@ async function restaurarProcesso(evt, id, nome) {
 
 async function carregarEventosDashboard() {
   if (!window._user) return;
-  const hoje = new Date().toISOString().slice(0, 10);
+  // Busca desde 7 dias atrás (não só "hoje em diante") — a Atividade Recente
+  // do dashboard também mostra eventos passados próximos, e sem isso o cache
+  // ficava sem nada antes de hoje até o usuário abrir o Calendário.
+  const ha7 = new Date(); ha7.setDate(ha7.getDate() - 7);
   const em90 = new Date(); em90.setDate(em90.getDate() + 90);
   const { data } = await _supabase
     .from('eventos')
     .select('*')
-    .gte('data', hoje)
+    .gte('data', ha7.toISOString().slice(0, 10))
     .lte('data', em90.toISOString().slice(0, 10))
     .order('data', { ascending: true });
   if (data) _eventosDB = data;
   atualizarPrazosDash();
   buildMiniCal();
   atualizarBell();
+  _renderAtividadeRecente();
 
   const em7 = new Date(); em7.setDate(em7.getDate() + 7);
   const proximos = data?.filter(e => new Date(e.data + 'T12:00:00') <= em7) || [];
@@ -5808,6 +5976,7 @@ async function carregarTarefasPrazo() {
   ]);
   _tarefasPrazoDB       = pendentes  || [];
   _tarefasConcluidasCal = concluidas || [];
+  _renderAtividadeRecente();
 }
 
 async function carregarTarefas() {
@@ -8266,6 +8435,7 @@ async function carregarHonorarios() {
   _popularSelectsClientes();
   _popularSelectsProcessos();
   atualizarPrazosDash();
+  _renderAtividadeRecente();
 }
 
 function _atualizarVencidos() {
