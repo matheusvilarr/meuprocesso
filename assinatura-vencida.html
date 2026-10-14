@@ -17,6 +17,9 @@
   .btn-planos { display: inline-flex; align-items: center; gap: 8px; background: linear-gradient(135deg,#053958 0%,#0d5a96 55%,#2196f3 100%); color: #fff; padding: 13px 32px; border-radius: 9px; font-size: 15px; font-weight: 700; text-decoration: none; font-family: 'Roboto', sans-serif; margin-bottom: 16px; }
   .btn-sair { display: block; margin: 0 auto; background: none; border: 1.5px solid #e5e7eb; border-radius: 8px; padding: 10px 28px; font-family: 'Roboto', sans-serif; font-size: 14px; color: #6b7280; cursor: pointer; transition: border-color .15s, color .15s; }
   .btn-sair:hover { border-color: #053958; color: #053958; }
+  .venc-loading { display: flex; align-items: center; justify-content: center; min-height: 180px; }
+  .venc-loading::after { content: ''; width: 32px; height: 32px; border: 3px solid #e5e7eb; border-top-color: #053958; border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -28,16 +31,18 @@
       </a>
     </div>
 
-    <div class="card-body venc-card">
+    <div class="card-body venc-card" id="venc-body" style="display:none">
       <div class="venc-icon" id="venc-icon">⏰</div>
       <div class="venc-title" id="venc-title">Seu período de teste acabou</div>
       <p class="venc-sub" id="venc-sub">
         Esperamos que você tenha gostado do Meu Processo! Pra continuar usando, escolha um dos nossos planos — sem cobrança automática, você paga só o período que quiser.
       </p>
       <div class="venc-email" id="venc-email">—</div>
+      <div id="venc-processos" style="display:none;background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:8px;padding:10px 16px;font-size:13px;color:#1e40af;margin-bottom:20px;font-weight:500"></div>
       <a href="/precos" class="btn-planos" id="venc-cta">Ver planos e preços <span>→</span></a>
       <button class="btn-sair" onclick="sair()">Sair</button>
     </div>
+    <div class="venc-loading" id="venc-loading"></div>
   </div>
   <p class="footer-copy">© 2026 · Meu Processo</p>
 </div>
@@ -51,14 +56,11 @@
 
   document.getElementById('venc-email').textContent = session.user.email || '';
 
-  const { data: assinatura } = await _supabase
-    .from('assinaturas')
-    .select('plano, status, data_expiracao')
-    .eq('escritorio_id', session.user.id)
-    .maybeSingle();
+  const [{ data: assinatura }, { count: totalProcessos }] = await Promise.all([
+    _supabase.from('assinaturas').select('plano, status, data_expiracao').eq('escritorio_id', session.user.id).maybeSingle(),
+    _supabase.from('processos').select('id', { count: 'exact', head: true }).eq('user_id', session.user.id).eq('arquivado', false),
+  ]);
 
-  // Se por algum motivo a assinatura já foi renovada (admin editou, etc.),
-  // não trava o usuário aqui — manda de volta pro dashboard.
   const valida = assinatura && assinatura.status === 'ativo' && new Date(assinatura.data_expiracao) > new Date();
   if (valida) { window.location.href = '/dashboard'; return; }
 
@@ -74,6 +76,16 @@
     document.getElementById('venc-title').textContent = 'Seu plano venceu';
     document.getElementById('venc-sub').textContent    = 'Seu acesso ao Meu Processo expirou. Escolha um plano pra continuar de onde parou — sem cobrança automática, você paga só o período que quiser.';
   }
+
+  if (totalProcessos > 0) {
+    const label = totalProcessos === 1 ? 'processo' : 'processos';
+    const el = document.getElementById('venc-processos');
+    el.textContent = `Não fique sem acompanhar os seus ${totalProcessos} ${label} — reative agora e continue de onde parou.`;
+    el.style.display = 'block';
+  }
+
+  document.getElementById('venc-loading').style.display = 'none';
+  document.getElementById('venc-body').style.display = 'block';
 })();
 
 async function sair() {
