@@ -25,17 +25,23 @@ window._oabsValidas = function (raw) {
   }
   window._session = session;
 
-  // Verifica se o usuário logado é colaborador de algum escritório
-  const { data: colab } = await _supabase
-    .from('colaboradores')
-    .select('escritorio_id, cargo, nivel_acesso')
-    .eq('user_id', session.user.id)
-    .eq('status', 'ativo')
-    .maybeSingle();
+  // colaboradores + admins em paralelo (independentes entre si)
+  const [{ data: colab }, { data: adminRow }] = await Promise.all([
+    _supabase.from('colaboradores')
+      .select('escritorio_id, cargo, nivel_acesso')
+      .eq('user_id', session.user.id)
+      .eq('status', 'ativo')
+      .maybeSingle(),
+    _supabase.from('admins')
+      .select('nivel')
+      .eq('user_id', session.user.id)
+      .maybeSingle(),
+  ]);
 
   window._isColaborador   = !!colab;
   window._escritorioId    = colab ? colab.escritorio_id : session.user.id;
   window._colaboradorInfo = colab || null;
+  window._isAdmin         = !!adminRow;
   window._user            = session.user;
 
   // O Supabase só atualiza last_sign_in_at num login de verdade — quem fica
@@ -47,14 +53,6 @@ window._oabsValidas = function (raw) {
     _supabase.auth.updateUser({ data: { ultimo_acesso: new Date().toISOString() } })
       .then(() => {}, () => {});   // não bloqueia a abertura do dashboard
   }
-
-  // Verifica se o usuário logado é admin (RLS só deixa ele ver a própria linha)
-  const { data: adminRow } = await _supabase
-    .from('admins')
-    .select('nivel')
-    .eq('user_id', session.user.id)
-    .maybeSingle();
-  window._isAdmin = !!adminRow;
 
   // Assinatura do escritório (trial ou plano pago) — sempre por escritorio_id,
   // nunca por session.user.id direto, pra colaborador herdar do titular.
@@ -81,6 +79,9 @@ window._oabsValidas = function (raw) {
   // preencher. Colaborador não precisa: ele acompanha a OAB do titular.
   window._oabPendente = !window._isColaborador &&
     window._oabsValidas(session.user.user_metadata?.oab).length === 0;
+
+  // Sinaliza pro dashboard.js que o auth está pronto — evita setInterval polling
+  document.dispatchEvent(new Event('authReady'));
 
   const aplicarUI = () => {
     const meta    = session.user.user_metadata || {};

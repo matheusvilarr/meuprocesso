@@ -1,4 +1,5 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { overflow-x: hidden; }
 
 :root {
   /* --navy era #1a2e6b (a marca antiga), depois virou --primary-900 (o azul
@@ -58,6 +59,7 @@ body {
      ícones) sem precisar reescrever cada tamanho fixo em px do site. Ajustar
      esse número pra mais/menos conforme o gosto. */
   zoom: 112%;
+  overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -416,9 +418,9 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
 .stat-change.up    { color: var(--green); }
 .stat-change.alert { color: var(--red); }
 
-.dash-grid { display: grid; grid-template-columns: 1fr 360px; gap: 20px; }
-.dash-left  { display: flex; flex-direction: column; gap: 20px; }
-.dash-right { display: flex; flex-direction: column; gap: 20px; }
+.dash-grid  { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.dash-left  { grid-column: 1 / 3; display: flex; flex-direction: column; gap: 16px; }
+.dash-right { grid-column: 3 / 4; display: flex; flex-direction: column; gap: 16px; }
 
 /* Card */
 .card {
@@ -595,6 +597,37 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
 .dias-urgente { background: var(--red-light);   color: var(--red); }
 .dias-aviso   { background: var(--amber-light); color: var(--amber); }
 .dias-ok      { background: var(--green-light); color: var(--green); }
+
+/* ── COMPROMISSOS DO DIA ── */
+.comprdia-item {
+  display: flex; align-items: center; gap: 7px;
+  padding: 4px 14px; min-height: 30px;
+  border-bottom: 1px solid var(--gray-100);
+  transition: background .1s;
+}
+.comprdia-item:last-child { border-bottom: none; }
+.comprdia-item:hover { background: var(--gray-50); }
+.comprdia-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.comprdia-titulo { flex: 1; font-size: 12px; font-weight: 500; color: var(--gray-800); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.comprdia-tag { font-size: 10px; font-weight: 600; padding: 1px 5px; border-radius: 4px; white-space: nowrap; flex-shrink: 0; }
+.comprdia-tag-hora { color: var(--blue);  background: var(--blue-light); }
+.comprdia-tag-venc { color: var(--red);   background: var(--red-light);  }
+.comprdia-acoes { display: flex; gap: 1px; flex-shrink: 0; opacity: 0; transition: opacity .15s; }
+.comprdia-item:hover .comprdia-acoes { opacity: 1; }
+.comprdia-btn {
+  width: 22px; height: 22px; border-radius: 4px; border: none; background: none;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: var(--gray-400); font-size: 13px;
+  transition: background .1s, color .1s;
+}
+.comprdia-btn.concluir:hover  { background: var(--green-light); color: var(--green); }
+.comprdia-btn.amanha:hover    { background: var(--amber-light); color: var(--amber); }
+.comprdia-btn.reagendar:hover { background: var(--blue-light);  color: var(--blue);  }
+.comprdia-item.done { opacity: .45; }
+.comprdia-item.done .comprdia-titulo { text-decoration: line-through; color: var(--gray-400); }
+.comprdia-item.done .comprdia-dot { opacity: .4; }
+.comprdia-item.done .comprdia-acoes { display: none; }
+.comprdia-item.done .comprdia-tag { display: none; }
 
 /* Mini calendar */
 .mini-cal { padding: 16px 20px 20px; }
@@ -2259,6 +2292,8 @@ body.kanban-dragging .task-col-body {
      a 562px numa tela de 375px — o dashboard rolava 200px para o lado,
      mesmo com a regra de uma coluna já aplicada aqui. */
   .dash-grid  { grid-template-columns: minmax(0, 1fr); }
+  .dash-left  { grid-column: 1; }
+  .dash-right { grid-column: 1; }
   .task-cols  { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
@@ -2319,7 +2354,9 @@ body.kanban-dragging .task-col-body {
   .stat-value { font-size: 20px; }
 
   /* Dash grid — ver explicação do minmax(0,1fr) no bloco de 1100px */
-  .dash-grid { grid-template-columns: minmax(0, 1fr); }
+  .dash-grid  { grid-template-columns: minmax(0, 1fr); }
+  .dash-left  { grid-column: 1; }
+  .dash-right { grid-column: 1; }
 
   /* A lista de processos recentes põe número, título e etiqueta lado a lado.
      Em 375px não cabe: o título ficava reduzido a "Agravo em Re..." mesmo

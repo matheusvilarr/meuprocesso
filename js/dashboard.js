@@ -49,14 +49,13 @@ function closeSidebar() {
   document.body.style.overflow = '';
 }
 
-// Colapsa a sidebar pra só ícones (desktop). Começa recolhida — o estado
-// inicial já é aplicado num <script> inline no <body> (evita flash do menu
-// largo ao recarregar). O botão flutuante só existe pra expandir (o CSS já
-// esconde ele quando a barra está aberta), por isso não precisa de lógica
-// de ícone/título indo e voltando aqui.
+// Colapsa a sidebar pra só ícones (desktop). SEMPRE começa recolhida a cada
+// carregamento/F5 — não guarda a escolha de uma visita pra outra (pedido
+// explícito do Matheus). O <script> inline no <body> já aplica isso antes
+// da sidebar renderizar (evita flash do menu largo). Expandir vale só pra
+// sessão atual; recarregar a página volta a recolher.
 function toggleSidebarCollapse() {
-  const colapsada = document.body.classList.toggle('sidebar-collapsed');
-  localStorage.setItem('sidebar_collapsed', colapsada ? '1' : '0');
+  document.body.classList.toggle('sidebar-collapsed');
 }
 
 // Pilha de navegação do SPA — fonte da verdade pro botão voltar, em vez de
@@ -116,6 +115,7 @@ function showPage(id) {
   // ele de volta; só some de verdade quando o vencido for pago/resolvido.
   if (id === 'honorarios') { carregarHonorarios(); _aplicarVisHonorarios(); }
   if (id === 'assinatura')   carregarAssinatura();
+  if (id === 'dashboard')    renderCompromissosDia();
 
   if (!_navegandoPorHistorico && _navStack[_navStack.length - 1] !== id) {
     _navStack.push(id);
@@ -1659,6 +1659,19 @@ async function salvarProcesso() {
 
   if (!nome) { showToast('Preencha o nome / assunto do processo.'); return; }
 
+  // Número sem os 20 dígitos do CNJ nunca vai entrar na verificação
+  // automática (precisa do índice do tribunal pra consultar o DataJud) —
+  // deixa cadastrar, mas só depois de confirmar que sabe disso.
+  if (numero && !_validarNumeroProcessoCNJ(numero)) {
+    const ehSigla = _SIGLAS_TRIBUNAL_SUPERIOR.test(numero);
+    const msg = (ehSigla
+      ? 'Esse é o formato tradicional do STF/STJ (sigla + número), não o número CNJ completo (20 dígitos).'
+      : 'Esse número não parece seguir o padrão CNJ (20 dígitos: NNNNNNN-DD.AAAA.J.TR.OOOO).')
+      + ' Sem ele, este processo não entra na verificação automática de movimentações — você pode completar o número depois, em "Editar dados".';
+    const confirmou = await _confirmar(msg, 'Número incompleto', { textoOk: 'Cadastrar assim mesmo', icone: '⚠️' });
+    if (!confirmou) return;
+  }
+
   // Verifica duplicata comparando só os dígitos — antes, o mesmo processo
   // digitado com e sem pontuação passava como se fosse outro.
   if (numero) {
@@ -2269,12 +2282,15 @@ function renderizarListaProcessos(lista) {
 
     const diasSemVerif = p.ultima_verificacao
       ? (Date.now() - new Date(p.ultima_verificacao)) / 86400000 : 999;
-    const syncDot = diasSemVerif <= 7
-      ? (temSync ? '#22c55e' : '#60a5fa')
-      : (temSync ? '#f59e0b' : '#d1d5db');
-    const syncTip = diasSemVerif <= 7
-      ? (temSync ? 'Atualizado via CNJ DataJud' : 'Verificado recentemente')
-      : (temSync ? 'CNJ — verificação desatualizada' : 'Sem sincronização automática');
+    // Sem datajud_index o processo nunca vai ser verificado (número
+    // incompleto, tipo "AREsp 3254978" — ver _checarNumeroProcessoManual) —
+    // isso precisa de um ícone claramente diferente, não só uma cor mais
+    // fraca do mesmo ícone de "sincronizado", que passava despercebido.
+    const syncIcone = temSync ? 'ti-cloud-check' : 'ti-cloud-off';
+    const syncDot = !temSync ? '#d1d5db' : (diasSemVerif <= 7 ? '#22c55e' : '#f59e0b');
+    const syncTip = !temSync
+      ? 'Número incompleto — este processo não é verificado automaticamente'
+      : (diasSemVerif <= 7 ? 'Atualizado via CNJ DataJud' : 'CNJ — verificação desatualizada');
 
     const avatarHtml = myShares.length ? (() => {
       const visiveis = myShares.slice(0, 3);
@@ -2297,7 +2313,7 @@ function renderizarListaProcessos(lista) {
         </div>
         <div style="display:flex;align-items:center;gap:5px">
           ${isShared ? `<span class="pc-share-badge"><i class="ti ti-share" style="font-size:9px"></i> ${_esc(sharedInfo.owner_nome.split(' ')[0])}</span>` : ''}
-          <i class="ti ti-cloud-check" title="${syncTip}" style="font-size:12px;color:${syncDot};flex-shrink:0"></i>
+          <i class="ti ${syncIcone}" title="${syncTip}" style="font-size:12px;color:${syncDot};flex-shrink:0"></i>
           <span class="pc-status status-${statusCls(p.status)}">${p.status || 'Ativo'}</span>
           ${!isShared ? `
             <button class="pc-fav-btn${p.favorito ? ' ativo' : ''}" onclick="favoritar(event,'${p.id}')" title="${p.favorito ? 'Remover dos favoritos' : 'Favoritar'}">
@@ -2412,7 +2428,15 @@ function filtrarProcessos() {
   renderizarListaProcessos(lista);
 }
 
+let _topbarSearchTimer;
 function topbarSearch(q) {
+  const drop = document.getElementById('topbar-search-drop');
+  if (!drop) return;
+  if (!(q || '').trim()) { drop.style.display = 'none'; return; }
+  clearTimeout(_topbarSearchTimer);
+  _topbarSearchTimer = setTimeout(() => _topbarSearchRun(q), 150);
+}
+function _topbarSearchRun(q) {
   const drop = document.getElementById('topbar-search-drop');
   if (!drop) return;
   const term = (q || '').toLowerCase().trim();
@@ -3405,9 +3429,12 @@ async function salvarApelido() {
 }
 
 // Campos que o DataJud às vezes não retorna (comum em segredo de justiça) —
-// o advogado completa manualmente aqui. Não inclui "numero" de propósito:
-// é a chave usada pra casar o processo na sincronização/merge, editar
-// quebraria isso.
+// o advogado completa manualmente aqui. Não deixa editar "numero" por
+// padrão de propósito: é a chave usada pra casar o processo na
+// sincronização/merge, editar à toa quebraria isso. A EXCEÇÃO é um processo
+// com número incompleto (tipo "AREsp 3254978") — esse nunca funcionou como
+// chave de sincronização mesmo, então não tem o que quebrar, e é o único
+// jeito de completar o número depois de cadastrado.
 function abrirEditarProcesso() {
   if (!_processoAtual) return;
   document.getElementById('ep-classe').value           = _processoAtual.classe || '';
@@ -3417,6 +3444,17 @@ function abrirEditarProcesso() {
   document.getElementById('ep-data-ajuizamento').value = _processoAtual.data_ajuizamento || '';
   document.getElementById('ep-valor').value            = _processoAtual.valor_causa ? _fmtValor(_processoAtual.valor_causa) : '';
   document.getElementById('ep-parte-contraria').value  = _processoAtual.parte_contraria || '';
+
+  const numeroWrap = document.getElementById('ep-numero-wrap');
+  const numeroInvalido = _processoAtual.numero && !_validarNumeroProcessoCNJ(_processoAtual.numero);
+  if (numeroWrap) numeroWrap.style.display = numeroInvalido ? 'block' : 'none';
+  document.getElementById('ep-numero').value = numeroInvalido ? _processoAtual.numero : '';
+  if (numeroInvalido) {
+    _checarNumeroProcessoManual('ep-numero', 'ep-numero-alerta', 'processo');
+  } else {
+    document.getElementById('ep-numero-alerta').style.display = 'none';
+  }
+
   openModal('modal-editar-processo');
 }
 
@@ -3433,6 +3471,35 @@ async function salvarEdicaoProcesso() {
     valor_causa:      _parseValorMoeda(document.getElementById('ep-valor').value),
     parte_contraria:  document.getElementById('ep-parte-contraria').value.trim() || null,
   };
+
+  // Número só é editável aqui quando já estava incompleto (ver
+  // abrirEditarProcesso) — nunca mexe no número de um processo que já
+  // funciona como chave de sincronização.
+  const numeroWrap = document.getElementById('ep-numero-wrap');
+  if (numeroWrap && numeroWrap.style.display !== 'none') {
+    const novoNumero = _numeroCNJ(document.getElementById('ep-numero').value);
+    if (novoNumero && novoNumero !== _processoAtual.numero) {
+      if (!_validarNumeroProcessoCNJ(novoNumero)) {
+        const ehSigla = _SIGLAS_TRIBUNAL_SUPERIOR.test(novoNumero);
+        const msg = (ehSigla
+          ? 'Esse ainda é o formato tradicional do STF/STJ (sigla + número), não o número CNJ completo.'
+          : 'Esse número ainda não tem os 20 dígitos do padrão CNJ.')
+          + ' Sem ele, o processo continua fora da verificação automática. Pode salvar assim mesmo.';
+        const confirmou = await _confirmar(msg, 'Número ainda incompleto', { textoOk: 'Salvar assim mesmo', icone: '⚠️' });
+        if (!confirmou) return;
+      } else {
+        // virou um número CNJ válido — confere duplicata antes de gravar
+        const { count } = await _supabase.from('processos').select('id', { count: 'exact', head: true })
+          .eq('user_id', window._escritorioId).eq('numero', novoNumero);
+        if (count > 0) { showToast('Já existe um processo cadastrado com esse número.'); return; }
+        payload.ultima_verificacao = null; // entra na fila de sincronização assim que possível
+        payload.sync_falhas        = 0;
+        payload.sync_ultimo_erro   = null;
+      }
+      payload.numero       = novoNumero;
+      payload.datajud_index = _indiceDoNumero(novoNumero);
+    }
+  }
 
   btn.disabled = true;
   btn.textContent = 'Salvando...';
@@ -3868,26 +3935,27 @@ window.addEventListener('DOMContentLoaded', () => {
     _navegandoPorHistorico = false;
   });
 
-  const aguardar = setInterval(() => {
-    if (window._user !== undefined) {
-      clearInterval(aguardar);
-      if (window._user) {
-        // Primeiro acesso por Google cai aqui: sem OAB, vai direto ao perfil.
-        if (window._oabPendente) showPage('configuracoes');
-        carregarProcessos().then(() => {
-          iniciarSyncAutomatico();
-          sincronizarTodos();
-          _tentarOnboardingOAB();
-          _tentarAbrirBuscaOABPorLink();
-        });
-        carregarTarefasPrazo().then(() => carregarEventosDashboard());
-        carregarTarefas();
-        carregarDescobertos();
-        carregarAvisosFilaSTJ();
-        aplicarAvatarSidebar();
-      }
-    }
-  }, 100);
+  function _iniciarCarregamento() {
+    if (!window._user) return;
+    if (window._oabPendente) showPage('configuracoes');
+    carregarProcessos().then(() => {
+      iniciarSyncAutomatico();
+      sincronizarTodos();
+      _tentarOnboardingOAB();
+      _tentarAbrirBuscaOABPorLink();
+    });
+    carregarTarefas().then(() => carregarEventosDashboard());
+    carregarDescobertos();
+    carregarAvisosFilaSTJ();
+    aplicarAvatarSidebar();
+  }
+
+  // authReady pode ter disparado antes do DOMContentLoaded em cache rápido
+  if (window._user !== undefined) {
+    _iniciarCarregamento();
+  } else {
+    document.addEventListener('authReady', _iniciarCarregamento, { once: true });
+  }
 });
 
 function _abrirBuscaOABAutomatica(oabs) {
@@ -5274,6 +5342,7 @@ async function carregarEventosDashboard() {
   buildMiniCal();
   atualizarBell();
   _renderAtividadeRecente();
+  renderCompromissosDia();
 
   const em7 = new Date(); em7.setDate(em7.getDate() + 7);
   const proximos = data?.filter(e => new Date(e.data + 'T12:00:00') <= em7) || [];
@@ -5361,6 +5430,169 @@ async function toggleEventoConcluido(id, concluido, checkboxEl) {
 
   buildFullCal();
   atualizarPrazosDash();
+  renderCompromissosDia();
+}
+
+function renderCompromissosDia() {
+  const card  = document.getElementById('card-compromissos-dia');
+  const lista = document.getElementById('comprdia-lista');
+  if (!card || !lista) return;
+
+  const hoje   = new Date(); hoje.setHours(0, 0, 0, 0);
+  const amanha = new Date(hoje); amanha.setDate(amanha.getDate() + 1);
+
+  const hojeStr = hoje.toISOString().slice(0, 10);
+  // Inclui concluídos de hoje — ficam riscados no card o dia todo
+  const eventosHoje = (_eventosDB || []).filter(e => new Date(e.data + 'T12:00:00') < amanha);
+  const tarefasHoje = [
+    ...(_tarefasPrazoDB || []).filter(t => t.prazo && new Date(t.prazo + 'T12:00:00') < amanha),
+    ...(_tarefasConcluidasCal || []).filter(t => t.prazo === hojeStr),
+  ];
+
+  const total = eventosHoje.length + tarefasHoje.length;
+  card.style.display = total ? 'block' : 'none';
+  const badge = document.getElementById('comprdia-badge');
+  if (badge) { badge.textContent = total + (total === 1 ? ' item' : ' itens'); badge.style.display = total ? '' : 'none'; }
+  if (!total) { lista.innerHTML = ''; return; }
+
+  const tipoColor = { audiencia: '#7c3aed', prazo_processual: '#dc2626', reuniao: '#0891b2', lembrete: '#059669' };
+  const tipoLabel = { prazo_processual: 'Prazo', audiencia: 'Audiência', lembrete: 'Lembrete', reuniao: 'Reunião' };
+
+  const itens = [
+    ...eventosHoje.map(e => ({ tipo: 'evento', data: e.data, raw: e })),
+    ...tarefasHoje.map(t => ({ tipo: 'tarefa', data: t.prazo, raw: t })),
+  ].sort((a, b) => a.data.localeCompare(b.data));
+
+  lista.innerHTML = itens.map(item => {
+    const isEvento = item.tipo === 'evento';
+    const r   = item.raw;
+    const d   = new Date(item.data + 'T12:00:00');
+    const isVenc = d < hoje;
+    const cor = isEvento ? (tipoColor[r.tipo] || '#6b7280') : (r.prioridade === 'urgente' ? '#dc2626' : '#0891b2');
+    const titulo = escHtml(isEvento ? (r.titulo || r.descricao || '—') : r.titulo);
+    const hora   = isEvento && r.hora ? r.hora.slice(0, 5) : null;
+    const elId   = `comprdia-${isEvento ? 'ev' : 'ta'}-${r.id}`;
+    const acao   = `'${item.tipo}','${r.id}'`;
+    const concluido = isEvento ? !!r.concluido : r.coluna === 'concluida';
+    const tag    = isVenc
+      ? '<span class="comprdia-tag comprdia-tag-venc">Vencido</span>'
+      : hora ? `<span class="comprdia-tag comprdia-tag-hora">${hora}</span>` : '';
+    return `<div class="comprdia-item${concluido ? ' done' : ''}" id="${elId}" title="${escHtml(tipoLabel[r.tipo] || (isEvento ? 'Evento' : 'Tarefa'))}">
+      <div class="comprdia-dot" style="background:${cor}"></div>
+      <div class="comprdia-titulo">${titulo}</div>
+      ${tag}
+      <div class="comprdia-acoes">
+        <button class="comprdia-btn concluir"  onclick="event.stopPropagation();_comprdiaConcluir(${acao})"  title="Concluído"><i class="ti ti-check"></i></button>
+        <button class="comprdia-btn amanha"    onclick="event.stopPropagation();_comprdiaAmanha(${acao})"    title="Lembrar amanhã"><i class="ti ti-clock-plus"></i></button>
+        <button class="comprdia-btn reagendar" onclick="event.stopPropagation();_comprdiaReagendar(${acao})" title="Reagendar"><i class="ti ti-calendar-event"></i></button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function _comprdiaSairAnimado(tipo, id, cb) {
+  const el = document.getElementById(`comprdia-${tipo === 'evento' ? 'ev' : 'ta'}-${id}`);
+  if (el) { el.style.transition = 'opacity .22s,transform .22s'; el.style.opacity = '0'; el.style.transform = 'translateX(14px)'; setTimeout(cb, 230); }
+  else cb();
+}
+
+async function _comprdiaConcluir(tipo, id) {
+  // Risca na hora — o item fica no card o dia todo
+  const elId = `comprdia-${tipo === 'evento' ? 'ev' : 'ta'}-${id}`;
+  document.getElementById(elId)?.classList.add('done');
+
+  if (tipo === 'evento') {
+    const ev = (_eventosDB || []).find(e => e.id === id);
+    if (!ev) return;
+    ev.concluido = true;
+    const { error } = await _supabase.from('eventos').update({ concluido: true, concluido_em: new Date().toISOString() }).eq('id', id);
+    if (error) { showToast('Erro: ' + error.message, 'error'); ev.concluido = false; document.getElementById(elId)?.classList.remove('done'); return; }
+    buildMiniCal();
+    if (document.getElementById('page-calendario')?.classList.contains('active')) buildFullCal();
+  } else {
+    const t = (_tarefasPrazoDB || []).find(x => x.id === id);
+    if (!t) return;
+    const ant = t.coluna; t.coluna = 'concluida';
+    _tarefasConcluidasCal = [...(_tarefasConcluidasCal || []), { ...t }];
+    _tarefasPrazoDB = _tarefasPrazoDB.filter(x => x.id !== id);
+    atualizarPrazosDash();
+    const { error } = await _supabase.from('tarefas').update({ coluna: 'concluida' }).eq('id', id);
+    if (error) { showToast('Erro: ' + error.message, 'error'); t.coluna = ant; _tarefasPrazoDB.push(t); _tarefasConcluidasCal = (_tarefasConcluidasCal||[]).filter(x=>x.id!==id); document.getElementById(elId)?.classList.remove('done'); return; }
+    if (document.getElementById('page-calendario')?.classList.contains('active')) buildFullCal();
+  }
+}
+
+// Sincroniza tudo após qualquer mudança de data num compromisso
+function _syncAposReagendar() {
+  renderCompromissosDia();
+  buildMiniCal();
+  atualizarPrazosDash();
+  if (document.getElementById('page-calendario')?.classList.contains('active')) buildFullCal();
+}
+
+async function _comprdiaAmanha(tipo, id) {
+  const amanhaStr = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
+  if (tipo === 'evento') {
+    const ev = (_eventosDB || []).find(e => e.id === id);
+    if (!ev) return;
+    const ant = ev.data;
+    ev.data = amanhaStr;
+    _comprdiaSairAnimado(tipo, id, _syncAposReagendar);
+    const { error } = await _supabase.from('eventos').update({ data: amanhaStr }).eq('id', id);
+    if (error) { showToast('Erro: ' + error.message, 'error'); ev.data = ant; _syncAposReagendar(); return; }
+    showToast('Movido para amanhã.', 'success');
+  } else {
+    const t = (_tarefasPrazoDB || []).find(x => x.id === id);
+    if (!t) return;
+    const ant = t.prazo;
+    t.prazo = amanhaStr;
+    _comprdiaSairAnimado(tipo, id, _syncAposReagendar);
+    const { error } = await _supabase.from('tarefas').update({ prazo: amanhaStr }).eq('id', id);
+    if (error) { showToast('Erro: ' + error.message, 'error'); t.prazo = ant; _syncAposReagendar(); return; }
+    showToast('Movido para amanhã.', 'success');
+  }
+}
+
+async function _comprdiaReagendar(tipo, id) {
+  const elId = `comprdia-${tipo === 'evento' ? 'ev' : 'ta'}-${id}`;
+  const el   = document.getElementById(elId);
+  if (!el) return;
+  document.querySelectorAll('.comprdia-picker').forEach(p => p.remove());
+  const dataAtual = tipo === 'evento'
+    ? (_eventosDB||[]).find(e=>e.id===id)?.data
+    : (_tarefasPrazoDB||[]).find(t=>t.id===id)?.prazo;
+  const picker = document.createElement('div');
+  picker.className = 'comprdia-picker';
+  picker.style.cssText = 'position:absolute;z-index:999;background:var(--white);border:1px solid var(--gray-200);border-radius:8px;box-shadow:var(--shadow-md);padding:10px 12px;display:flex;align-items:center;gap:8px;font-size:12px;right:0;top:32px;';
+  picker.innerHTML = `<span style="color:var(--gray-600)">Nova data:</span><input type="date" value="${dataAtual||''}" style="border:1px solid var(--gray-200);border-radius:5px;padding:3px 7px;font-size:12px;font-family:inherit;outline:none" onkeydown="if(event.key==='Escape')this.closest('.comprdia-picker').remove()"><button style="background:var(--navy);color:#fff;border:none;border-radius:5px;padding:4px 10px;font-size:12px;cursor:pointer" onclick="_comprdiaConfirmarReagendamento('${tipo}','${id}',this.previousElementSibling.value,this.closest('.comprdia-picker'))">OK</button>`;
+  el.style.position = 'relative';
+  el.appendChild(picker);
+  picker.querySelector('input').focus();
+  setTimeout(() => document.addEventListener('click', function h(e){ if(!picker.contains(e.target)&&!el.contains(e.target)){picker.remove();document.removeEventListener('click',h);} }), 50);
+}
+
+async function _comprdiaConfirmarReagendamento(tipo, id, novaData, pickerEl) {
+  if (!novaData) return;
+  pickerEl?.remove();
+  if (tipo === 'evento') {
+    const ev = (_eventosDB||[]).find(e=>e.id===id);
+    if (!ev) return;
+    const ant = ev.data;
+    ev.data = novaData;
+    _comprdiaSairAnimado(tipo, id, _syncAposReagendar);
+    const { error } = await _supabase.from('eventos').update({ data: novaData }).eq('id', id);
+    if (error) { showToast('Erro: '+error.message,'error'); ev.data=ant; _syncAposReagendar(); return; }
+    showToast('Reagendado!', 'success');
+  } else {
+    const t = (_tarefasPrazoDB||[]).find(x=>x.id===id);
+    if (!t) return;
+    const ant = t.prazo;
+    t.prazo = novaData;
+    _comprdiaSairAnimado(tipo, id, _syncAposReagendar);
+    const { error } = await _supabase.from('tarefas').update({ prazo: novaData }).eq('id', id);
+    if (error) { showToast('Erro: '+error.message,'error'); t.prazo=ant; _syncAposReagendar(); return; }
+    showToast('Reagendado!', 'success');
+  }
 }
 
 async function salvarEvento() {
@@ -5977,6 +6209,7 @@ async function carregarTarefasPrazo() {
   _tarefasPrazoDB       = pendentes  || [];
   _tarefasConcluidasCal = concluidas || [];
   _renderAtividadeRecente();
+  renderCompromissosDia();
 }
 
 async function carregarTarefas() {
@@ -6119,15 +6352,42 @@ function _validarNumeroProcessoCNJ(numero) {
   return numero.replace(/\D/g, '').length === 20;
 }
 
-function _checarNumeroProcessoManual(inputId, alertaId) {
+// "AREsp 3254978", "RE 567890", "HC 112233" etc. não são erro de digitação —
+// é o formato tradicional (sigla + número) que STF/STJ usam antes/além do
+// número único do CNJ. Reconhece o padrão pra avisar sem soar como se o
+// advogado tivesse digitado errado.
+const _SIGLAS_TRIBUNAL_SUPERIOR = /^(adi|adpf|adc|re|resp|aresp|hc|hd|mi|ms|ap|rcl|sl|si|ext|inq)\.?\s*\d/i;
+// Só resp/aresp são exclusivos do STJ (RE/ADI/etc podem ser STF) — o link de
+// busca abaixo só aparece pra esses, pra não mandar pro tribunal errado.
+const _SIGLA_STJ = /^a?resp\.?\s*\d/i;
+
+// Busca automatizada no STJ é bloqueada por Cloudflare (CSID/STJ) — não dá pra
+// puxar o número único sozinho. Isso aqui só abre a consulta já preenchida
+// pra o advogado copiar o "NÚMERO ÚNICO" que aparece na tela e colar de volta.
+function _linkConsultaSTJ(numero) {
+  const termo = String(numero || '').trim().replace(/\s+/g, ' ');
+  return `https://processo.stj.jus.br/processo/pesquisa/?termo=${encodeURIComponent(termo)}&aplicacao=processos.ea&tipoPesquisa=tipoPesquisaGenerica&chkordem=DESC&chkMorto=MORTO`;
+}
+
+function _checarNumeroProcessoManual(inputId, alertaId, contexto) {
   const input  = document.getElementById(inputId);
   const alerta = document.getElementById(alertaId);
   if (!input || !alerta) return;
-  const valido = _validarNumeroProcessoCNJ(input.value);
+  const valor  = input.value.trim();
+  const valido = _validarNumeroProcessoCNJ(valor);
   alerta.style.display = valido ? 'none' : 'flex';
-  if (!valido) {
-    alerta.innerHTML = '<i class="ti ti-alert-triangle"></i> Esse número não parece seguir o padrão CNJ (20 dígitos: NNNNNNN-DD.AAAA.J.TR.OOOO). Pode manter assim se estiver correto.';
-  }
+  if (valido) return;
+
+  const consequencia = contexto === 'processo'
+    ? 'esse processo não entra na verificação automática de movimentações.'
+    : 'sem problema deixar assim, é só uma referência — não afeta a sincronização de nenhum processo.';
+  const texto = _SIGLAS_TRIBUNAL_SUPERIOR.test(valor)
+    ? `Esse é o formato tradicional do STF/STJ (sigla + número) — sem o número CNJ completo (20 dígitos), ${consequencia}`
+    : `Esse número não parece seguir o padrão CNJ (20 dígitos: NNNNNNN-DD.AAAA.J.TR.OOOO) — ${consequencia}`;
+  const link = _SIGLA_STJ.test(valor)
+    ? ` <a href="${_linkConsultaSTJ(valor)}" target="_blank" rel="noopener" style="text-decoration:underline;white-space:nowrap;font-weight:600">Buscar no STJ ↗</a>`
+    : '';
+  alerta.innerHTML = '<i class="ti ti-alert-triangle"></i> ' + texto + link;
 }
 
 function criarCardTarefa(t, procMap, lastSeen, meuNome) {
