@@ -1,3 +1,13 @@
+// ── Conta bloqueada via Google OAuth ────────────────────────────────────────
+// O Supabase redireciona de volta pra cá com #error_code=user_banned na hash
+// quando a conta tá banida (ban via admin) — o login por senha trata isso em
+// signInWithPassword, mas o OAuth volta direto com erro na URL, sem exception
+// pra capturar num try/catch.
+if (/error_code=user_banned/.test(window.location.hash)) {
+  document.addEventListener('DOMContentLoaded', () => mostrarAvisoBloqueado());
+  history.replaceState(null, '', window.location.pathname + window.location.search);
+}
+
 // ── Sessão já ativa → não mostra o login ────────────────────────────────────
 // pageshow (não só DOMContentLoaded) pra pegar também quando o navegador
 // restaura /login do cache ao voltar (o script não roda de novo nesse caso)
@@ -102,6 +112,14 @@ document.getElementById('loginForm').addEventListener('submit', async function (
       return;
     }
 
+    // Conta bloqueada manualmente pelo admin (Supabase Auth ban) — a pessoa
+    // nem chega a logar, então precisa saber o motivo e como resolver aqui,
+    // não só "não foi possível entrar".
+    if (texto.includes('banned')) {
+      mostrarAvisoBloqueado();
+      return;
+    }
+
     pwErr.textContent = texto.includes('invalid')
       ? 'E-mail ou senha incorretos.'
       : 'Não foi possível entrar agora. Tente de novo em instantes.';
@@ -156,6 +174,20 @@ function mostrarAvisoConfirmacao(email) {
     status.textContent = 'E-mail reenviado. Confira a caixa de entrada e o lixo eletrônico.';
     this.textContent = 'E-mail reenviado';
   });
+}
+
+function mostrarAvisoBloqueado() {
+  const caixa = document.getElementById('avisoConfirmacao');
+  if (!caixa) return;
+  caixa.innerHTML = `
+    <div style="background:#fffbeb;border:1.5px solid #fde68a;border-radius:10px;padding:14px 16px;margin-bottom:16px;text-align:left">
+      <div style="font-size:13.5px;font-weight:700;color:#92400e;margin-bottom:5px">Sua assinatura expirou</div>
+      <div style="font-size:12.5px;color:#78350f;line-height:1.6">
+        Seu acesso ao Meu Processo está pausado. Pra reativar ou tirar alguma dúvida, entre em contato:
+        <br><a href="mailto:contato@meuprocesso.app.br" style="color:#92400e;font-weight:700;text-decoration:underline">contato@meuprocesso.app.br</a>
+      </div>
+    </div>`;
+  caixa.style.display = 'block';
 }
 
 // ── Cadastro ──────────────────────────────────────────────────────────────────

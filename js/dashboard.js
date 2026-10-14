@@ -5609,6 +5609,20 @@ function abrirCadastroRapidoCliente(campoTextoId) {
   openModal('modal-novo-cliente');
 }
 
+// Mesma ideia, mas pro campo "Cliente" dos honorários, que é um <select> de
+// cliente_id (não texto livre) — depois de criado, carregarClientes() já
+// repopulou o select, só falta selecionar o id novo.
+function _cadastroRapidoClienteParaSelect(selectId) {
+  document.getElementById('cli-nome').value = '';
+  _pendenciaAposCliente = (cli) => {
+    const sel = document.getElementById(selectId);
+    if (sel && cli?.id) sel.value = cli.id;
+  };
+  const modal = document.getElementById('modal-novo-cliente');
+  modal.style.zIndex = '400';
+  openModal('modal-novo-cliente');
+}
+
 // ── CONFIRMAÇÃO "CLIENTE NÃO CADASTRADO" ────────────────────────────────────
 let _clienteNaoEncontradoResolve = null;
 
@@ -7939,9 +7953,14 @@ function _renderClientes(lista) {
           ${honorsCli.length  ? `<span class="cliente-pill honorarios"><i class="ti ti-cash"></i>${honorsCli.length} honorário${honorsCli.length>1?'s':''}</span>` : ''}
           ${vencidos          ? `<span class="cliente-pill vencidos"><i class="ti ti-alert-circle"></i>${vencidos} vencido${vencidos>1?'s':''}</span>` : ''}
         </div>
-        <button class="cliente-edit-btn" title="Editar cliente" onclick="event.stopPropagation();abrirEditarCliente('${cli.id}')">
-          <i class="ti ti-pencil"></i>
-        </button>
+        <div style="display:flex;gap:6px">
+          <button class="cliente-edit-btn" title="Novo honorário pra este cliente" onclick="event.stopPropagation();_novoHonorarioRapido('${cli.id}')">
+            <i class="ti ti-plus"></i>
+          </button>
+          <button class="cliente-edit-btn" title="Editar cliente" onclick="event.stopPropagation();abrirEditarCliente('${cli.id}')">
+            <i class="ti ti-pencil"></i>
+          </button>
+        </div>
       </div>`;
     card.addEventListener('click', () => abrirDetalheCliente(cli.id));
     grid.insertBefore(card, empty);
@@ -8030,6 +8049,17 @@ function abrirHonorariosDoCliente() {
   if (sel) sel.value = '';
   window._honFiltroCliente = id;
   filtrarHonorarios();
+}
+
+// Botão "+" direto no card do cliente — pra registrar o honorário no mesmo
+// instante em que o cliente paga, sem precisar ir até a página Honorários
+// e procurar o nome dele no select.
+function _novoHonorarioRapido(clienteId) {
+  openModal('modal-novo-honorario');
+  setTimeout(() => {
+    const sel = document.getElementById('hon-cliente');
+    if (sel) sel.value = clienteId;
+  }, 100);
 }
 
 // ── COMENTÁRIOS DO CLIENTE ──────────────────────────────────────────────────
@@ -8365,22 +8395,174 @@ function _fmtData(d) {
 function _atualizarKpisHon() {
   const agora = new Date(); agora.setHours(0,0,0,0);
   const mesAtual = agora.getMonth(); const anoAtual = agora.getFullYear();
-  let receber = 0, mesPago = 0, vencidos = 0;
+  let mesAnt = mesAtual - 1, anoAnt = anoAtual;
+  if (mesAnt < 0) { mesAnt = 11; anoAnt--; }
+
+  let receber = 0, mesPago = 0, vencidos = 0, faturado = 0, mesPagoAnterior = 0;
   _honorariosDB.forEach(h => {
     if (h.status === 'pago') {
       const d = h.data_pagamento ? new Date(h.data_pagamento + 'T00:00:00') : null;
       if (d && d.getMonth() === mesAtual && d.getFullYear() === anoAtual) mesPago += Number(h.valor);
+      if (d && d.getMonth() === mesAnt  && d.getFullYear() === anoAnt)   mesPagoAnterior += Number(h.valor);
     } else if (h.status === 'vencido') {
       vencidos += Number(h.valor);
       receber  += Number(h.valor);
     } else if (h.status === 'pendente') {
       receber += Number(h.valor);
     }
+    if (h.status !== 'cancelado' && h.data_vencimento) {
+      const dv = new Date(h.data_vencimento + 'T00:00:00');
+      if (dv.getMonth() === mesAtual && dv.getFullYear() === anoAtual) faturado += Number(h.valor);
+    }
   });
+
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = 'R$ ' + _fmtValor(v); };
-  set('hon-val-receber', receber);
-  set('hon-val-mes',     mesPago);
-  set('hon-val-venc',    vencidos);
+  set('hon-val-receber',  receber);
+  set('hon-val-mes',      mesPago);
+  set('hon-val-venc',     vencidos);
+  set('hon-val-faturado', faturado);
+
+  _renderComparativoHon(mesPago, mesPagoAnterior);
+  _renderGraficoHon();
+  _aplicarHonDashConfig();
+}
+
+function _renderComparativoHon(atual, anterior) {
+  const card  = document.querySelector('.hon-kpi-card[data-widget="comparativo"]');
+  const valEl = document.getElementById('hon-val-comparativo');
+  const setaEl = document.getElementById('hon-comp-seta');
+  if (!card || !valEl) return;
+  card.classList.remove('hon-comparativo-up', 'hon-comparativo-down');
+
+  if (anterior === 0 && atual === 0) { valEl.textContent = '—'; return; }
+  if (anterior === 0) {
+    card.classList.add('hon-comparativo-up');
+    if (setaEl) setaEl.className = 'ti ti-arrow-up-right';
+    valEl.textContent = 'Novo · R$ ' + _fmtValor(atual);
+    return;
+  }
+  const variacao = ((atual - anterior) / anterior) * 100;
+  const subiu = variacao >= 0;
+  card.classList.add(subiu ? 'hon-comparativo-up' : 'hon-comparativo-down');
+  if (setaEl) setaEl.className = subiu ? 'ti ti-arrow-up-right' : 'ti ti-arrow-down-right';
+  valEl.textContent = (subiu ? '+' : '') + variacao.toFixed(0) + '%';
+}
+
+function _fmtValorCompacto(v) {
+  if (v >= 10000) return Math.round(v / 1000) + 'k';
+  if (v >= 1000)  return (v / 1000).toFixed(1).replace('.', ',') + 'k';
+  return String(Math.round(v));
+}
+
+function _renderGraficoHon() {
+  const container = document.getElementById('hon-chart-bars');
+  if (!container) return;
+  const agora = new Date();
+  const meses = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(agora.getFullYear(), agora.getMonth() - i, 1);
+    meses.push({ mes: d.getMonth(), ano: d.getFullYear(), valor: 0 });
+  }
+  _honorariosDB.forEach(h => {
+    if (h.status !== 'pago' || !h.data_pagamento) return;
+    const d = new Date(h.data_pagamento + 'T00:00:00');
+    const item = meses.find(m => m.mes === d.getMonth() && m.ano === d.getFullYear());
+    if (item) item.valor += Number(h.valor);
+  });
+  const max = Math.max(...meses.map(m => m.valor), 1);
+  const nomes = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  container.innerHTML = meses.map((m, i) => `
+    <div class="hon-chart-col${i === meses.length - 1 ? ' atual' : ''}">
+      <div class="hon-chart-bar-val">${_fmtValorCompacto(m.valor)}</div>
+      <div class="hon-chart-bar" style="height:${Math.max(3, Math.round(m.valor / max * 100))}%" title="R$ ${_fmtValor(m.valor)}"></div>
+      <div class="hon-chart-bar-label">${nomes[m.mes]}</div>
+    </div>
+  `).join('');
+}
+
+const HON_WIDGETS_DEFAULT = [
+  { id: 'receber',     label: 'A Receber' },
+  { id: 'mes',         label: 'Recebido este mês' },
+  { id: 'venc',        label: 'Vencidos' },
+  { id: 'faturado',    label: 'Faturado no mês' },
+  { id: 'comparativo', label: 'Vs. mês anterior' },
+  { id: 'grafico',     label: 'Gráfico — últimos 6 meses' },
+];
+
+function _honDashConfig() {
+  let saved = [];
+  try { saved = JSON.parse(localStorage.getItem('hon_dashboard_widgets') || '[]'); } catch (e) { saved = []; }
+  const validIds = HON_WIDGETS_DEFAULT.map(w => w.id);
+  const config = saved.filter(w => validIds.includes(w.id));
+  const presentes = config.map(w => w.id);
+  HON_WIDGETS_DEFAULT.forEach(w => { if (!presentes.includes(w.id)) config.push({ id: w.id, visible: true }); });
+  return config;
+}
+
+function _aplicarHonDashConfig() {
+  const row = document.getElementById('hon-kpi-row');
+  if (!row) return;
+  _honDashConfig().forEach(w => {
+    const card = row.querySelector(`[data-widget="${w.id}"]`);
+    if (!card) return;
+    card.style.display = w.visible ? '' : 'none';
+    row.appendChild(card);
+  });
+}
+
+function abrirPersonalizarHon() {
+  const list = document.getElementById('hon-wlist');
+  if (!list) return;
+  list.innerHTML = _honDashConfig().map(w => {
+    const meta = HON_WIDGETS_DEFAULT.find(x => x.id === w.id);
+    return `
+      <div class="hon-wlist-item" draggable="true" data-id="${w.id}"
+        ondragstart="_honWDragStart(event)" ondragover="_honWDragOver(event)"
+        ondrop="_honWDrop(event)" ondragend="_honWDragEnd(event)">
+        <i class="ti ti-grip-vertical hon-wlist-drag"></i>
+        <label class="hon-wlist-check">
+          <input type="checkbox" ${w.visible ? 'checked' : ''}>
+          <span>${meta ? meta.label : w.id}</span>
+        </label>
+      </div>`;
+  }).join('');
+  openModal('modal-personalizar-hon');
+}
+
+let _honWDragEl = null;
+function _honWDragStart(ev) {
+  _honWDragEl = ev.currentTarget;
+  ev.currentTarget.classList.add('dragging');
+  ev.dataTransfer.effectAllowed = 'move';
+}
+function _honWDragOver(ev) {
+  ev.preventDefault();
+  if (ev.currentTarget !== _honWDragEl) ev.currentTarget.classList.add('drag-over');
+}
+function _honWDrop(ev) {
+  ev.preventDefault();
+  const target = ev.currentTarget;
+  target.classList.remove('drag-over');
+  if (!_honWDragEl || target === _honWDragEl) return;
+  const items = [...target.parentElement.children];
+  if (items.indexOf(_honWDragEl) < items.indexOf(target)) target.after(_honWDragEl);
+  else target.before(_honWDragEl);
+}
+function _honWDragEnd(ev) {
+  ev.currentTarget.classList.remove('dragging');
+  document.querySelectorAll('.hon-wlist-item.drag-over').forEach(el => el.classList.remove('drag-over'));
+  _honWDragEl = null;
+}
+
+function salvarPersonalizarHon() {
+  const list = document.getElementById('hon-wlist');
+  const config = [...list.children].map(item => ({
+    id: item.dataset.id,
+    visible: item.querySelector('input[type="checkbox"]').checked,
+  }));
+  localStorage.setItem('hon_dashboard_widgets', JSON.stringify(config));
+  closeModal('modal-personalizar-hon');
+  _aplicarHonDashConfig();
 }
 
 function _atualizarBadgeHon() {

@@ -770,9 +770,10 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
 }
 
 .fcal-day {
-  min-height: 100px; padding: 8px;
+  min-height: 100px; min-width: 0; padding: 8px;
   border-right: 1px solid var(--gray-100); border-bottom: 1px solid var(--gray-100);
   cursor: pointer; transition: background 0.12s; vertical-align: top;
+  overflow: hidden;
 }
 
 .fcal-day:hover { background: var(--gray-50); }
@@ -1172,6 +1173,7 @@ body.kanban-dragging .task-col-body {
 .modal {
   background: var(--white); border-radius: var(--radius-lg);
   width: 480px; max-width: 90vw;
+  max-height: 88vh; overflow-y: auto;
   box-shadow: 0 20px 60px rgba(0,0,0,0.2);
   animation: slideUp 0.2s ease;
 }
@@ -1663,6 +1665,33 @@ body.kanban-dragging .task-col-body {
 
 .hon-kpi-label { font-size: 11px; color: var(--gray-400); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
 .hon-kpi-val   { font-size: 22px; font-weight: 700; color: var(--navy); font-variant-numeric: tabular-nums; margin-top: 3px; line-height: 1; }
+
+.hon-kpi-wide { grid-column: 1 / -1; }
+
+.hon-chart-bars { display: flex; align-items: flex-end; gap: 16px; height: 120px; padding: 4px 4px 0; }
+.hon-chart-col  { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 8px; height: 100%; }
+.hon-chart-bar-val   { font-size: 11px; font-weight: 600; color: var(--gray-400); font-variant-numeric: tabular-nums; }
+.hon-chart-col.atual .hon-chart-bar-val { color: var(--blue); font-weight: 700; }
+.hon-chart-bar  { width: 100%; max-width: 30px; background: var(--gray-100); border-radius: 5px; min-height: 3px; transition: height .3s; }
+.hon-chart-col.atual .hon-chart-bar { background: var(--blue); }
+.hon-chart-bar-label { font-size: 11px; color: var(--gray-400); font-weight: 600; text-transform: capitalize; }
+.hon-chart-col.atual .hon-chart-bar-label { color: var(--navy); font-weight: 700; }
+
+.hon-comparativo-up   .hon-kpi-icon { background: var(--green-light); color: var(--green); }
+.hon-comparativo-down .hon-kpi-icon { background: var(--red-light);   color: var(--red); }
+.hon-comparativo-up   .hon-kpi-val  { color: var(--green); }
+.hon-comparativo-down .hon-kpi-val  { color: var(--red); }
+
+.hon-wlist { display: flex; flex-direction: column; gap: 4px; max-height: 280px; overflow-y: auto; }
+.hon-wlist-item {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px;
+  border: 1px solid var(--gray-100); border-radius: 8px; background: var(--white);
+}
+.hon-wlist-item.dragging  { opacity: .4; }
+.hon-wlist-item.drag-over { border-color: var(--blue); }
+.hon-wlist-drag  { color: var(--gray-300); font-size: 15px; cursor: grab; flex-shrink: 0; }
+.hon-wlist-check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--navy); cursor: pointer; flex: 1; }
+.hon-wlist-check input { width: 15px; height: 15px; accent-color: var(--blue); cursor: pointer; }
 
 /* ── HONORÁRIOS: lista ────────────────────────────────── */
 .hon-grupo-titulo {

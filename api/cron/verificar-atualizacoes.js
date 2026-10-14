@@ -34,10 +34,11 @@ export default async function handler(req, res) {
   const tipo = tipoOverride || (horaUTC < 14 ? 'morning' : horaUTC < 18 ? 'afternoon' : 'evening');
 
   try {
-    if (tipo === 'instant')     return await rodarInstant(admin, res, hoje);
-    if (tipo === 'morning')     return await rodarMorning(admin, res, hoje);
-    if (tipo === 'afternoon')   return await rodarAfternoon(admin, res, hoje);
-    if (tipo === 'prazo_fatal') return await rodarPrazoFatal(admin, res, hoje);
+    if (tipo === 'instant')           return await rodarInstant(admin, res, hoje);
+    if (tipo === 'morning')           return await rodarMorning(admin, res, hoje);
+    if (tipo === 'afternoon')         return await rodarAfternoon(admin, res, hoje);
+    if (tipo === 'prazo_fatal')       return await rodarPrazoFatal(admin, res, hoje);
+    if (tipo === 'honorario_vencido') return await rodarHonorarioVencido(admin, res, hoje);
     return await rodarEvening(admin, res, hoje);
   } catch (e) {
     await logErro(admin, `cron:email-${tipo}`, e.message, { stack: e.stack });
@@ -383,6 +384,65 @@ async function rodarPrazoFatal(admin, res, hoje) {
   return res.status(200).json({ ok: true, tipo: 'prazo_fatal', emailsEnviados, hoje });
 }
 
+// ── HONORÁRIO VENCIDO ────────────────────────────────────────────────────────
+// Roda 1x/dia. "vencido" não é um status gravado no banco — o front só marca
+// isso em memória (_atualizarVencidos em dashboard.js) — então aqui o atraso
+// é calculado direto: pendente + data_vencimento no passado. O dedup por dia
+// em notif_log garante o "lembra de 24 em 24h": enquanto o honorário continuar
+// pendente, ele aparece de novo nessa consulta todo dia e manda um e-mail novo;
+// assim que o advogado marcar como pago (ou cancelado), some da consulta.
+
+async function rodarHonorarioVencido(admin, res, hoje) {
+  const { data: honorarios } = await admin
+    .from('honorarios')
+    .select('user_id, descricao, valor, data_vencimento, clientes(nome)')
+    .eq('status', 'pendente')
+    .not('data_vencimento', 'is', null)
+    .lt('data_vencimento', hoje)
+    .order('data_vencimento', { ascending: true });
+
+  if (!honorarios?.length) {
+    return res.status(200).json({ ok: true, tipo: 'honorario_vencido', emailsEnviados: 0, hoje, motivo: 'nada vencido' });
+  }
+
+  const porUsuario = {};
+  for (const h of honorarios) {
+    if (!porUsuario[h.user_id]) porUsuario[h.user_id] = [];
+    porUsuario[h.user_id].push({
+      descricao:  h.descricao,
+      valor:      h.valor,
+      vencimento: h.data_vencimento,
+      cliente:    h.clientes?.nome || null,
+    });
+  }
+
+  let emailsEnviados = 0;
+  for (const [userId, lista] of Object.entries(porUsuario)) {
+    if (await jaNotificouHoje(admin, userId, 'honorario_vencido', hoje)) continue;
+
+    let email, nome;
+    try {
+      const { data: ud } = await admin.auth.admin.getUserById(userId);
+      email = ud?.user?.email;
+      if (!email) continue;
+      nome = ud.user.user_metadata?.full_name || ud.user.user_metadata?.nome || email.split('@')[0];
+    } catch (e) {
+      await logErro(admin, 'cron:email-honorario_vencido', e.message, { userId }, userId);
+      continue;
+    }
+
+    try {
+      await enviarAlertaHonorarioVencido(email, nome, lista, hoje);
+      emailsEnviados++;
+      await logNotif(admin, userId, 'honorario_vencido', hoje);
+    } catch (e) {
+      await logErro(admin, 'cron:email-honorario_vencido', e.message, { email }, userId);
+    }
+  }
+
+  return res.status(200).json({ ok: true, tipo: 'honorario_vencido', emailsEnviados, hoje });
+}
+
 // ── AGENDA ────────────────────────────────────────────────────────────────────
 
 async function buscarAgendaSemana(admin, userIds, hoje) {
@@ -595,6 +655,42 @@ async function enviarAlertaPrazoFatal(para, nome, tarefas, hoje) {
   <div style="background:#be123c;padding:24px 28px"><div style="font-size:18px;font-weight:700;color:#fff">Meu Processo</div><div style="font-size:12px;color:rgba(255,255,255,.7);margin-top:2px">Prazo fatal</div></div>
   <div style="padding:24px 28px">
     <div style="font-size:15px;color:#111827;margin-bottom:16px"><strong>${nome}</strong>, você tem ${tarefas.length > 1 ? 'tarefas com prazo fatal' : 'uma tarefa com prazo fatal'}.</div>
+    ${blocos}
+  </div>
+  ${btnDashboard('#be123c')}
+  ${rodape()}
+</div>
+</body></html>`;
+
+  await enviarEmail(para, assunto, html);
+}
+
+function _fmtMoedaBR(v) {
+  return Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+async function enviarAlertaHonorarioVencido(para, nome, lista, hoje) {
+  const assunto = lista.length === 1
+    ? `💰 [Meu Processo] Honorário vencido — ${truncar(lista[0].descricao, 50)}`
+    : `💰 [Meu Processo] ${lista.length} honorários vencidos`;
+
+  const total = lista.reduce((s, h) => s + Number(h.valor || 0), 0);
+
+  const blocos = lista.map(h => {
+    const dias = Math.round((new Date(hoje + 'T12:00:00') - new Date(h.vencimento + 'T12:00:00')) / 86400000);
+    return `<div style="background:#fef2f2;border-left:4px solid #be123c;border-radius:6px;padding:14px 16px;margin-bottom:10px">
+      <div style="font-size:13px;font-weight:700;color:#9f1239">R$ ${_fmtMoedaBR(h.valor)} — vencido há ${dias} dia${dias > 1 ? 's' : ''}</div>
+      <div style="font-size:12px;color:#111827;margin-top:4px">${truncar(h.descricao, 70)}</div>
+      <div style="font-size:11px;color:#9ca3af;margin-top:2px">${formatarData(h.vencimento)}${h.cliente ? ' · ' + h.cliente : ''}</div>
+    </div>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+<div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
+  <div style="background:#be123c;padding:24px 28px"><div style="font-size:18px;font-weight:700;color:#fff">Meu Processo</div><div style="font-size:12px;color:rgba(255,255,255,.7);margin-top:2px">Honorário vencido</div></div>
+  <div style="padding:24px 28px">
+    <div style="font-size:15px;color:#111827;margin-bottom:16px"><strong>${nome}</strong>, você tem ${lista.length > 1 ? `${lista.length} honorários vencidos, somando R$ ${_fmtMoedaBR(total)}` : 'um honorário vencido'}. Marque como pago no sistema assim que receber, pra parar de receber esse aviso.</div>
     ${blocos}
   </div>
   ${btnDashboard('#be123c')}

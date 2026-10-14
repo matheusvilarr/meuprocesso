@@ -1338,6 +1338,9 @@
         <div class="page-sub">Controle cobranças, parcelas e recorrências</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn-secondary" onclick="abrirPersonalizarHon()" title="Personalizar painel">
+          <i class="ti ti-adjustments-horizontal"></i>
+        </button>
         <button class="btn-secondary hon-toggle-vis" id="hon-vis-btn" onclick="toggleHonVisibilidade()" title="Ocultar valores">
           <i class="ti ti-eye" id="hon-vis-icon"></i>
           <span id="hon-vis-label">Ocultar</span>
@@ -1349,8 +1352,8 @@
     </div>
 
     <!-- KPIs -->
-    <div class="hon-kpi-row">
-      <div class="hon-kpi-card">
+    <div class="hon-kpi-row" id="hon-kpi-row">
+      <div class="hon-kpi-card" data-widget="receber">
         <div class="hon-kpi-left">
           <div class="hon-kpi-icon blue"><i class="ti ti-coin"></i></div>
           <div>
@@ -1359,7 +1362,7 @@
           </div>
         </div>
       </div>
-      <div class="hon-kpi-card">
+      <div class="hon-kpi-card" data-widget="mes">
         <div class="hon-kpi-left">
           <div class="hon-kpi-icon green"><i class="ti ti-trending-up"></i></div>
           <div>
@@ -1368,7 +1371,7 @@
           </div>
         </div>
       </div>
-      <div class="hon-kpi-card" id="hon-kpi-venc">
+      <div class="hon-kpi-card" id="hon-kpi-venc" data-widget="venc">
         <div class="hon-kpi-left">
           <div class="hon-kpi-icon red"><i class="ti ti-alert-circle"></i></div>
           <div>
@@ -1376,6 +1379,28 @@
             <div class="hon-kpi-val" id="hon-val-venc">—</div>
           </div>
         </div>
+      </div>
+      <div class="hon-kpi-card" data-widget="faturado">
+        <div class="hon-kpi-left">
+          <div class="hon-kpi-icon blue"><i class="ti ti-file-invoice"></i></div>
+          <div>
+            <div class="hon-kpi-label">Faturado no mês</div>
+            <div class="hon-kpi-val" id="hon-val-faturado">—</div>
+          </div>
+        </div>
+      </div>
+      <div class="hon-kpi-card" data-widget="comparativo">
+        <div class="hon-kpi-left">
+          <div class="hon-kpi-icon green" id="hon-comp-icon"><i class="ti ti-arrow-up-right" id="hon-comp-seta"></i></div>
+          <div>
+            <div class="hon-kpi-label">Vs. mês anterior</div>
+            <div class="hon-kpi-val" id="hon-val-comparativo">—</div>
+          </div>
+        </div>
+      </div>
+      <div class="hon-kpi-card hon-kpi-wide" data-widget="grafico">
+        <div class="hon-kpi-label" style="margin-bottom:10px">Recebido · últimos 6 meses</div>
+        <div class="hon-chart-bars hon-valor" id="hon-chart-bars"></div>
       </div>
     </div>
 
@@ -1551,7 +1576,13 @@
       </div>
       <div class="form-row-2">
         <div class="form-field">
-          <label class="form-label">Cliente</label>
+          <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
+            Cliente
+            <span onmousedown="event.preventDefault();_cadastroRapidoClienteParaSelect('hon-cliente')" title="Cadastrar cliente rapidamente"
+              style="cursor:pointer;color:var(--navy);display:inline-flex;align-items:center;gap:3px;font-weight:600;font-size:11px">
+              <i class="ti ti-user-plus" style="font-size:14px"></i>
+            </span>
+          </label>
           <select id="hon-cliente" class="form-input"><option value="">— Sem cliente vinculado —</option></select>
         </div>
         <div class="form-field">
@@ -1670,7 +1701,13 @@
       </div>
       <div class="form-row-2">
         <div class="form-field">
-          <label class="form-label">Cliente</label>
+          <label class="form-label" style="display:flex;align-items:center;justify-content:space-between">
+            Cliente
+            <span onmousedown="event.preventDefault();_cadastroRapidoClienteParaSelect('hon-edit-cliente')" title="Cadastrar cliente rapidamente"
+              style="cursor:pointer;color:var(--navy);display:inline-flex;align-items:center;gap:3px;font-weight:600;font-size:11px">
+              <i class="ti ti-user-plus" style="font-size:14px"></i>
+            </span>
+          </label>
           <select id="hon-edit-cliente" class="form-input"><option value="">— Sem cliente vinculado —</option></select>
         </div>
         <div class="form-field">
@@ -1788,6 +1825,25 @@
       <button class="btn-secondary" onclick="closeModal('modal-editar-honorario')">Cancelar</button>
       <button class="btn-primary" onclick="atualizarHonorario()">
         <i class="ti ti-check"></i> Salvar
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="modal-personalizar-hon" onclick="closeModalOutside(event,'modal-personalizar-hon')">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <span class="modal-title"><i class="ti ti-adjustments-horizontal" style="margin-right:6px;opacity:.6"></i>Personalizar painel</span>
+      <span class="modal-close" onclick="closeModal('modal-personalizar-hon')"><i class="ti ti-x"></i></span>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:12.5px;color:var(--gray-400);margin:0 0 10px">Marque o que quer ver e arraste pela alça pra reordenar.</p>
+      <div id="hon-wlist" class="hon-wlist"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-personalizar-hon')">Cancelar</button>
+      <button class="btn-primary" onclick="salvarPersonalizarHon()">
+        <i class="ti ti-check"></i> Aplicar
       </button>
     </div>
   </div>
