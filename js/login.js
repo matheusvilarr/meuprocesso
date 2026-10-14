@@ -48,14 +48,9 @@ document.getElementById('btnGoogle').addEventListener('click', async function ()
   // Trocar o textContent do botão apagaria o ícone do Google junto.
   document.getElementById('btnGoogleTxt').textContent = 'Redirecionando...';
   const destino = new URLSearchParams(window.location.search).get('redirect') || '/dashboard';
-  // Sempre volta pro /login (nunca direto pro destino) — é a única página que
-  // sabe ler o #error=... que o Google manda quando a conta está bloqueada.
-  // Se mandasse direto pro /dashboard, o auth-guard via "sem sessão" e
-  // redirecionava de novo pro /login, mas sem o hash do erro (que se perde
-  // nesse pulo) — a pessoa só via a tela de login limpa, sem explicação.
   await _supabase.auth.signInWithOAuth({
     provider: 'google',
-    options: { redirectTo: window.location.origin + '/login?redirect=' + encodeURIComponent(destino) },
+    options: { redirectTo: window.location.origin + destino },
   });
 });
 

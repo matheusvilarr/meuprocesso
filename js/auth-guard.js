@@ -15,7 +15,12 @@ window._oabsValidas = function (raw) {
     // Preserva pra onde a pessoa tentou ir (ex: link de e-mail com
     // ?abrir=busca-oab) — login.js já sabe ler esse "redirect" de volta.
     const destino = window.location.pathname + window.location.search;
-    window.location.href = '/login?redirect=' + encodeURIComponent(destino);
+    // Conta banida no Google OAuth volta pra cá com #error=...&error_code=
+    // user_banned na hash (o redirectTo do botão Google aponta pra /dashboard
+    // — mudar isso quebra o fluxo porque o Supabase só aceita URLs de retorno
+    // que estão na allowlist dele). Sem repassar a hash, login.js nunca vê o
+    // erro e a pessoa só cai numa tela de login limpa, sem explicação.
+    window.location.href = '/login?redirect=' + encodeURIComponent(destino) + window.location.hash;
     return;
   }
   window._session = session;
