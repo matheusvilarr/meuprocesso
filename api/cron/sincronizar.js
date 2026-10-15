@@ -189,7 +189,10 @@ async function rodarDatajud(admin, res, hoje) {
   // Dispara email imediato se houve movimentos novos — não bloqueia o response em caso de erro
   if (r.novos > 0) {
     try {
-      await fetch('https://meuprocesso.app.br/api/cron/verificar-atualizacoes?tipo=instant', {
+      // www. obrigatório: sem ele a Vercel responde 308 e o fetch do Node
+      // descarta o Authorization no redirect — a chamada chegava sem senha,
+      // tomava 401 e o e-mail "na hora" nunca saía (erro engolido abaixo).
+      await fetch('https://www.meuprocesso.app.br/api/cron/verificar-atualizacoes?tipo=instant', {
         headers: { 'Authorization': `Bearer ${CRON_SECRET || ''}` },
         signal: AbortSignal.timeout(12000),
       });
