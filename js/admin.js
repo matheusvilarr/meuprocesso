@@ -150,7 +150,7 @@ function renderSaude(s) {
       d.semIndice ? `<span style="color:#991b1b;font-weight:600">${d.semIndice} sem tribunal — fora da fila</span>` : 'Todos os processos estão na fila',
       `Última consulta ${tempoRelativo(d.ultimaVerificacao)}${d.falhando ? ` · ${d.falhando} falhando` : ''}`,
     ], d.semIndice || d.atrasados7d ? 'critico' : pct >= 90 ? 'ok' : pct >= 60 ? 'atencao' : 'critico'),
-    card('ti-news', 'DJEN (cadernos)', `${dj.hoje.concluidos}/${dj.hoje.total} hoje`, [
+    card('ti-news', 'DJEN (por OAB)', `${dj.hoje.concluidos}/${dj.hoje.total} hoje`, [
       `Ontem: ${dj.ontem.concluidos}/${dj.ontem.total}${dj.anteriores?.pendentes ? ` · ${dj.anteriores.pendentes} atrasado(s) na fila` : ''}${dj.hoje.erros + dj.ontem.erros ? ` · ${dj.hoje.erros + dj.ontem.erros} com erro` : ''}`,
       `${dj.hoje.publicacoes + dj.ontem.publicacoes + (dj.anteriores?.publicacoes || 0)} publicação(ões) em 7 dias · último ${tempoRelativo(dj.ultimaConclusao)}`,
     ], !dj.ultimaConclusao ? 'critico' : (dj.hoje.erros + dj.ontem.erros || dj.anteriores?.pendentes) ? 'atencao' : 'ok'),
@@ -159,6 +159,16 @@ function renderSaude(s) {
       `${em.avisosSite} aviso(s) aguardando leitura no site`,
       `Último envio: ${em.ultimoEnvio ? em.ultimoEnvio.split('-').reverse().join('/') + (em.ultimoTipo ? ' (' + esc(em.ultimoTipo) + ')' : '') : 'nunca'}`,
     ], s.config.resend ? 'ok' : 'critico'),
+    (() => {
+      const q = s.emails;
+      if (!q || q.ultimas24h == null) return card('ti-send', 'Cota da Resend', '—',
+        ['Contador ainda não ativo.', 'Rode a migration migration_email_envios.sql no Supabase.'], 'atencao');
+      const pior = Math.max(q.ultimas24h / q.limiteDia, q.mes / q.limiteMes);
+      return card('ti-send', 'Cota da Resend', `${q.ultimas24h}/${q.limiteDia} em 24h`, [
+        `${q.mes}/${q.limiteMes.toLocaleString('pt-BR')} no mês (${Math.round(q.mes / q.limiteMes * 100)}%)`,
+        'Plano grátis — passou do limite, a Resend recusa o resto',
+      ], pior >= 0.9 ? 'critico' : pior >= 0.7 ? 'atencao' : 'ok');
+    })(),
     card('ti-shield-check', 'Configuração', s.config.cronSecret && s.config.resend ? 'OK' : 'Pendências', [
       `CRON_SECRET ${s.config.cronSecret ? '✓' : '✗ faltando'} · Resend ${s.config.resend ? '✓' : '✗ faltando'}`,
       `Região ${esc(s.config.regiao || '—')}${s.config.regiao === 'gru1' ? ' (São Paulo) ✓' : ''}`,

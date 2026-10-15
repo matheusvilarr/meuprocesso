@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import { repararDatajudIndex, sincronizarDatajudUm, comPool } from './cron/sincronizar.js';
 import emailHandler from './cron/verificar-atualizacoes.js';
 import djenCadernosHandler from '../lib/djen-cadernos.js';
-import { ehMovDJEN, abrirExecucao, fecharExecucao } from '../lib/sync-comum.js';
+import { ehMovDJEN, abrirExecucao, fecharExecucao, registrarEnvio } from '../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
 const SUPA_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -529,6 +529,7 @@ async function enviarEmailConvite(email, codigo) {
     const msg = await r.text().catch(() => 'erro desconhecido');
     throw new Error(`Resend ${r.status}: ${msg}`);
   }
+  await registrarEnvio(email, 'Você foi convidado para o Meu Processo');
 }
 
 async function acaoToggleStatus(req, res, admin, adminUser) {
@@ -654,6 +655,7 @@ async function enviarEmailStatusConta(email, nome, tipo, userId, adminClient) {
     }),
   });
   if (!r.ok) throw new Error(`Resend ${r.status}`);
+  await registrarEnvio(email, subject);
 }
 
 async function acaoEmails(req, res, admin) {
@@ -872,7 +874,7 @@ async function acaoSaude(req, res, admin) {
     semIndice, atrasados7d,
     totalAtivos, comIndice, desatualizados, nuncaVerificados, avisosSite, emailsPendentes, falhando,
     { data: ultimaVerif }, { data: fila }, { data: erros24h }, { data: ultimoEmail }, { data: assinaturas },
-    execucoes24h, pedidosLicenca,
+    execucoes24h, pedidosLicenca, emails24h, emailsMes,
   ] = await Promise.all([
     // Vazão real: quantos processos tiveram consulta bem-sucedida na janela.
     contar(base().gte('ultima_verificacao', h6)),
@@ -899,6 +901,9 @@ async function acaoSaude(req, res, admin) {
       .then(r => r.data || [], () => []),   // tabela pode não existir ainda
     admin.from('solicitacoes_licenca').select('id, valor', { count: 'exact' }).eq('status', 'pendente')
       .then(r => r.data || [], () => []),
+    // null = tabela email_envios ainda não criada (migration_email_envios.sql)
+    contar(admin.from('email_envios').select('id', { count: 'exact', head: true }).gte('enviado_em', h24)),
+    contar(admin.from('email_envios').select('id', { count: 'exact', head: true }).gte('enviado_em', new Date(agora).toISOString().slice(0, 8) + '01')),
   ]);
 
   const djen = {
@@ -959,6 +964,17 @@ async function acaoSaude(req, res, admin) {
   if (!config.resend) add('critico', 'RESEND_API_KEY ausente', 'Nenhum e-mail está sendo enviado.');
   if (config.regiao && config.regiao !== 'gru1') add('atencao', `Funções rodando em ${config.regiao}`,
     'A API do DJEN bloqueia IPs fora do Brasil (403). Confira "regions": ["gru1"] no vercel.json.');
+
+  // Plano grátis da Resend: 100/dia e 3.000/mês — estourou, o resto é recusado
+  // (inclusive aviso de prazo). Avisa com folga pra dar tempo de trocar de plano.
+  const emails = { ultimas24h: emails24h, mes: emailsMes, limiteDia: 100, limiteMes: 3000 };
+  if (emails24h !== null) {
+    const pDia = emails24h / emails.limiteDia, pMes = emailsMes / emails.limiteMes;
+    if (pDia >= 0.9 || pMes >= 0.9) add('critico', `E-mails perto do limite da Resend (${emails24h}/100 em 24h · ${emailsMes}/3.000 no mês)`,
+      'Passou do limite, a Resend recusa o resto — inclusive avisos de prazo. Troque para o plano pago na Resend.');
+    else if (pDia >= 0.7 || pMes >= 0.7) add('atencao', `E-mails em ${Math.round(Math.max(pDia, pMes) * 100)}% do limite da Resend`,
+      `${emails24h}/100 nas últimas 24h · ${emailsMes}/3.000 no mês. Hora de planejar o plano pago.`);
+  }
 
   const djenHorasSemConcluir = djen.ultimaConclusao ? (agora - new Date(djen.ultimaConclusao)) / 3600000 : null;
   if (djenHorasSemConcluir === null || djenHorasSemConcluir > 24) add('critico', 'DJEN parado',
@@ -1034,6 +1050,7 @@ async function acaoSaude(req, res, admin) {
     emails: { pendentes: emailsPendentes, avisosSite, ultimoEnvio: ultimoEmailData, ultimoTipo: ultimoEmail?.[0]?.tipo || null },
     erros24h: errosPorOrigem,
     assinaturas: { vencendo7d, vencidas, emTrial, pedidosPendentes: (pedidosLicenca || []).length },
+    emails,
     alertas,
   });
 }
@@ -1379,7 +1396,7 @@ async function acaoAprovarUsuario(req, res, admin) {
           subject: 'Seu acesso foi liberado — Meu Processo',
           html: emailAprovado(nome ? nome.split(' ')[0] : 'Advogado(a)'),
         }),
-      }).catch(() => {});
+      }).then(r => r.ok && registrarEnvio(email, 'Seu acesso foi liberado — Meu Processo')).catch(() => {});
     }
   }
 

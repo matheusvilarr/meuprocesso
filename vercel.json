@@ -64,6 +64,9 @@
     { "path": "/api/cron/verificar-atualizacoes?tipo=honorario_vencido", "schedule": "30 12 * * *" },
     { "path": "/api/cron/sincronizar?tipo=djen",                 "schedule": "0 9 * * *" },
     { "path": "/api/cron/sincronizar?tipo=djen",                 "schedule": "0 15 * * *" },
-    { "path": "/api/cron/sincronizar?tipo=djen",                 "schedule": "0 22 * * *" }
+    { "path": "/api/cron/sincronizar?tipo=djen",                 "schedule": "0 22 * * *" },
+    { "path": "/api/cron/sincronizar?tipo=djen",                 "schedule": "40 11 * * *" },
+    { "path": "/api/cron/sincronizar?tipo=djen",                 "schedule": "40 17 * * *" },
+    { "path": "/api/cron/sincronizar?tipo=djen",                 "schedule": "40 0 * * *" }
   ]
 }
