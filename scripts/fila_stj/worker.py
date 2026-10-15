@@ -69,8 +69,32 @@ def normalizar_stj(texto):
     return ("AREsp " if m.group(1).lower() == "aresp" else "REsp ") + num
 
 
+CLASSES_STF = ["ARE", "RE", "AI", "Rcl", "ADI", "ADPF", "ADC", "ADO", "MI"]
+RE_STF = re.compile(r"\b(ARE|RE|AI|Rcl|ADI|ADPF|ADC|ADO|MI)\b\.?\s*(?:n[º°o]?\.?\s*)?(\d[\d.]*)", re.IGNORECASE)
+
+
+def normalizar_superior(texto):
+    """STJ ou STF -> (tribunal, termo). Mesma regra de lib/sync-comum.js
+    (normalizarNumeroSuperior): classes do STF só as que não existem no STJ."""
+    stj = normalizar_stj(texto)
+    if stj:
+        return ("stj", stj)
+    s = str(texto or "")
+    if len(re.sub(r"\D", "", s)) == 20:
+        return None
+    m = RE_STF.search(s)
+    if not m:
+        return None
+    num = re.sub(r"\D", "", m.group(2))
+    if not 3 <= len(num) <= 8:
+        return None
+    classe = next(c for c in CLASSES_STF if c.lower() == m.group(1).lower())
+    return ("stf", f"{classe} {num}")
+
+
 def consulta_normalizada(texto):
-    return normalizar_stj(texto) or texto.strip()
+    r = normalizar_superior(texto)
+    return r[1] if r else texto.strip()
 
 
 def ler_tudo(query_fn):
@@ -99,14 +123,20 @@ def varrer_processos_orfaos(supa):
                          .is_("datajud_index", "null")
                          .neq("status", "Arquivado"))
     fila = ler_tudo(lambda: supa.table("fila_consulta_stj")
-                    .select("id, user_id, termo_busca, status, numero_cnj"))
-    na_fila = {(f["user_id"], consulta_normalizada(f["termo_busca"])): f for f in fila}
+                    .select("id, user_id, termo_busca, entrada_original, status, numero_cnj"))
+    na_fila = {}
+    for f in fila:
+        # também pela entrada original: "ARE 3068207" que virou "AREsp 3068207"
+        # no STJ (ver resolver_stf) continua sendo reconhecido como já na fila
+        na_fila[(f["user_id"], consulta_normalizada(f.get("entrada_original") or ""))] = f
+        na_fila[(f["user_id"], consulta_normalizada(f["termo_busca"]))] = f
 
     vistos, novas, reabrir = set(), [], set()
     for p in processos:
-        termo = normalizar_stj(p.get("numero"))
-        if not termo:
+        sup = normalizar_superior(p.get("numero"))
+        if not sup:
             continue
+        tribunal, termo = sup
         chave = (p["user_id"], termo)
         if chave in vistos:
             continue
@@ -117,7 +147,7 @@ def varrer_processos_orfaos(supa):
                 "user_id": p["user_id"],
                 "entrada_original": p["numero"].strip(),
                 "termo_busca": termo,
-                "tribunal": "stj",
+                "tribunal": tribunal,
                 "status": "pendente",
             })
         elif linha["status"] == "importado" and linha.get("numero_cnj"):
@@ -184,42 +214,16 @@ def importar_resolvidos(supa):
         print(f"  Falhou ao chamar {SYNC_ENDPOINT}: {e}")
 
 
-def main():
-    if not SUPABASE_SERVICE_KEY:
-        print("ERRO: SUPABASE_SERVICE_KEY não configurada em scripts/fila_stj/.env")
-        sys.exit(1)
+def marcar(supa, linha_id, campos):
+    campos = {**campos, "processado_em": datetime.now(timezone.utc).isoformat()}
+    supa.table("fila_consulta_stj").update(campos).eq("id", linha_id).execute()
 
-    supa = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-    novos, reabertos = varrer_processos_orfaos(supa)
-    if novos:
-        print(f"{novos} cartão(ões) com número do STJ fora da fila — adicionados.")
-    if reabertos:
-        print(f"{reabertos} cartão(ões) duplicado(s) de número já convertido — vão ser juntados ao processo CNJ.")
-    retentados = retentar_erros(supa)
-    if retentados:
-        print(f"{retentados} item(ns) que deram erro antes — tentando de novo.")
-
-    pendentes = ler_tudo(lambda: supa.table("fila_consulta_stj")
-                         .select("id, user_id, entrada_original, termo_busca")
-                         .eq("status", "pendente"))
-
-    if not pendentes:
-        print("Fila vazia — nada novo pra resolver agora.")
-        importar_resolvidos(supa)
-        return
-
-    print(f"{len(pendentes)} número(s) na fila. Abrindo navegador e resolvendo o Cloudflare do STJ...")
-
-    # Import tardio: só precisa do Scrapling quando há algo pra processar,
-    # evita o custo de subir o navegador à toa numa fila vazia.
-    from scrapling.fetchers import StealthyFetcher
-
-    resultados = {"resolvido": 0, "nao_encontrado": 0, "erro": 0}
-
-    def resolver_fila(page):
-        for i, linha in enumerate(pendentes):
+def resolver_stj(supa, linhas, resultados, Fetcher):
+    def acao(page):
+        for i, linha in enumerate(linhas):
             termo = consulta_normalizada(linha["termo_busca"])
+            via_stf = linha.get("_veio_do_stf")
             try:
                 if i > 0:
                     page.goto(STJ_URL)
@@ -235,43 +239,141 @@ def main():
                 m_unico = RE_UNICO.search(html)
                 m_classe = RE_CLASSE.search(html)
                 m_registro = RE_REGISTRO.search(html)
-                agora = datetime.now(timezone.utc).isoformat()
 
                 if m_unico:
-                    supa.table("fila_consulta_stj").update({
+                    campos = {
                         "status": "resolvido",
                         "numero_cnj": m_unico.group(1),
                         "classe_descricao": m_classe.group(1).strip() if m_classe else None,
                         "numero_registro_tribunal": m_registro.group(1) if m_registro else None,
-                        "processado_em": agora,
-                    }).eq("id", linha["id"]).execute()
+                    }
+                    if via_stf:
+                        # Era "ARE 3068207" digitado sem o "sp": passa a ser
+                        # registrado como STJ. A entrada original fica intacta.
+                        try:
+                            marcar(supa, linha["id"], {**campos, "termo_busca": termo, "tribunal": "stj"})
+                        except Exception:
+                            marcar(supa, linha["id"], campos)   # termo já existe na fila desse usuário
+                    else:
+                        marcar(supa, linha["id"], campos)
                     resultados["resolvido"] += 1
-                    print(f"  [OK] {linha['entrada_original']} -> {m_unico.group(1)}")
+                    print(f"  [OK] {linha['entrada_original']} -> {m_unico.group(1)}" + (f" (achado no STJ como {termo})" if via_stf else ""))
                 else:
-                    supa.table("fila_consulta_stj").update({
+                    marcar(supa, linha["id"], {
                         "status": "nao_encontrado",
-                        "erro_mensagem": "Processo não encontrado no site do STJ.",
-                        "processado_em": agora,
-                    }).eq("id", linha["id"]).execute()
+                        "erro_mensagem": "Processo não encontrado no STF nem no STJ." if via_stf else "Processo não encontrado no site do STJ.",
+                    })
                     resultados["nao_encontrado"] += 1
                     print(f"  [--] {linha['entrada_original']} -> não encontrado")
 
             except Exception as e:
-                supa.table("fila_consulta_stj").update({
-                    "status": "erro",
-                    "erro_mensagem": str(e)[:300],
-                    "processado_em": datetime.now(timezone.utc).isoformat(),
-                }).eq("id", linha["id"]).execute()
+                marcar(supa, linha["id"], {"status": "erro", "erro_mensagem": str(e)[:300]})
                 resultados["erro"] += 1
                 print(f"  [ERRO] {linha['entrada_original']} -> {e}")
 
-    StealthyFetcher.fetch(
-        STJ_URL,
-        headless=True,
-        solve_cloudflare=True,
-        network_idle=True,
-        page_action=resolver_fila,
-    )
+    Fetcher.fetch(STJ_URL, headless=True, solve_cloudflare=True, network_idle=True, page_action=acao)
+
+
+STF_URL = "https://portal.stf.jus.br/"
+RE_UNICO_STF = re.compile(r"N[úu]mero [ÚU]nico:\s*(\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4})", re.IGNORECASE)
+
+
+def resolver_stf(supa, linhas, resultados, Fetcher):
+    """Portal do STF: a busca só roda pelo formulário (o link direto
+    listarProcessos.asp?classe=...&numeroProcesso=... volta vazio sem a sessão
+    da página inicial). Testado em 15/10/2026 com ARE 1450000.
+    ARE/RE que não existe no STF volta como AREsp/REsp pra tentar no STJ:
+    a numeração do ARE no STF está na casa de 1,5 milhão, e "ARE 3068207"
+    (Pedro) era o AREsp 3068207 do STJ digitado sem o "sp"."""
+    para_stj = []
+
+    def acao(page):
+        for linha in linhas:
+            classe, num = linha["termo_busca"].split(" ", 1)
+            try:
+                page.goto(STF_URL)
+                page.wait_for_load_state("networkidle", timeout=30000)
+                page.select_option("#tipo-pesquisa-processo", "CLASSE_E_NUMERO")
+                page.select_option("#Siglas", classe)
+                page.fill("#pesquisaPrincipalClasseNumero", num)
+                page.press("#pesquisaPrincipalClasseNumero", "Enter")
+                page.wait_for_load_state("networkidle", timeout=30000)
+                page.wait_for_timeout(2500)
+
+                texto = re.sub(r"<[^>]+>", " ", page.content()).replace("&nbsp;", " ")
+                texto = re.sub(r"\s+", " ", texto)
+                m_unico = RE_UNICO_STF.search(texto)
+
+                if m_unico:
+                    marcar(supa, linha["id"], {
+                        "status": "resolvido",
+                        "numero_cnj": m_unico.group(1),
+                        "numero_registro_tribunal": linha["termo_busca"],
+                    })
+                    resultados["resolvido"] += 1
+                    print(f"  [OK] {linha['entrada_original']} -> {m_unico.group(1)} (STF)")
+                elif classe in ("ARE", "RE") and len(num) >= 5:
+                    termo_stj = ("AREsp " if classe == "ARE" else "REsp ") + num
+                    para_stj.append({**linha, "termo_busca": termo_stj, "_veio_do_stf": True})
+                    print(f"  [->] {linha['entrada_original']} não existe no STF — tentando {termo_stj} no STJ")
+                else:
+                    marcar(supa, linha["id"], {
+                        "status": "nao_encontrado",
+                        "erro_mensagem": "Processo não encontrado no site do STF.",
+                    })
+                    resultados["nao_encontrado"] += 1
+                    print(f"  [--] {linha['entrada_original']} -> não encontrado no STF")
+
+            except Exception as e:
+                marcar(supa, linha["id"], {"status": "erro", "erro_mensagem": str(e)[:300]})
+                resultados["erro"] += 1
+                print(f"  [ERRO] {linha['entrada_original']} -> {e}")
+
+    Fetcher.fetch(STF_URL, headless=True, network_idle=True, page_action=acao)
+    return para_stj
+
+
+def main():
+    if not SUPABASE_SERVICE_KEY:
+        print("ERRO: SUPABASE_SERVICE_KEY não configurada em scripts/fila_stj/.env")
+        sys.exit(1)
+
+    supa = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+    novos, reabertos = varrer_processos_orfaos(supa)
+    if novos:
+        print(f"{novos} cartão(ões) com número do STJ/STF fora da fila — adicionados.")
+    if reabertos:
+        print(f"{reabertos} cartão(ões) duplicado(s) de número já convertido — vão ser juntados ao processo CNJ.")
+    retentados = retentar_erros(supa)
+    if retentados:
+        print(f"{retentados} item(ns) que deram erro antes — tentando de novo.")
+
+    pendentes = ler_tudo(lambda: supa.table("fila_consulta_stj")
+                         .select("id, user_id, entrada_original, termo_busca, tribunal")
+                         .eq("status", "pendente"))
+
+    if not pendentes:
+        print("Fila vazia — nada novo pra resolver agora.")
+        importar_resolvidos(supa)
+        return
+
+    # Import tardio: só precisa do Scrapling quando há algo pra processar,
+    # evita o custo de subir o navegador à toa numa fila vazia.
+    from scrapling.fetchers import StealthyFetcher
+
+    resultados = {"resolvido": 0, "nao_encontrado": 0, "erro": 0}
+    do_stf = [l for l in pendentes if l.get("tribunal") == "stf"]
+    do_stj = [l for l in pendentes if l.get("tribunal") != "stf"]
+
+    # STF primeiro: ARE/RE que não existe lá volta como AREsp/REsp pro STJ
+    # nesta mesma rodada (erro comum de digitação — ver resolver_stf).
+    if do_stf:
+        print(f"{len(do_stf)} número(s) do STF na fila. Abrindo navegador...")
+        do_stj += resolver_stf(supa, do_stf, resultados, StealthyFetcher)
+    if do_stj:
+        print(f"{len(do_stj)} número(s) do STJ na fila. Abrindo navegador e resolvendo o Cloudflare do STJ...")
+        resolver_stj(supa, do_stj, resultados, StealthyFetcher)
 
     print(
         f"\nResolvidos: {resultados['resolvido']} · "

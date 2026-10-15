@@ -1274,7 +1274,7 @@ async function buscarProcesso() {
     // aceita o número único) — em vez de descartar a linha, entra na fila que
     // o worker local resolve via scraping do site do STJ (ver
     // scripts/fila_stj/worker.py) e devolve como processo importado sozinho.
-    const linhasSigla = linhas.filter(l => _normalizarNumeroSTJ(l));
+    const linhasSigla = linhas.filter(l => _normalizarNumeroSuperior(l));
     let idsCriadosSTJ = [];
     if (linhasSigla.length) idsCriadosSTJ = await _enfileirarSTJ(linhasSigla);
 
@@ -1334,14 +1334,14 @@ async function buscarProcesso() {
 async function _enfileirarSTJ(linhasSigla) {
   const vistos = new Set();
   const termos = linhasSigla
-    .map(l => ({ entrada: l, termo: _normalizarNumeroSTJ(l) }))
+    .map(l => ({ entrada: l, ...(_normalizarNumeroSuperior(l) || {}) }))
     .filter(t => t.termo && !vistos.has(t.termo) && vistos.add(t.termo));
 
   const rows = termos.map(t => ({
     user_id:           window._escritorioId,
     entrada_original:  t.entrada,
     termo_busca:        t.termo,
-    tribunal:           'stj',
+    tribunal:           t.tribunal,
     status:             'pendente',
   }));
   try {
@@ -1665,7 +1665,7 @@ async function salvarProcesso() {
   // deixa cadastrar, mas só depois de confirmar que sabe disso.
   // Número do STJ: sem alerta — a fila converte sozinha. Só barra duplicata,
   // inclusive de processo que já foi convertido pro CNJ.
-  const termoSTJ = numero ? _normalizarNumeroSTJ(numero) : null;
+  const termoSTJ = numero ? (_normalizarNumeroSuperior(numero)?.termo || null) : null;
   if (termoSTJ) {
     const ja = await _acharProcessoPorSTJ(termoSTJ);
     if (ja) {
@@ -1720,7 +1720,7 @@ async function salvarProcesso() {
     ultima_verificacao:  window._importMovimentos?.length ? new Date().toISOString() : null,
     // Formato STJ (ex: "AREsp 3254978") fica pesquisável mesmo depois que a
     // fila trocar "numero" pelo número CNJ — ver filtrarProcessos/topbarSearch.
-    numero_registro_superior: _normalizarNumeroSTJ(numero),
+    numero_registro_superior: _normalizarNumeroSuperior(numero)?.termo || null,
   };
 
   const { error } = await _supabase.from('processos').insert(payload);
@@ -1738,7 +1738,7 @@ async function salvarProcesso() {
   // jeito que o advogado digitou; quando a fila resolver, o número CNJ
   // substitui este, preservando tudo que foi editado (_enfileirarSTJ só cria
   // um card novo se ainda não existir um com esse número — aqui já existe).
-  if (numero && !_validarNumeroProcessoCNJ(numero) && _normalizarNumeroSTJ(numero)) {
+  if (numero && !_validarNumeroProcessoCNJ(numero) && _normalizarNumeroSuperior(numero)) {
     await _enfileirarSTJ([numero]);
   }
 
@@ -6384,6 +6384,21 @@ function _normalizarNumeroSTJ(texto) {
   return `${m[1].toLowerCase() === 'aresp' ? 'AREsp' : 'REsp'} ${num}`;
 }
 
+// STJ ou STF → { tribunal, termo }. Mesma regra de lib/sync-comum.js
+// (normalizarNumeroSuperior): classes do STF só as que não existem no STJ.
+function _normalizarNumeroSuperior(texto) {
+  const stj = _normalizarNumeroSTJ(texto);
+  if (stj) return { tribunal: 'stj', termo: stj };
+  const s = String(texto ?? '');
+  if (s.replace(/\D/g, '').length === 20) return null;
+  const m = s.match(/\b(ARE|RE|AI|Rcl|ADI|ADPF|ADC|ADO|MI)\b\.?\s*(?:n[º°o]?\.?\s*)?(\d[\d.]*)/i);
+  if (!m) return null;
+  const num = m[2].replace(/\D/g, '');
+  if (num.length < 3 || num.length > 8) return null;
+  const classe = ['ARE', 'RE', 'AI', 'Rcl', 'ADI', 'ADPF', 'ADC', 'ADO', 'MI'].find(c => c.toLowerCase() === m[1].toLowerCase());
+  return { tribunal: 'stf', termo: `${classe} ${num}` };
+}
+
 // Processo do escritório que já corresponde a esse número do STJ — ainda
 // como cartão provisório ou já convertido pro CNJ (numero_registro_superior).
 async function _acharProcessoPorSTJ(termo) {
@@ -6392,7 +6407,7 @@ async function _acharProcessoPorSTJ(termo) {
     .eq('user_id', window._escritorioId)
     .or('numero_registro_superior.not.is.null,datajud_index.is.null');
   const achados = (data || []).filter(p =>
-    _normalizarNumeroSTJ(p.numero) === termo || _normalizarNumeroSTJ(p.numero_registro_superior) === termo);
+    _normalizarNumeroSuperior(p.numero)?.termo === termo || _normalizarNumeroSuperior(p.numero_registro_superior)?.termo === termo);
   return achados.find(p => p.status !== 'Arquivado') || achados[0] || null;
 }
 
@@ -6416,8 +6431,9 @@ function _checarNumeroProcessoManual(inputId, alertaId, contexto) {
   const consequencia = contexto === 'processo'
     ? 'esse processo não entra na verificação automática de movimentações.'
     : 'sem problema deixar assim, é só uma referência — não afeta a sincronização de nenhum processo.';
-  if (contexto === 'processo' && _normalizarNumeroSTJ(valor)) {
-    alerta.innerHTML = '<i class="ti ti-circle-check"></i> Número do STJ reconhecido — a gente converte pro número único (CNJ) automaticamente e começa a acompanhar. Você não precisa fazer nada.';
+  const superior = contexto === 'processo' && _normalizarNumeroSuperior(valor);
+  if (superior) {
+    alerta.innerHTML = `<i class="ti ti-circle-check"></i> Número do ${superior.tribunal.toUpperCase()} reconhecido — a gente converte pro número único (CNJ) automaticamente e começa a acompanhar. Você não precisa fazer nada.`;
     return;
   }
   const texto = _SIGLAS_TRIBUNAL_SUPERIOR.test(valor)

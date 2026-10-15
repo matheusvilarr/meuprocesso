@@ -22,7 +22,7 @@ import {
   ehMovDJEN, datajudIndexFromNumero, buscarOabsUsuarios, corrigirMojibake,
   normalizarNumeroCNJ, tituloProcesso, limparLogsAntigos,
   abrirExecucao, fecharExecucao, enviarEmail, cabecalho, rodape, btnDashboard,
-  inferirTratamento, usuariosComAcesso, enviarAvisoReativacao, normalizarNumeroSTJ,
+  inferirTratamento, usuariosComAcesso, enviarAvisoReativacao, normalizarNumeroSuperior,
 } from '../../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
@@ -599,14 +599,14 @@ async function rodarFilaStj(admin, res) {
       // processo CNJ se ele já existir. Até 15/10/2026 só o primeiro achado
       // era atualizado — quando o CNJ já existia, o cartão do STJ ficava solto
       // pra sempre, sem tribunal (caso do Pedro: 7 cartões duplicados).
-      const termoSTJ = normalizarNumeroSTJ(linha.termo_busca) || linha.termo_busca;
+      const termoSTJ = normalizarNumeroSuperior(linha.termo_busca)?.termo || linha.termo_busca;
       const COLS = 'id, numero, apelido, nome, cliente, movimentos_recentes, tribunal, historico_numeros, status, classe, orgao_julgador, data_ajuizamento, numero_registro_superior';
       const [{ data: porCnj, error: eCnj }, { data: semIndice, error: eSem }] = await Promise.all([
         admin.from('processos').select(COLS).eq('user_id', linha.user_id).eq('numero', numero),
         admin.from('processos').select(COLS).eq('user_id', linha.user_id).is('datajud_index', null).neq('status', 'Arquivado'),
       ]);
       if (eCnj || eSem) throw new Error((eCnj || eSem).message);
-      const cartoesSTJ = (semIndice || []).filter(p => p.numero === linha.entrada_original || normalizarNumeroSTJ(p.numero) === termoSTJ);
+      const cartoesSTJ = (semIndice || []).filter(p => p.numero === linha.entrada_original || normalizarNumeroSuperior(p.numero)?.termo === termoSTJ);
       const existente  = (porCnj || [])[0] || cartoesSTJ[0] || null;
       const sobras     = cartoesSTJ.filter(p => p.id !== existente?.id);
 
@@ -718,7 +718,7 @@ async function rodarFilaStj(admin, res) {
       if (tipoAviso) {
         (avisosPorUsuario[linha.user_id] ||= []).push({
           tipo: tipoAviso,
-          numero, registroSuperior, nomeExibicao,
+          numero, registroSuperior, nomeExibicao, etiqueta: etiquetaTribunal,
           classe: d.classe || existente?.classe || null,
           cliente: existente ? (existente.cliente || null) : clienteNovo,
           dataAjuizamento: d.dataAjuizamento || null,
@@ -765,26 +765,27 @@ async function rodarFilaStj(admin, res) {
           ${it.cliente ? `<div style="font-size:12px;color:#374151">Cliente: ${esc(it.cliente)}</div>` : ''}
           ${it.classe && it.classe !== it.nomeExibicao ? `<div style="font-size:12px;color:#374151">${esc(it.classe)}</div>` : ''}
           <div style="font-size:12px;color:#6b7280;margin-top:4px">
-            STJ: <b>${esc(it.registroSuperior)}</b> → número único: <b style="font-family:monospace">${esc(it.numero)}</b>
+            ${esc(it.etiqueta || 'STJ')}: <b>${esc(it.registroSuperior)}</b> → número único: <b style="font-family:monospace">${esc(it.numero)}</b>
           </div>
           ${it.dataAjuizamento ? `<div style="font-size:11px;color:#9ca3af;margin-top:2px">Distribuído em ${new Date(it.dataAjuizamento).toLocaleDateString('pt-BR')}</div>` : ''}
           ${it.semDadosDatajud ? `<div style="font-size:11px;color:#b45309;margin-top:2px">O tribunal ainda não publicou as movimentações deste processo — elas aparecem sozinhas assim que saírem.</div>` : ''}
         </div>`;
 
       const novos = itens.filter(i => i.tipo === 'novo').length;
+      const trib  = [...new Set(itens.map(i => i.etiqueta || 'STJ'))].join(' e ');   // "STJ", "STF" ou "STJ e STF"
       const assunto = itens.length === 1
         ? (novos ? `Processo novo no seu painel — ${itens[0].registroSuperior}` : `${itens[0].registroSuperior} agora está sendo monitorado`)
-        : `${itens.length} processos do STJ agora monitorados`;
+        : `${itens.length} processos do ${trib} agora monitorados`;
 
       const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
 <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
-  ${cabecalho(itens.length === 1 ? 'Número do STJ convertido' : `${itens.length} números do STJ convertidos`)}
+  ${cabecalho(itens.length === 1 ? `Número do ${trib} convertido` : `${itens.length} números do ${trib} convertidos`)}
   <div style="padding:16px 24px">
     <div style="font-size:13px;color:#374151;line-height:1.5;margin-bottom:14px">
-      Convertemos ${itens.length === 1 ? 'o número do STJ abaixo' : 'os números do STJ abaixo'} para o número único (CNJ)
+      Convertemos ${itens.length === 1 ? `o número do ${trib} abaixo` : `os números do ${trib} abaixo`} para o número único (CNJ)
       e ${itens.length === 1 ? 'o processo já está' : 'os processos já estão'} sendo monitorado${itens.length === 1 ? '' : 's'} —
-      você recebe aviso a cada movimentação. O número do STJ continua salvo e pesquisável no painel.
+      você recebe aviso a cada movimentação. O número do ${trib} continua salvo e pesquisável no painel.
     </div>
     ${itens.map(linhaItem).join('')}
   </div>
