@@ -1274,7 +1274,7 @@ async function buscarProcesso() {
     // aceita o número único) — em vez de descartar a linha, entra na fila que
     // o worker local resolve via scraping do site do STJ (ver
     // scripts/fila_stj/worker.py) e devolve como processo importado sozinho.
-    const linhasSigla = linhas.filter(l => l.replace(/\D/g, '').length !== 20 && /^a?resp\.?\s*\d/i.test(l));
+    const linhasSigla = linhas.filter(l => _normalizarNumeroSTJ(l));
     let idsCriadosSTJ = [];
     if (linhasSigla.length) idsCriadosSTJ = await _enfileirarSTJ(linhasSigla);
 
@@ -1332,11 +1332,10 @@ async function buscarProcesso() {
 // quando a fila resolver, o número CNJ substitui o número provisório sem
 // apagar nada que foi editado (mesma lógica de _importarComMerge).
 async function _enfileirarSTJ(linhasSigla) {
-  const termos = linhasSigla.map(l => ({
-    entrada: l,
-    // remove sufixo de UF tipo " - AL", que não faz parte do número no STJ
-    termo: l.replace(/\s*-\s*[A-Z]{2}\s*$/i, '').trim(),
-  }));
+  const vistos = new Set();
+  const termos = linhasSigla
+    .map(l => ({ entrada: l, termo: _normalizarNumeroSTJ(l) }))
+    .filter(t => t.termo && !vistos.has(t.termo) && vistos.add(t.termo));
 
   const rows = termos.map(t => ({
     user_id:           window._escritorioId,
@@ -1356,9 +1355,11 @@ async function _enfileirarSTJ(linhasSigla) {
   let criados = 0;
   for (const t of termos) {
     try {
-      const { data: existente } = await _supabase.from('processos')
-        .select('id').eq('user_id', window._escritorioId).eq('numero', t.termo).maybeSingle();
-      if (existente) { processoIds.push(existente.id); continue; } // já tem card (cadastro manual anterior, por ex.)
+      // Já está no painel — como cartão provisório ou já convertido pro CNJ.
+      // Antes só comparava o texto exato, e colar de novo um número já
+      // convertido criava um cartão duplicado sem tribunal (caso do Pedro).
+      const existente = await _acharProcessoPorSTJ(t.termo);
+      if (existente) { processoIds.push(existente.id); continue; }
       const { data: novo, error } = await _supabase.from('processos').upsert({
         user_id:                  window._escritorioId,
         numero:                   t.termo,
@@ -1662,7 +1663,16 @@ async function salvarProcesso() {
   // Número sem os 20 dígitos do CNJ nunca vai entrar na verificação
   // automática (precisa do índice do tribunal pra consultar o DataJud) —
   // deixa cadastrar, mas só depois de confirmar que sabe disso.
-  if (numero && !_validarNumeroProcessoCNJ(numero)) {
+  // Número do STJ: sem alerta — a fila converte sozinha. Só barra duplicata,
+  // inclusive de processo que já foi convertido pro CNJ.
+  const termoSTJ = numero ? _normalizarNumeroSTJ(numero) : null;
+  if (termoSTJ) {
+    const ja = await _acharProcessoPorSTJ(termoSTJ);
+    if (ja) {
+      showToast(`Este processo já está no seu painel${ja.numero !== termoSTJ ? ` (${ja.numero})` : ''}.`);
+      return;
+    }
+  } else if (numero && !_validarNumeroProcessoCNJ(numero)) {
     const ehSigla = _SIGLAS_TRIBUNAL_SUPERIOR.test(numero);
     const msg = (ehSigla
       ? 'Esse é o formato tradicional do STF/STJ (sigla + número), não o número CNJ completo (20 dígitos).'
@@ -1710,7 +1720,7 @@ async function salvarProcesso() {
     ultima_verificacao:  window._importMovimentos?.length ? new Date().toISOString() : null,
     // Formato STJ (ex: "AREsp 3254978") fica pesquisável mesmo depois que a
     // fila trocar "numero" pelo número CNJ — ver filtrarProcessos/topbarSearch.
-    numero_registro_superior: /^a?resp\.?\s*\d/i.test(numero) ? numero : null,
+    numero_registro_superior: _normalizarNumeroSTJ(numero),
   };
 
   const { error } = await _supabase.from('processos').insert(payload);
@@ -1728,7 +1738,7 @@ async function salvarProcesso() {
   // jeito que o advogado digitou; quando a fila resolver, o número CNJ
   // substitui este, preservando tudo que foi editado (_enfileirarSTJ só cria
   // um card novo se ainda não existir um com esse número — aqui já existe).
-  if (numero && !_validarNumeroProcessoCNJ(numero) && /^a?resp\.?\s*\d/i.test(numero)) {
+  if (numero && !_validarNumeroProcessoCNJ(numero) && _normalizarNumeroSTJ(numero)) {
     await _enfileirarSTJ([numero]);
   }
 
@@ -6359,7 +6369,32 @@ function _validarNumeroProcessoCNJ(numero) {
 const _SIGLAS_TRIBUNAL_SUPERIOR = /^(adi|adpf|adc|re|resp|aresp|hc|hd|mi|ms|ap|rcl|sl|si|ext|inq)\.?\s*\d/i;
 // Só resp/aresp são exclusivos do STJ (RE/ADI/etc podem ser STF) — o link de
 // busca abaixo só aparece pra esses, pra não mandar pro tribunal errado.
-const _SIGLA_STJ = /^a?resp\.?\s*\d/i;
+const _SIGLA_STJ = { test: v => !!_normalizarNumeroSTJ(v) };
+
+// Mesma regra de lib/sync-comum.js (normalizarNumeroSTJ) e do worker.py:
+// "REsp nº 2280984 / AL", "AgInt no AREsp 3.080.419/AL", "AREsp 2722519 - AL"
+// → "REsp 2280984" / "AREsp 3080419" / "AREsp 2722519". Null se não for STJ.
+function _normalizarNumeroSTJ(texto) {
+  const s = String(texto ?? '');
+  if (s.replace(/\D/g, '').length === 20) return null;
+  const m = s.match(/\b(a?resp)\b\.?\s*(?:n[º°o]?\.?\s*)?(\d[\d.]*)/i);
+  if (!m) return null;
+  const num = m[2].replace(/\D/g, '');
+  if (num.length < 5 || num.length > 8) return null;
+  return `${m[1].toLowerCase() === 'aresp' ? 'AREsp' : 'REsp'} ${num}`;
+}
+
+// Processo do escritório que já corresponde a esse número do STJ — ainda
+// como cartão provisório ou já convertido pro CNJ (numero_registro_superior).
+async function _acharProcessoPorSTJ(termo) {
+  const { data } = await _supabase.from('processos')
+    .select('id, numero, numero_registro_superior, status')
+    .eq('user_id', window._escritorioId)
+    .or('numero_registro_superior.not.is.null,datajud_index.is.null');
+  const achados = (data || []).filter(p =>
+    _normalizarNumeroSTJ(p.numero) === termo || _normalizarNumeroSTJ(p.numero_registro_superior) === termo);
+  return achados.find(p => p.status !== 'Arquivado') || achados[0] || null;
+}
 
 // Busca automatizada no STJ é bloqueada por Cloudflare (CSID/STJ) — não dá pra
 // puxar o número único sozinho. Isso aqui só abre a consulta já preenchida
@@ -6381,6 +6416,10 @@ function _checarNumeroProcessoManual(inputId, alertaId, contexto) {
   const consequencia = contexto === 'processo'
     ? 'esse processo não entra na verificação automática de movimentações.'
     : 'sem problema deixar assim, é só uma referência — não afeta a sincronização de nenhum processo.';
+  if (contexto === 'processo' && _normalizarNumeroSTJ(valor)) {
+    alerta.innerHTML = '<i class="ti ti-circle-check"></i> Número do STJ reconhecido — a gente converte pro número único (CNJ) automaticamente e começa a acompanhar. Você não precisa fazer nada.';
+    return;
+  }
   const texto = _SIGLAS_TRIBUNAL_SUPERIOR.test(valor)
     ? `Esse é o formato tradicional do STF/STJ (sigla + número) — sem o número CNJ completo (20 dígitos), ${consequencia}`
     : `Esse número não parece seguir o padrão CNJ (20 dígitos: NNNNNNN-DD.AAAA.J.TR.OOOO) — ${consequencia}`;

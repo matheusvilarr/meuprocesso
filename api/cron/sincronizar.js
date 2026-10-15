@@ -22,7 +22,7 @@ import {
   ehMovDJEN, datajudIndexFromNumero, buscarOabsUsuarios, corrigirMojibake,
   normalizarNumeroCNJ, tituloProcesso, limparLogsAntigos,
   abrirExecucao, fecharExecucao, enviarEmail, cabecalho, rodape, btnDashboard,
-  inferirTratamento, usuariosComAcesso, enviarAvisoReativacao,
+  inferirTratamento, usuariosComAcesso, enviarAvisoReativacao, normalizarNumeroSTJ,
 } from '../../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
@@ -591,17 +591,21 @@ async function rodarFilaStj(admin, res) {
       // consultar direto no site do tribunal, nunca é apagado depois disso.
       const registroSuperior = linha.termo_busca;
 
-      // Casa tanto pelo número único (já cadastrado certo) quanto pelo texto
-      // original digitado/buscado (ex: alguém cadastrou manualmente com
-      // numero="AREsp 3254978" antes de existir essa fila) — sem isso, um
-      // processo assim virava duplicado em vez de corrigido.
-      const candidatosNumero = [...new Set([numero, linha.entrada_original, linha.termo_busca].filter(Boolean))];
-      const { data: achados } = await admin
-        .from('processos')
-        .select('id, numero, apelido, nome, cliente, movimentos_recentes, tribunal, historico_numeros')
-        .eq('user_id', linha.user_id)
-        .in('numero', candidatosNumero);
-      const existente = (achados || []).find(p => p.numero === numero) || (achados || [])[0] || null;
+      // Todo cartão do advogado com esse número do STJ, em qualquer grafia
+      // ("AREsp 2722519" e "AREsp 2722519 - AL" são o mesmo processo), mais o
+      // processo CNJ se ele já existir. Até 15/10/2026 só o primeiro achado
+      // era atualizado — quando o CNJ já existia, o cartão do STJ ficava solto
+      // pra sempre, sem tribunal (caso do Pedro: 7 cartões duplicados).
+      const termoSTJ = normalizarNumeroSTJ(linha.termo_busca) || linha.termo_busca;
+      const COLS = 'id, numero, apelido, nome, cliente, movimentos_recentes, tribunal, historico_numeros, status, classe, orgao_julgador, data_ajuizamento, numero_registro_superior';
+      const [{ data: porCnj, error: eCnj }, { data: semIndice, error: eSem }] = await Promise.all([
+        admin.from('processos').select(COLS).eq('user_id', linha.user_id).eq('numero', numero),
+        admin.from('processos').select(COLS).eq('user_id', linha.user_id).is('datajud_index', null).neq('status', 'Arquivado'),
+      ]);
+      if (eCnj || eSem) throw new Error((eCnj || eSem).message);
+      const cartoesSTJ = (semIndice || []).filter(p => p.numero === linha.entrada_original || normalizarNumeroSTJ(p.numero) === termoSTJ);
+      const existente  = (porCnj || [])[0] || cartoesSTJ[0] || null;
+      const sobras     = cartoesSTJ.filter(p => p.id !== existente?.id);
 
       // Histórico de números da causa (1ª instância, 2ª instância se mudou,
       // STJ, STF...) — só cresce, nunca apaga uma entrada antiga. Registra
@@ -617,6 +621,10 @@ async function rodarFilaStj(admin, res) {
       if (existente && existente.numero !== numero) {
         novasEntradas.push({ numero: existente.numero, etiqueta: 'Número anterior', origem: 'fila_stj', data: agoraIso });
       }
+      // Grafia de cada cartão absorvido fica no histórico — continua pesquisável.
+      for (const s of sobras) {
+        novasEntradas.push({ numero: s.numero, etiqueta: 'Número anterior', origem: 'fila_stj', data: agoraIso });
+      }
       const historicoAtualizado = [
         ...historicoBase,
         ...novasEntradas.filter(nv => !historicoBase.some(h => h.numero === nv.numero)),
@@ -631,23 +639,39 @@ async function rodarFilaStj(admin, res) {
           movimentos_recentes:      novasMovs,
           movimentos_hash:          novasMovs.length ? novasMovs.slice(0, 6).map(m => m.data + m.nome).join('|') : null,
           ultima_verificacao:       new Date().toISOString(),
-          numero_registro_superior: registroSuperior,
+          numero_registro_superior: existente.numero_registro_superior || registroSuperior,
           historico_numeros:        historicoAtualizado,
-          aviso_stj_pendente:       true,
         };
+        // Já avisado numa rodada anterior — não repete o toast no dashboard.
+        if (!existente.numero_registro_superior) updates.aviso_stj_pendente = true;
         // Achado pelo texto antigo (ex: "AREsp 3254978"), não pelo número
         // único — corrige o número, senão o processo continua fora da fila
-        // de sincronização pra sempre.
+        // de sincronização pra sempre (o texto antigo fica no histórico).
         if (existente.numero !== numero) updates.numero = numero;
-        if (!existente.tribunal && d.tribunal) updates.tribunal = d.tribunal;
-        if (d.orgaoJulgador)   updates.orgao_julgador  = d.orgaoJulgador;
-        if (d.classe)          updates.classe          = d.classe;
-        if (d.dataAjuizamento) updates.data_ajuizamento = d.dataAjuizamento;
+        // Só preenche o que está vazio — o que o advogado digitou nunca é
+        // trocado pelo dado do tribunal.
+        if (!existente.tribunal         && d.tribunal)        updates.tribunal         = d.tribunal;
+        if (!existente.orgao_julgador   && d.orgaoJulgador)   updates.orgao_julgador   = d.orgaoJulgador;
+        if (!existente.classe           && d.classe)          updates.classe           = d.classe;
+        if (!existente.data_ajuizamento && d.dataAjuizamento) updates.data_ajuizamento = d.dataAjuizamento;
         if (d._datajudIndex)   updates.datajud_index    = d._datajudIndex;
 
         const { error } = await admin.from('processos').update(updates).eq('id', existente.id);
         if (error) throw new Error(error.message);
         processoId = existente.id;
+
+        // Regra do Matheus (15/10/2026): o que o advogado escreveu nunca é
+        // copiado, trocado nem apagado — a junção só garante que o processo
+        // tenha o número monitorável. O cartão duplicado é arquivado intacto
+        // (cliente, notas, vínculos ficam nele) e dá pra desfazer na aba de
+        // arquivados. Se o processo CNJ está arquivado, foi escolha do
+        // advogado — aí não mexe em nada.
+        if (sobras.length && existente.status !== 'Arquivado') {
+          const { error: eArq } = await admin.from('processos')
+            .update({ status: 'Arquivado', notificacao_pendente: false, email_pendente: false })
+            .in('id', sobras.map(s => s.id)).eq('user_id', linha.user_id);
+          if (eArq) throw new Error(eArq.message);
+        }
       } else {
         const clientePart = (d.partes || []).find(p => /autor|requerente|reclamante/i.test(p.tipo || ''));
         clienteNovo = clientePart?.nome || null;
@@ -682,13 +706,18 @@ async function rodarFilaStj(admin, res) {
           : null,
       }).eq('id', linha.id);
 
-      // Avisa só quando é processo NOVO — mesclar em um que o advogado já
-      // acompanhava (ex: só corrigindo o número) não gera e-mail, por pedido.
-      if (!existente) {
+      // E-mail na hora pra toda conversão nova (cartão do STJ que ganhou o
+      // número CNJ e passou a ser monitorado) e todo processo novo. Até
+      // 15/10/2026 só o processo novo avisava — a conversão, caso mais comum,
+      // passava em silêncio. Só juntar um duplicado num processo que o
+      // advogado já acompanhava pelo CNJ continua sem e-mail.
+      const tipoAviso = !existente ? 'novo' : existente.numero !== numero ? 'convertido' : null;
+      if (tipoAviso) {
         (avisosPorUsuario[linha.user_id] ||= []).push({
+          tipo: tipoAviso,
           numero, registroSuperior, nomeExibicao,
-          classe: d.classe || null,
-          cliente: clienteNovo,
+          classe: d.classe || existente?.classe || null,
+          cliente: existente ? (existente.cliente || null) : clienteNovo,
           dataAjuizamento: d.dataAjuizamento || null,
           semDadosDatajud,
         });
@@ -722,32 +751,37 @@ async function rodarFilaStj(admin, res) {
       const email = ud?.user?.email;
       if (!email) continue;
 
+      const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+      const etiqueta = it => it.tipo === 'novo'
+        ? '<span style="display:inline-block;font-size:10px;font-weight:700;color:#166534;background:#dcfce7;padding:2px 8px;border-radius:20px;margin-bottom:4px">PROCESSO NOVO NO PAINEL</span>'
+        : '<span style="display:inline-block;font-size:10px;font-weight:700;color:#1e40af;background:#dbeafe;padding:2px 8px;border-radius:20px;margin-bottom:4px">AGORA MONITORADO</span>';
       const linhaItem = (it) => `
         <div style="padding:12px 0;border-bottom:1px solid #e5e7eb">
-          <div style="font-size:14px;font-weight:700;color:#1a2b4a">${it.nomeExibicao}</div>
-          ${it.cliente ? `<div style="font-size:12px;color:#374151">Cliente: ${it.cliente}</div>` : ''}
-          ${it.classe ? `<div style="font-size:12px;color:#374151">${it.classe}</div>` : ''}
+          ${etiqueta(it)}
+          <div style="font-size:14px;font-weight:700;color:#1a2b4a">${esc(it.nomeExibicao)}</div>
+          ${it.cliente ? `<div style="font-size:12px;color:#374151">Cliente: ${esc(it.cliente)}</div>` : ''}
+          ${it.classe && it.classe !== it.nomeExibicao ? `<div style="font-size:12px;color:#374151">${esc(it.classe)}</div>` : ''}
           <div style="font-size:12px;color:#6b7280;margin-top:4px">
-            STJ: <b>${it.registroSuperior}</b> → CNJ: <b style="font-family:monospace">${it.numero}</b>
+            STJ: <b>${esc(it.registroSuperior)}</b> → número único: <b style="font-family:monospace">${esc(it.numero)}</b>
           </div>
           ${it.dataAjuizamento ? `<div style="font-size:11px;color:#9ca3af;margin-top:2px">Distribuído em ${new Date(it.dataAjuizamento).toLocaleDateString('pt-BR')}</div>` : ''}
-          ${it.semDadosDatajud ? `<div style="font-size:11px;color:#b45309;margin-top:2px">DataJud ainda não tinha dados deste processo — detalhes completam na próxima sincronização.</div>` : ''}
+          ${it.semDadosDatajud ? `<div style="font-size:11px;color:#b45309;margin-top:2px">O tribunal ainda não publicou as movimentações deste processo — elas aparecem sozinhas assim que saírem.</div>` : ''}
         </div>`;
 
+      const novos = itens.filter(i => i.tipo === 'novo').length;
       const assunto = itens.length === 1
-        ? `Número do STJ resolvido — ${itens[0].nomeExibicao}`
-        : `${itens.length} números do STJ resolvidos`;
+        ? (novos ? `Processo novo no seu painel — ${itens[0].registroSuperior}` : `${itens[0].registroSuperior} agora está sendo monitorado`)
+        : `${itens.length} processos do STJ agora monitorados`;
 
       const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
 <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
-  ${cabecalho(`Número${itens.length > 1 ? 's' : ''} do STJ resolvido${itens.length > 1 ? 's' : ''}`)}
+  ${cabecalho(itens.length === 1 ? 'Número do STJ convertido' : `${itens.length} números do STJ convertidos`)}
   <div style="padding:16px 24px">
     <div style="font-size:13px;color:#374151;line-height:1.5;margin-bottom:14px">
-      O STJ identifica processos por um número de registro próprio (ex: AREsp, REsp), diferente
-      do número único (CNJ) usado para consultar movimentações. ${itens.length > 1 ? 'Os processos abaixo foram localizados' : 'O processo abaixo foi localizado'}
-      no site do STJ e tiveram o número único convertido automaticamente — o número do STJ
-      continua salvo e pesquisável no sistema, não foi apagado.
+      Convertemos ${itens.length === 1 ? 'o número do STJ abaixo' : 'os números do STJ abaixo'} para o número único (CNJ)
+      e ${itens.length === 1 ? 'o processo já está' : 'os processos já estão'} sendo monitorado${itens.length === 1 ? '' : 's'} —
+      você recebe aviso a cada movimentação. O número do STJ continua salvo e pesquisável no painel.
     </div>
     ${itens.map(linhaItem).join('')}
   </div>

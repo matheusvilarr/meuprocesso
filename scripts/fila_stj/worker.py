@@ -21,7 +21,7 @@ Uso: rodar.bat (ou `python worker.py` com o venv do Scrapling já ativado).
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -50,51 +50,101 @@ RE_CLASSE = re.compile(r'id="idSpanClasseDescricao">([^<]+)<')
 RE_REGISTRO = re.compile(r'id="idSpanNumeroRegistro">\(([^)]+)\)<')
 
 
+RE_STJ = re.compile(r"\b(a?resp)\b\.?\s*(?:n[º°o]?\.?\s*)?(\d[\d.]*)", re.IGNORECASE)
+
+
+def normalizar_stj(texto):
+    """Mesma regra de lib/sync-comum.js (normalizarNumeroSTJ):
+    "REsp nº 2280984 / AL", "AgInt no AREsp 3.080.419/AL", "AREsp 2722519 - AL"
+    -> "REsp 2280984" / "AREsp 3080419" / "AREsp 2722519". None se não for STJ."""
+    s = str(texto or "")
+    if len(re.sub(r"\D", "", s)) == 20:
+        return None
+    m = RE_STJ.search(s)
+    if not m:
+        return None
+    num = re.sub(r"\D", "", m.group(2))
+    if not 5 <= len(num) <= 8:
+        return None
+    return ("AREsp " if m.group(1).lower() == "aresp" else "REsp ") + num
+
+
 def consulta_normalizada(texto):
-    # remove sufixo de UF tipo " - AL" — não é parte do número de registro no STJ
-    return re.split(r"\s*-\s*[A-Z]{2}\s*$", texto.strip())[0].strip()
+    return normalizar_stj(texto) or texto.strip()
+
+
+def ler_tudo(query_fn):
+    """O supabase-py devolve no máximo 1000 linhas por consulta — sem paginar,
+    o que passasse disso sumia sem aviso (o banco já tem ~830 processos)."""
+    linhas, inicio = [], 0
+    while True:
+        lote = query_fn().range(inicio, inicio + 999).execute().data or []
+        linhas.extend(lote)
+        if len(lote) < 1000:
+            return linhas
+        inicio += 1000
 
 
 def varrer_processos_orfaos(supa):
-    """Processos cadastrados ANTES da fila existir (ou por algum caminho que
-    não passa pela detecção, ex: editar processo) ficam com "AREsp 3254978"
-    direto no campo numero, pra sempre fora da sincronização. Roda a cada
-    execução e enfileira os que ainda não foram enfileirados.
+    """Cartões ativos com número do STJ e sem tribunal (cadastrados antes da
+    fila existir, colados de novo, digitados num formato que a detecção antiga
+    não pegava...). Três destinos:
+      - nunca enfileirado            -> entra na fila como 'pendente'
+      - já resolvido/importado antes -> volta pra 'resolvido', e a importação
+        na Vercel junta esse cartão solto no processo CNJ (sem consultar o STJ de novo)
+      - deu erro                     -> nova tentativa (ver retentar_erros)
     """
-    processos = supa.table("processos").select("id, user_id, numero").execute().data or []
+    processos = ler_tudo(lambda: supa.table("processos")
+                         .select("id, user_id, numero")
+                         .is_("datajud_index", "null")
+                         .neq("status", "Arquivado"))
+    fila = ler_tudo(lambda: supa.table("fila_consulta_stj")
+                    .select("id, user_id, termo_busca, status, numero_cnj"))
+    na_fila = {(f["user_id"], consulta_normalizada(f["termo_busca"])): f for f in fila}
 
-    vistos = set()
-    novas = []
+    vistos, novas, reabrir = set(), [], set()
     for p in processos:
-        numero = (p.get("numero") or "").strip()
-        if not numero:
+        termo = normalizar_stj(p.get("numero"))
+        if not termo:
             continue
-        if len(re.sub(r"\D", "", numero)) == 20:
-            continue  # já é número CNJ válido
-        if not re.match(r"^a?resp\.?\s*\d", numero, re.IGNORECASE):
-            continue  # não é formato reconhecido do STJ
-        termo = consulta_normalizada(numero)
         chave = (p["user_id"], termo)
         if chave in vistos:
             continue
         vistos.add(chave)
-        novas.append({
-            "user_id": p["user_id"],
-            "entrada_original": numero,
-            "termo_busca": termo,
-            "tribunal": "stj",
-            "status": "pendente",
-        })
+        linha = na_fila.get(chave)
+        if not linha:
+            novas.append({
+                "user_id": p["user_id"],
+                "entrada_original": p["numero"].strip(),
+                "termo_busca": termo,
+                "tribunal": "stj",
+                "status": "pendente",
+            })
+        elif linha["status"] == "importado" and linha.get("numero_cnj"):
+            reabrir.add(linha["id"])
 
-    if not novas:
-        return 0
+    if novas:
+        supa.table("fila_consulta_stj").upsert(
+            novas, on_conflict="user_id,termo_busca", ignore_duplicates=True
+        ).execute()
+    for fid in reabrir:
+        supa.table("fila_consulta_stj").update({"status": "resolvido"}).eq("id", fid).eq("status", "importado").execute()
+    return len(novas), len(reabrir)
 
-    # upsert com ignore_duplicates: não reinicia uma linha que já estava
-    # pendente/resolvida/com erro (ver unique(user_id, termo_busca))
-    supa.table("fila_consulta_stj").upsert(
-        novas, on_conflict="user_id,termo_busca", ignore_duplicates=True
-    ).execute()
-    return len(novas)
+
+def retentar_erros(supa):
+    """Erro (site do STJ fora, timeout, DataJud lento) não é definitivo — antes
+    ficava 'erro' pra sempre. Espera 2h entre tentativas pra não martelar.
+    Quem já tem o número CNJ volta direto pra importação, sem novo scraping."""
+    limite = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    erros = ler_tudo(lambda: supa.table("fila_consulta_stj")
+                     .select("id, numero_cnj")
+                     .eq("status", "erro")
+                     .lt("processado_em", limite))
+    for f in erros:
+        novo = "resolvido" if f.get("numero_cnj") else "pendente"
+        supa.table("fila_consulta_stj").update({"status": novo}).eq("id", f["id"]).eq("status", "erro").execute()
+    return len(erros)
 
 
 def importar_resolvidos(supa):
@@ -119,10 +169,12 @@ def importar_resolvidos(supa):
     try:
         import requests
 
+        # 130s: a rota tem maxDuration de 120s na Vercel — com 60s o worker
+        # desistia e dizia "falhou" enquanto a importação ainda estava rodando.
         r = requests.get(
             SYNC_ENDPOINT,
             headers={"Authorization": f"Bearer {STJ_FILA_SECRET}"},
-            timeout=60,
+            timeout=130,
         )
         if r.ok:
             print(f"  OK: {r.json()}")
@@ -139,17 +191,18 @@ def main():
 
     supa = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-    varridos = varrer_processos_orfaos(supa)
-    if varridos:
-        print(f"Encontrados {varridos} processo(s) antigo(s) com número do STJ — adicionados à fila.")
+    novos, reabertos = varrer_processos_orfaos(supa)
+    if novos:
+        print(f"{novos} cartão(ões) com número do STJ fora da fila — adicionados.")
+    if reabertos:
+        print(f"{reabertos} cartão(ões) duplicado(s) de número já convertido — vão ser juntados ao processo CNJ.")
+    retentados = retentar_erros(supa)
+    if retentados:
+        print(f"{retentados} item(ns) que deram erro antes — tentando de novo.")
 
-    pendentes = (
-        supa.table("fila_consulta_stj")
-        .select("id, user_id, entrada_original, termo_busca")
-        .eq("status", "pendente")
-        .execute()
-        .data
-    )
+    pendentes = ler_tudo(lambda: supa.table("fila_consulta_stj")
+                         .select("id, user_id, entrada_original, termo_busca")
+                         .eq("status", "pendente"))
 
     if not pendentes:
         print("Fila vazia — nada novo pra resolver agora.")

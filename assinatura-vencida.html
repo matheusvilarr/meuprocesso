@@ -66,7 +66,7 @@
 
   const [{ data: assinatura }, { count: totalProcessos }] = await Promise.all([
     _supabase.from('assinaturas').select('plano, status, data_expiracao').eq('escritorio_id', session.user.id).maybeSingle(),
-    _supabase.from('processos').select('id', { count: 'exact', head: true }).eq('user_id', session.user.id).eq('arquivado', false),
+    _supabase.from('processos').select('id', { count: 'exact', head: true }).eq('user_id', session.user.id).neq('status', 'Arquivado'),
   ]);
 
   const valida = assinatura && assinatura.status === 'ativo' && new Date(assinatura.data_expiracao) > new Date();

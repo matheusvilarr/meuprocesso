@@ -585,7 +585,7 @@ async function enviarEmailStatusConta(email, nome, tipo, userId, adminClient) {
     const { count } = await adminClient.from('processos')
       .select('id', { count: 'exact', head: true })
       .eq('user_id', userId)
-      .eq('arquivado', false);
+      .neq('status', 'Arquivado');
     totalProcessos = count || 0;
   }
 
