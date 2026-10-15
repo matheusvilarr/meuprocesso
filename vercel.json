@@ -12,6 +12,9 @@
       "permanent": false
     }
   ],
+  "rewrites": [
+    { "source": "/descadastrar", "destination": "/api/cron/verificar-atualizacoes?acao=descadastrar" }
+  ],
   "headers": [
     {
       "source": "/(.*)\\.html",

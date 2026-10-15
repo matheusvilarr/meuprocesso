@@ -3,13 +3,20 @@
 // Roda 30 min DEPOIS de sincronizar.js — não faz chamadas ao DataJud/DJEN.
 
 import { createClient } from '@supabase/supabase-js';
+import { timingSafeEqual } from 'node:crypto';
+import { usuariosComAcesso, enviarAvisoReativacao, enviarEmail,
+         tokenDescadastro, linkDescadastro, definirDescadastro } from '../../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
 const SUPA_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
-const RESEND_KEY       = process.env.RESEND_API_KEY;
 const CRON_SECRET      = process.env.CRON_SECRET;
 
 export default async function handler(req, res) {
+  // /descadastrar (rewrite no vercel.json) cai aqui: o plano Hobby já está no
+  // teto de 12 funções, não cabe um arquivo novo em api/. Autenticado pelo
+  // HMAC do link, não pelo CRON_SECRET.
+  if (req.query?.acao === 'descadastrar') return descadastrar(req, res);
+
   const authHeader = req.headers['authorization'];
   // Fecha por padrão: se a variável CRON_SECRET desaparecer da Vercel (num
   // deploy novo, um erro de digitação), antes isso liberava o cron para
@@ -44,6 +51,47 @@ export default async function handler(req, res) {
     await logErro(admin, `cron:email-${tipo}`, e.message, { stack: e.stack });
     return res.status(500).json({ erro: e.message });
   }
+}
+
+// GET = clique no link do rodapé (mostra página de confirmação).
+// POST = botão "Cancelar inscrição" do Gmail (one-click, RFC 8058) — só 200.
+// &voltar=1 reativa, pra quem clicou sem querer.
+async function descadastrar(req, res) {
+  const userId = String(req.query?.u || '');
+  const token  = String(req.query?.t || '');
+  const voltar = req.query?.voltar === '1';
+
+  const esperado = userId ? tokenDescadastro(userId) : '';
+  const valido = SUPA_SERVICE_KEY && token.length === esperado.length && esperado.length > 0 &&
+    timingSafeEqual(Buffer.from(token), Buffer.from(esperado));
+
+  const pagina = (titulo, texto, link) => `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${titulo} — Meu Processo</title></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+<div style="max-width:440px;margin:64px auto;background:#fff;border-radius:12px;padding:36px 32px;text-align:center;box-shadow:0 1px 3px rgba(0,0,0,.1)">
+  <div style="font-size:20px;font-weight:700;color:#053958;margin-bottom:12px">${titulo}</div>
+  <div style="font-size:14px;color:#6b7280;line-height:1.7">${texto}</div>
+  ${link || ''}
+</div></body></html>`;
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  if (!valido) {
+    return res.status(400).send(pagina('Link inválido', 'Este link de descadastro não é válido ou está incompleto. Se quiser parar de receber os e-mails, responda qualquer e-mail nosso pedindo o descadastro.'));
+  }
+
+  try {
+    const admin = createClient(SUPA_URL, SUPA_SERVICE_KEY);
+    await definirDescadastro(admin, userId, !voltar);
+  } catch (e) {
+    return res.status(500).send(pagina('Não deu certo', 'Tivemos um problema ao salvar sua preferência. Tente de novo em alguns minutos.'));
+  }
+
+  if (req.method === 'POST') return res.status(200).send('ok');
+
+  if (voltar) {
+    return res.status(200).send(pagina('Avisos reativados ✓', 'Você voltou a receber os e-mails automáticos do Meu Processo.'));
+  }
+  const linkVoltar = `<a href="${linkDescadastro(userId)}&voltar=1" style="display:inline-block;margin-top:20px;font-size:13px;color:#0d5a96">Cliquei sem querer — quero continuar recebendo</a>`;
+  return res.status(200).send(pagina('Pronto, você foi descadastrado', 'Você não vai mais receber os e-mails automáticos do Meu Processo. Seus processos continuam sendo acompanhados normalmente no painel.', linkVoltar));
 }
 
 async function logErro(admin, origem, mensagem, detalhes, userId) {
@@ -86,8 +134,10 @@ async function rodarInstant(admin, res, hoje) {
 
   let emailsEnviados = 0;
   const processosNotificados = [];
+  const comAcesso = await usuariosComAcesso(admin, Object.keys(porUsuario));
 
   for (const userId of Object.keys(porUsuario)) {
+    if (!comAcesso.has(userId)) { await avisoSemAcesso(admin, userId, porUsuario[userId]); continue; }
     let email, nome;
     try {
       const { data: ud } = await admin.auth.admin.getUserById(userId);
@@ -157,8 +207,10 @@ async function rodarMorning(admin, res, hoje) {
 
   let emailsEnviados = 0;
   const processosNotificados = [];
+  const comAcesso = await usuariosComAcesso(admin, userIds);
 
   for (const userId of userIds) {
+    if (!comAcesso.has(userId)) { await avisoSemAcesso(admin, userId, porUsuario[userId]); continue; }
     if (await jaNotificouHoje(admin, userId, 'morning', hoje)) continue;
 
     let email, nome;
@@ -236,9 +288,11 @@ async function rodarAfternoon(admin, res, hoje) {
 
   let emailsEnviados = 0;
   const processosNotificados = [];
+  const comAcesso = await usuariosComAcesso(admin, Object.keys(porUsuario));
 
   for (const [userId, dados] of Object.entries(porUsuario)) {
     if (!dados.atualizacoes.length && !dados.novosProcessos.length && !dados.prazos.length) continue;
+    if (!comAcesso.has(userId)) { await avisoSemAcesso(admin, userId, dados); continue; }
     if (await jaNotificouHoje(admin, userId, 'afternoon', hoje)) continue;
 
     let email, nome;
@@ -291,7 +345,9 @@ async function rodarEvening(admin, res, hoje) {
   }
 
   let emailsEnviados = 0;
+  const comAcesso = await usuariosComAcesso(admin, Object.keys(prazosPorUsuario));
   for (const [userId, lista] of Object.entries(prazosPorUsuario)) {
+    if (!comAcesso.has(userId)) continue;
     if (await jaNotificouHoje(admin, userId, 'evening', hoje)) continue;
 
     let email, nome;
@@ -358,7 +414,9 @@ async function rodarPrazoFatal(admin, res, hoje) {
   }
 
   let emailsEnviados = 0;
+  const comAcesso = await usuariosComAcesso(admin, Object.keys(porUsuario));
   for (const [userId, lista] of Object.entries(porUsuario)) {
+    if (!comAcesso.has(userId)) continue;
     if (await jaNotificouHoje(admin, userId, 'prazo_fatal', hoje)) continue;
 
     let email, nome;
@@ -417,7 +475,9 @@ async function rodarHonorarioVencido(admin, res, hoje) {
   }
 
   let emailsEnviados = 0;
+  const comAcesso = await usuariosComAcesso(admin, Object.keys(porUsuario));
   for (const [userId, lista] of Object.entries(porUsuario)) {
+    if (!comAcesso.has(userId)) continue;
     if (await jaNotificouHoje(admin, userId, 'honorario_vencido', hoje)) continue;
 
     let email, nome;
@@ -472,6 +532,19 @@ async function buscarAgendaSemana(admin, userIds, hoje) {
     agenda[uid].sort((a, b) => a.data.localeCompare(b.data));
   }
   return agenda;
+}
+
+// Conta bloqueada/vencida/cancelada: email_pendente fica true de propósito —
+// ao reativar, o próximo digest entrega o que ficou guardado.
+async function avisoSemAcesso(admin, userId, dados) {
+  const processosNovos = !!dados?.novosProcessos?.length;
+  const movimentacoes  = !!dados?.atualizacoes?.length;
+  if (!processosNovos && !movimentacoes) return;
+  try {
+    await enviarAvisoReativacao(admin, userId, { processosNovos, movimentacoes });
+  } catch (e) {
+    await logErro(admin, 'cron:email-reativacao', e.message, {}, userId);
+  }
 }
 
 // ── LOG ───────────────────────────────────────────────────────────────────────
@@ -750,19 +823,6 @@ function truncar(str, max) {
   return str.length > max ? str.slice(0, max - 1) + '…' : str;
 }
 
-async function enviarEmail(para, assunto, html) {
-  if (!RESEND_KEY) return;
-  const r = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${RESEND_KEY}`, 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(15000),
-    body: JSON.stringify({ from: 'notificacoes@meuprocesso.app.br', to: para, subject: assunto, html }),
-  });
-  if (!r.ok) {
-    const msg = await r.text().catch(() => 'erro desconhecido');
-    throw new Error(`Resend ${r.status}: ${msg}`);
-  }
-}
 
 function formatarData(iso) {
   if (!iso) return '—';

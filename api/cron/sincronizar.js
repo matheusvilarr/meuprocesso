@@ -22,7 +22,7 @@ import {
   ehMovDJEN, datajudIndexFromNumero, buscarOabsUsuarios, corrigirMojibake,
   normalizarNumeroCNJ, tituloProcesso, limparLogsAntigos,
   abrirExecucao, fecharExecucao, enviarEmail, cabecalho, rodape, btnDashboard,
-  inferirTratamento,
+  inferirTratamento, usuariosComAcesso, enviarAvisoReativacao,
 } from '../../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
@@ -713,8 +713,10 @@ async function rodarFilaStj(admin, res) {
 
   // Um e-mail por advogado com o resumo de tudo que essa execução resolveu —
   // nunca derruba a resposta da rota se o envio falhar.
+  const comAcesso = await usuariosComAcesso(admin, Object.keys(avisosPorUsuario));
   for (const userId of Object.keys(avisosPorUsuario)) {
     try {
+      if (!comAcesso.has(userId)) { await enviarAvisoReativacao(admin, userId, { processosNovos: true }); continue; }
       const itens = avisosPorUsuario[userId];
       const { data: ud } = await admin.auth.admin.getUserById(userId);
       const email = ud?.user?.email;
