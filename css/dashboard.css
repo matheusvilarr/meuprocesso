@@ -570,6 +570,24 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
 .prazo-day   { font-size: 20px; font-weight: 600; color: var(--navy); line-height: 1; }
 .prazo-month { font-size: 10px; text-transform: uppercase; color: var(--gray-400); letter-spacing: 0.05em; }
 
+/* Bolinha de concluir: mesma coluna em todas as linhas (honorário mostra o $
+   no lugar, sem círculo — pagar não é um clique rápido). */
+.prazo-check, .prazo-slot { width: 22px; height: 22px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.prazo-check {
+  border-radius: 50%; border: 2px solid var(--gray-300, #d1d5db); background: transparent;
+  padding: 0; cursor: pointer; color: transparent; transition: background .15s, border-color .15s, color .15s, transform .15s;
+}
+.prazo-check i { font-size: 13px; }
+.prazo-check:hover { border-color: var(--green); color: var(--green); background: #f0fdf4; }
+.prazo-check:active { transform: scale(.88); }
+.prazo-check.feito { background: var(--green); border-color: var(--green); color: #fff; }
+.prazo-check:disabled { cursor: default; transform: none; }
+.prazo-check.pequeno { width: 18px; height: 18px; border-width: 1.5px; }
+.prazo-check.pequeno i { font-size: 11px; }
+.prazo-slot { color: var(--gray-300, #d1d5db); font-size: 16px; }
+.prazo-item.saindo { opacity: .45; transition: opacity .3s; }
+.prazo-item.saindo .prazo-name { text-decoration: line-through; }
+
 .prazo-urgency { width: 4px; border-radius: 2px; height: 36px; flex-shrink: 0; }
 .urgency-alta  { background: var(--red); }
 .urgency-media { background: var(--gold); }
@@ -609,7 +627,8 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
 .comprdia-btn.concluir:hover  { background: var(--green-light); color: var(--green); }
 .comprdia-btn.amanha:hover    { background: var(--amber-light); color: var(--amber); }
 .comprdia-btn.reagendar:hover { background: var(--blue-light);  color: var(--blue);  }
-.comprdia-item.done { opacity: .45; }
+/* A bolinha verde fica nítida; o resto da linha esmaece */
+.comprdia-item.done > :not(.prazo-check) { opacity: .45; }
 .comprdia-item.done .comprdia-titulo { text-decoration: line-through; color: var(--gray-400); }
 .comprdia-item.done .comprdia-dot { opacity: .4; }
 .comprdia-item.done .comprdia-acoes { display: none; }

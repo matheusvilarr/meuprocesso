@@ -468,9 +468,8 @@ function abrirDiaPopover(ano, mes, dia, celEl) {
     const tituloEstilo = e.concluido ? 'text-decoration:line-through;opacity:.55' : '';
     return `
     <div data-evento-linha style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:8px;background:var(--gray-50)">
-      <input type="checkbox" ${e.concluido ? 'checked' : ''} title="Marcar como concluído"
-        onchange="toggleEventoConcluido('${e.id}', this.checked, this)"
-        style="width:15px;height:15px;cursor:pointer;flex-shrink:0;margin-top:2px;accent-color:var(--navy)">
+      <button type="button" class="prazo-check ${e.concluido ? 'feito' : ''}" title="${e.concluido ? 'Desmarcar' : 'Marcar como concluído'}"
+        onclick="event.stopPropagation();_prazoCheck(this,'evento','${e.id}')" style="margin-top:4px"><i class="ti ti-check"></i></button>
       <div style="width:3px;min-height:34px;border-radius:4px;background:${corTipo[e.tipo] || '#94a3b8'};flex-shrink:0;margin-top:2px"></div>
       <div style="flex:1;min-width:0">
         <div data-evento-titulo style="font-size:12.5px;font-weight:600;color:var(--gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${tituloEstilo}">${_esc(e.titulo)}</div>
@@ -494,10 +493,11 @@ function abrirDiaPopover(ano, mes, dia, celEl) {
     const cor = concluida ? '#1a7a4a' : (st?.nivel === 'fatal' ? '#be123c' : '#dc2626');
     const tituloEstilo = concluida ? 'text-decoration:line-through;opacity:.6' : '';
     return `
-    <div onclick="abrirTarefaPorId('${t.id}','${t.quadro_id || ''}')" style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:8px;background:var(--gray-50);cursor:pointer">
+    <div data-evento-linha onclick="abrirTarefaPorId('${t.id}','${t.quadro_id || ''}')" style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:8px;background:var(--gray-50);cursor:pointer">
+      <button type="button" class="prazo-check ${concluida ? 'feito' : ''}" title="${concluida ? 'Desmarcar' : 'Concluir tarefa'}" onclick="event.stopPropagation();_prazoCheck(this,'tarefa','${t.id}',true)" style="margin-top:4px"><i class="ti ti-check"></i></button>
       <div style="width:3px;min-height:34px;border-radius:4px;background:${cor};flex-shrink:0;margin-top:2px"></div>
       <div style="flex:1;min-width:0">
-        <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${tituloEstilo}">${_esc(t.titulo)}</div>
+        <div data-evento-titulo style="font-size:12.5px;font-weight:600;color:var(--gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${tituloEstilo}">${_esc(t.titulo)}</div>
         <div style="font-size:11px;color:${concluida ? '#1a7a4a' : 'var(--gray-400)'};margin-top:1px">${concluida ? '✓ Concluída' : 'Tarefa'}</div>
       </div>
     </div>`;
@@ -510,6 +510,7 @@ function abrirDiaPopover(ano, mes, dia, celEl) {
     const vencido = h.status === 'vencido';
     return `
     <div onclick="fecharDiaPopover();abrirEditarHonorario('${h.id}')" style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:8px;background:var(--gray-50);cursor:pointer">
+      <span class="prazo-slot" title="Honorário — abra para marcar como pago" style="margin-top:4px"><i class="ti ti-currency-dollar"></i></span>
       <div style="width:3px;min-height:34px;border-radius:4px;background:${vencido ? 'var(--red)' : 'var(--green)'};flex-shrink:0;margin-top:2px"></div>
       <div style="flex:1;min-width:0">
         <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(h.cliente_nome || h.descricao || 'Honorário')} — ${_fmtBRL(h.valor)}</div>
@@ -748,12 +749,13 @@ function calExpNovoEvento() {
 
 function _calExpEvHtml(ev, compact) {
   const c = _calCorTipo[ev.tipo] || { bg:'#f3f4f6', txt:'#6b7280', border:'#9ca3af' };
+  const risco = ev.concluido ? 'text-decoration:line-through;opacity:.55;' : '';
   if (compact) {
-    return `<span class="cal-exp-ev" style="background:${c.bg};color:${c.txt};border-left-color:${c.border}"
-      onclick="event.stopPropagation()" title="${_esc(ev.titulo)}">${_esc(ev.titulo)}</span>`;
+    return `<span class="cal-exp-ev" style="${risco}background:${c.bg};color:${c.txt};border-left-color:${c.border}"
+      onclick="event.stopPropagation()" title="${_esc(ev.titulo)}${ev.concluido ? ' (concluído)' : ''}">${_esc(ev.titulo)}</span>`;
   }
   return `<div class="cal-exp-sev" style="background:${c.bg};border-left-color:${c.border}">
-    <div class="cal-exp-sev-titulo" style="color:${c.txt}">${_esc(ev.titulo)}</div>
+    <div class="cal-exp-sev-titulo" style="${risco}color:${c.txt}">${_esc(ev.titulo)}</div>
     ${ev.hora ? `<div class="cal-exp-sev-hora">${ev.hora}</div>` : ''}
     <div class="cal-exp-sev-hora">${_calLabel[ev.tipo] || ev.tipo}</div>
   </div>`;
@@ -2200,12 +2202,15 @@ function atualizarPrazosDash() {
   const todos = [...eventosSemana, ...honorariosSemana, ...tarefasSemana].sort((a, b) => a.ordem.localeCompare(b.ordem));
 
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-  set('stat-prazos', String(todos.length));
-  if (!todos.length) {
+  // Concluído continua na lista (riscado), mas não conta como pendente
+  const eventosPendentes = eventosSemana.filter(e => !e.raw.concluido);
+  const pendentes = eventosPendentes.length + honorariosSemana.length + tarefasSemana.length;
+  set('stat-prazos', String(pendentes));
+  if (!pendentes) {
     set('stat-prazos-sub', 'Nenhum nesta semana');
   } else {
     const partes = [];
-    if (eventosSemana.length) partes.push(`${eventosSemana.length} compromisso${eventosSemana.length > 1 ? 's' : ''}`);
+    if (eventosPendentes.length) partes.push(`${eventosPendentes.length} compromisso${eventosPendentes.length > 1 ? 's' : ''}`);
     if (honorariosSemana.length) partes.push(`${honorariosSemana.length} honorário${honorariosSemana.length > 1 ? 's' : ''}`);
     if (tarefasSemana.length) partes.push(`${tarefasSemana.length} tarefa${tarefasSemana.length > 1 ? 's' : ''}`);
     set('stat-prazos-sub', partes.join(' · '));
@@ -2229,7 +2234,8 @@ function atualizarPrazosDash() {
 
   wrap.innerHTML = todos.slice(0, 6).map(item => {
     const dt   = new Date(item.data + 'T12:00:00');
-    const dias = Math.ceil((dt - hoje) / 86400000);
+    // Meio-dia menos meia-noite com ceil dava 1 pra hoje ("Amanhã" num prazo de hoje)
+    const dias = Math.round((new Date(item.data + 'T00:00:00') - hoje) / 86400000);
     const dia  = dt.toLocaleDateString('pt-BR', { day:'2-digit' });
     const mes  = dt.toLocaleDateString('pt-BR', { month:'short' }).replace('.','');
     const badgeCls = dias <= 1 ? 'dias-urgente' : dias <= 3 ? 'dias-aviso' : 'dias-ok';
@@ -2241,10 +2247,11 @@ function atualizarPrazosDash() {
       const urgencia = h.status === 'vencido' ? 'urgency-alta' : 'urgency-media';
       return `
         <div class="prazo-item" onclick="showPage('honorarios')">
+          <span class="prazo-slot" title="Honorário — abra para marcar como pago"><i class="ti ti-currency-dollar"></i></span>
           <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
           <div class="prazo-urgency ${urgencia}"></div>
           <div class="prazo-info">
-            <div class="prazo-name"><i class="ti ti-cash" style="font-size:11px;color:var(--gray-400);margin-right:3px"></i>${escHtml(h.cliente_nome || h.descricao)} — ${valorFmt}</div>
+            <div class="prazo-name">${escHtml(h.cliente_nome || h.descricao)} — ${valorFmt}</div>
             <div class="prazo-type">${h.status === 'vencido' ? 'Honorário vencido' : 'Honorário a vencer'}</div>
           </div>
           <span class="dias-badge ${badgeCls}">${diasTxt}</span>
@@ -2255,6 +2262,7 @@ function atualizarPrazosDash() {
       const t = item.raw;
       return `
         <div class="prazo-item" onclick="abrirTarefaPorId('${t.id}','${t.quadro_id || ''}')">
+          <button type="button" class="prazo-check" title="Concluir tarefa" onclick="event.stopPropagation();_prazoCheck(this,'tarefa','${t.id}')"><i class="ti ti-check"></i></button>
           <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
           <div class="prazo-urgency ${badgeCls === 'dias-urgente' ? 'urgency-alta' : badgeCls === 'dias-aviso' ? 'urgency-media' : 'urgency-baixa'}"></div>
           <div class="prazo-info">
@@ -2269,10 +2277,8 @@ function atualizarPrazosDash() {
     const tituloEstilo = e.concluido ? 'text-decoration:line-through;opacity:.55' : '';
     return `
       <div class="prazo-item" onclick="irParaCalendarioMes(${dt.getFullYear()},${dt.getMonth()})">
-        <input type="checkbox" ${e.concluido ? 'checked' : ''} title="Marcar como concluído"
-          onclick="event.stopPropagation()"
-          onchange="toggleEventoConcluido('${e.id}', this.checked, this)"
-          style="width:15px;height:15px;cursor:pointer;flex-shrink:0;accent-color:var(--navy)">
+        <button type="button" class="prazo-check ${e.concluido ? 'feito' : ''}" title="${e.concluido ? 'Desmarcar' : 'Marcar como concluído'}"
+          onclick="event.stopPropagation();_prazoCheck(this,'evento','${e.id}')"><i class="ti ti-check"></i></button>
         <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
         <div class="prazo-urgency ${urgCls[e.urgencia] || 'urgency-baixa'}"></div>
         <div class="prazo-info">
@@ -2282,6 +2288,23 @@ function atualizarPrazosDash() {
         <span class="dias-badge ${badgeCls}">${diasTxt}</span>
       </div>`;
   }).join('');
+}
+
+// ficaNaLista: no calendário a tarefa concluída continua no dia, riscada; no
+// card "Prazos Próximos" ela sai (o card só mostra o que está pendente).
+function _prazoCheck(btn, tipo, id, ficaNaLista = false) {
+  const feito = !btn.classList.contains('feito');
+  btn.classList.toggle('feito', feito);
+  btn.title = feito ? 'Desmarcar' : 'Marcar como concluído';
+  if (tipo === 'evento') return toggleEventoConcluido(id, feito, btn);
+  if (feito) showToast('Tarefa concluída.', 'success');
+  if (ficaNaLista) {
+    const titulo = btn.closest('[data-evento-linha]')?.querySelector('[data-evento-titulo]');
+    if (titulo) { titulo.style.textDecoration = feito ? 'line-through' : 'none'; titulo.style.opacity = feito ? '.6' : '1'; }
+    return _definirConcluido('tarefa', id, feito);
+  }
+  btn.closest('.prazo-item, .comprdia-item')?.classList.toggle('saindo', feito);
+  setTimeout(() => _definirConcluido('tarefa', id, feito), feito ? 450 : 0);
 }
 
 function renderizarListaProcessos(lista) {
@@ -4086,7 +4109,7 @@ function atualizarBell() {
   if (_notifPrefs.processos)
     total += (window._processosDB || []).filter(p => p.notificacao_pendente).length;
   if (_notifPrefs.calendario)
-    total += (_eventosDB || []).filter(e => { const d = new Date(e.data + 'T12:00:00'); return d >= hoje && d <= em7; }).length;
+    total += (_eventosDB || []).filter(e => { const d = new Date(e.data + 'T12:00:00'); return !e.concluido && d >= hoje && d <= em7; }).length;
   if (_notifPrefs.tarefas)
     total += _tarefasParaSino().length;
 
@@ -5936,13 +5959,7 @@ async function carregarEventosDashboard() {
   _renderAtividadeRecente();
   renderCompromissosDia();
 
-  const em7 = new Date(); em7.setDate(em7.getDate() + 7);
-  const proximos = data?.filter(e => new Date(e.data + 'T12:00:00') <= em7) || [];
-  const badgeEv = document.getElementById('badge-eventos');
-  if (badgeEv) {
-    badgeEv.textContent   = proximos.length;
-    badgeEv.style.display = proximos.length ? 'inline-flex' : 'none';
-  }
+  _atualizarBadgeEventos();
 }
 
 async function carregarEventos() {
@@ -6006,23 +6023,79 @@ async function excluirEvento(id) {
 // só muda o visual (risco no título); funciona tanto no popover do dia
 // quanto na lista "Próximos Prazos" do dashboard.
 async function toggleEventoConcluido(id, concluido, checkboxEl) {
-  const evento = (_eventosDB || []).find(e => e.id === id);
-  if (evento) evento.concluido = concluido;
-
-  // Atualiza a própria linha na hora, sem esperar o round-trip do banco
+  // Atualiza a própria linha na hora (popover do dia não é redesenhado)
   const linha = checkboxEl?.closest('.prazo-item, [data-evento-linha]');
   const titulo = linha?.querySelector('.prazo-name, [data-evento-titulo]');
   if (titulo) titulo.style.textDecoration = concluido ? 'line-through' : 'none';
   if (titulo) titulo.style.opacity = concluido ? '.55' : '1';
+  return _definirConcluido('evento', id, concluido);
+}
 
-  const { error } = await _supabase.from('eventos')
-    .update({ concluido, concluido_em: concluido ? new Date().toISOString() : null })
-    .eq('id', id);
-  if (error) { showToast('Erro ao atualizar evento.'); return; }
+// ── CONCLUIR (único caminho) ─────────────────────────────────────────────────
+// Compromisso ou tarefa concluído em qualquer lugar (card Compromissos, Prazos
+// Próximos, popover do dia) passa por aqui: muda a memória na hora, redesenha
+// TODAS as telas que mostram o item e grava; se o banco recusar, desfaz tudo.
+// Antes cada tela gravava por conta própria e só avisava algumas das outras.
+const _colunaAntesDeConcluir = {};
 
-  buildFullCal();
-  atualizarPrazosDash();
+async function _definirConcluido(tipo, id, concluido) {
+  if (tipo === 'evento') {
+    const copias = [_eventoPorId(id), (_calExpEventos || []).find(e => e.id === id)].filter(Boolean);
+    if (!copias.length) return;
+    const ant = { concluido: !!copias[0].concluido, concluido_em: copias[0].concluido_em || null };
+    const novo = { concluido, concluido_em: concluido ? new Date().toISOString() : null };
+    copias.forEach(e => Object.assign(e, novo));
+    _syncConcluido();
+    const { error } = await _supabase.from('eventos').update(novo).eq('id', id);
+    if (error) { copias.forEach(e => Object.assign(e, ant)); _syncConcluido(); showToast('Erro ao atualizar: ' + error.message, 'error'); }
+    return;
+  }
+
+  const t = [..._tarefasPrazoDB, ..._tarefasConcluidasCal, ...(_tarefasDB || [])].find(x => x.id === id);
+  if (!t) return;
+  const colAnt  = t.coluna;
+  const colNova = concluido ? 'concluida' : (_colunaAntesDeConcluir[id] || 'a_fazer');
+  if (concluido && colAnt !== 'concluida') _colunaAntesDeConcluir[id] = colAnt;
+  const aplicar = col => {
+    const item = { ...t, coluna: col };
+    _tarefasPrazoDB       = _tarefasPrazoDB.filter(x => x.id !== id);
+    _tarefasConcluidasCal = _tarefasConcluidasCal.filter(x => x.id !== id);
+    if (item.prazo) (col === 'concluida' ? _tarefasConcluidasCal : _tarefasPrazoDB).push(item);
+    const k = (_tarefasDB || []).find(x => x.id === id);
+    if (k) k.coluna = col;
+  };
+  aplicar(colNova);
+  _syncConcluido();
+  const meuNome = window._user?.user_metadata?.full_name || window._user?.email?.split('@')[0] || '';
+  const { error } = await _supabase.from('tarefas')
+    .update({ coluna: colNova, updated_at: new Date().toISOString(), updated_by_nome: meuNome }).eq('id', id);
+  if (error) { aplicar(colAnt); _syncConcluido(); showToast('Erro ao atualizar: ' + error.message, 'error'); }
+}
+
+function _syncConcluido() {
+  const ativa = p => document.getElementById('page-' + p)?.classList.contains('active');
   renderCompromissosDia();
+  atualizarPrazosDash();
+  buildMiniCal();
+  if (ativa('calendario')) buildFullCal();
+  if (document.getElementById('modal-cal-exp')?.classList.contains('open')) _calExpRender();
+  if (ativa('tarefas')) renderizarKanban(_tarefasDB, _procMapG, localStorage.getItem('kanban_last_seen') || '0',
+    window._user?.user_metadata?.full_name || window._user?.email?.split('@')[0] || '');
+  if (ativa('detalhe') && _processoAtual?.id) carregarPrazosProcesso(_processoAtual.id);
+  _tbRedesenharSeVisivel();
+  _renderAtividadeRecente();
+  atualizarBell();
+  _atualizarBadgeEventos();
+}
+
+function _atualizarBadgeEventos() {
+  const badgeEv = document.getElementById('badge-eventos');
+  if (!badgeEv) return;
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  const em7 = new Date(); em7.setDate(em7.getDate() + 7);
+  const n = (_eventosDB || []).filter(e => !e.concluido && new Date(e.data + 'T12:00:00') <= em7).length;
+  badgeEv.textContent   = n;
+  badgeEv.style.display = n ? 'inline-flex' : 'none';
 }
 
 function renderCompromissosDia() {
@@ -6034,8 +6107,10 @@ function renderCompromissosDia() {
   const amanha = new Date(hoje); amanha.setDate(amanha.getDate() + 1);
 
   const hojeStr = hoje.toISOString().slice(0, 10);
-  // Inclui concluídos de hoje — ficam riscados no card o dia todo
-  const eventosHoje = (_eventosDB || []).filter(e => new Date(e.data + 'T12:00:00') < amanha);
+  // Pendentes até hoje + concluídos hoje (ficam riscados no card o dia todo).
+  // Antes entrava todo concluído dos últimos 7 dias, riscado, sem sair nunca.
+  const concluidoHoje = e => e.data === hojeStr || (e.concluido_em && new Date(e.concluido_em) >= hoje);
+  const eventosHoje = (_eventosDB || []).filter(e => new Date(e.data + 'T12:00:00') < amanha && (!e.concluido || concluidoHoje(e)));
   const tarefasHoje = [
     ...(_tarefasPrazoDB || []).filter(t => t.prazo && new Date(t.prazo + 'T12:00:00') < amanha),
     ...(_tarefasConcluidasCal || []).filter(t => t.prazo === hojeStr),
@@ -6070,11 +6145,12 @@ function renderCompromissosDia() {
       ? '<span class="comprdia-tag comprdia-tag-venc">Vencido</span>'
       : hora ? `<span class="comprdia-tag comprdia-tag-hora">${hora}</span>` : '';
     return `<div class="comprdia-item${concluido ? ' done' : ''}" id="${elId}" title="${escHtml(tipoLabel[r.tipo] || (isEvento ? 'Evento' : 'Tarefa'))}">
+      <button type="button" class="prazo-check pequeno ${concluido ? 'feito' : ''}" title="${concluido ? 'Desmarcar' : 'Marcar como concluído'}"
+        onclick="event.stopPropagation();_prazoCheck(this,${acao},true)"><i class="ti ti-check"></i></button>
       <div class="comprdia-dot" style="background:${cor}"></div>
       <div class="comprdia-titulo">${titulo}</div>
       ${tag}
       <div class="comprdia-acoes">
-        <button class="comprdia-btn concluir"  onclick="event.stopPropagation();_comprdiaConcluir(${acao})"  title="Concluído"><i class="ti ti-check"></i></button>
         <button class="comprdia-btn amanha"    onclick="event.stopPropagation();_comprdiaAmanha(${acao})"    title="Lembrar amanhã"><i class="ti ti-clock-plus"></i></button>
         <button class="comprdia-btn reagendar" onclick="event.stopPropagation();_comprdiaReagendar(${acao})" title="Reagendar"><i class="ti ti-calendar-event"></i></button>
       </div>
@@ -6089,29 +6165,7 @@ function _comprdiaSairAnimado(tipo, id, cb) {
 }
 
 async function _comprdiaConcluir(tipo, id) {
-  // Risca na hora — o item fica no card o dia todo
-  const elId = `comprdia-${tipo === 'evento' ? 'ev' : 'ta'}-${id}`;
-  document.getElementById(elId)?.classList.add('done');
-
-  if (tipo === 'evento') {
-    const ev = (_eventosDB || []).find(e => e.id === id);
-    if (!ev) return;
-    ev.concluido = true;
-    const { error } = await _supabase.from('eventos').update({ concluido: true, concluido_em: new Date().toISOString() }).eq('id', id);
-    if (error) { showToast('Erro: ' + error.message, 'error'); ev.concluido = false; document.getElementById(elId)?.classList.remove('done'); return; }
-    buildMiniCal();
-    if (document.getElementById('page-calendario')?.classList.contains('active')) buildFullCal();
-  } else {
-    const t = (_tarefasPrazoDB || []).find(x => x.id === id);
-    if (!t) return;
-    const ant = t.coluna; t.coluna = 'concluida';
-    _tarefasConcluidasCal = [...(_tarefasConcluidasCal || []), { ...t }];
-    _tarefasPrazoDB = _tarefasPrazoDB.filter(x => x.id !== id);
-    atualizarPrazosDash();
-    const { error } = await _supabase.from('tarefas').update({ coluna: 'concluida' }).eq('id', id);
-    if (error) { showToast('Erro: ' + error.message, 'error'); t.coluna = ant; _tarefasPrazoDB.push(t); _tarefasConcluidasCal = (_tarefasConcluidasCal||[]).filter(x=>x.id!==id); document.getElementById(elId)?.classList.remove('done'); return; }
-    if (document.getElementById('page-calendario')?.classList.contains('active')) buildFullCal();
-  }
+  return _definirConcluido(tipo, id, true);
 }
 
 // Sincroniza tudo após qualquer mudança de data num compromisso
@@ -6356,11 +6410,11 @@ async function carregarPrazosProcesso(processoId) {
   const urgCls    = { alta:'urgency-alta', media:'urgency-media', baixa:'urgency-baixa' };
   const tipoLabel = { prazo_processual:'Prazo Processual', audiencia:'Audiência', lembrete:'Lembrete', reuniao:'Reunião' };
   const nivelUrg  = { fatal:'urgency-alta', urgente:'urgency-alta', medio:'urgency-media', baixo:'urgency-baixa' };
-  const hoje      = new Date();
+  const hoje      = new Date(); hoje.setHours(0, 0, 0, 0);
 
   wrap.innerHTML = lista.map(item => {
     const dt   = new Date(item.data + 'T12:00:00');
-    const dias = Math.ceil((dt - hoje) / 86400000);
+    const dias = Math.round((new Date(item.data + 'T00:00:00') - hoje) / 86400000);
     const dia  = dt.toLocaleDateString('pt-BR', { day:'2-digit' });
     const mes  = dt.toLocaleDateString('pt-BR', { month:'short' }).replace('.','');
     const badgeCls = dias < 0 ? 'dias-urgente' : dias <= 3 ? 'dias-urgente' : dias <= 7 ? 'dias-aviso' : 'dias-ok';
@@ -6803,6 +6857,8 @@ async function carregarTarefasPrazo() {
   _tbRedesenharSeVisivel();
   _renderAtividadeRecente();
   renderCompromissosDia();
+  // Tarefa arrastada pra "Concluída" no kanban também sai do Prazos Próximos
+  atualizarPrazosDash();
 }
 
 async function carregarTarefas() {
