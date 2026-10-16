@@ -62,6 +62,7 @@
     { "path": "/api/cron/verificar-atualizacoes?tipo=afternoon", "schedule": "30 18 * * 0,6" },
     { "path": "/api/cron/verificar-atualizacoes?tipo=prazo_fatal", "schedule": "0 12 * * *" },
     { "path": "/api/cron/verificar-atualizacoes?tipo=honorario_vencido", "schedule": "30 12 * * *" },
+    { "path": "/api/cron/verificar-atualizacoes?tipo=cadastro_incompleto", "schedule": "0 13 * * *" },
     { "path": "/api/cron/sincronizar?tipo=djen",                 "schedule": "0 9 * * *" },
     { "path": "/api/cron/sincronizar?tipo=djen",                 "schedule": "0 15 * * *" },
     { "path": "/api/cron/sincronizar?tipo=djen",                 "schedule": "0 22 * * *" },

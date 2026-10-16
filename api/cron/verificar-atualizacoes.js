@@ -46,6 +46,7 @@ export default async function handler(req, res) {
     if (tipo === 'afternoon')         return await rodarAfternoon(admin, res, hoje);
     if (tipo === 'prazo_fatal')       return await rodarPrazoFatal(admin, res, hoje);
     if (tipo === 'honorario_vencido') return await rodarHonorarioVencido(admin, res, hoje);
+    if (tipo === 'cadastro_incompleto') return await rodarCadastroIncompleto(admin, res, hoje, req.query?.simular === '1');
     return await rodarEvening(admin, res, hoje);
   } catch (e) {
     await logErro(admin, `cron:email-${tipo}`, e.message, { stack: e.stack });
@@ -501,6 +502,114 @@ async function rodarHonorarioVencido(admin, res, hoje) {
   }
 
   return res.status(200).json({ ok: true, tipo: 'honorario_vencido', emailsEnviados, hoje });
+}
+
+// ── CADASTRO INCOMPLETO ──────────────────────────────────────────────────────
+// 1x/dia. Duas situações, no máximo 2 e-mails cada, por conta:
+//   - criou a conta e nunca entrou (ex: login com Google que não completou —
+//     caso do Italo, 15/10/2026): 1 dia depois e de novo 3+ dias depois;
+//   - entrou mas não informou a OAB (desde 16/10 a OAB é opcional): sem ela o
+//     DJEN não acha nada da pessoa — 1 dia depois e de novo 4+ dias depois.
+// Só contas com até 30 dias (não acorda conta antiga parada) e com acesso
+// ativo; colaborador não precisa de OAB. Quem se descadastrou não recebe
+// (enviarEmail central). ?simular=1 só lista, não envia nem registra.
+
+const MAX_LEMBRETES = 2;
+const oabsValidas = raw => String(raw || '').split(',').map(s => s.trim()).filter(Boolean)
+  .filter(o => /^(?:OAB[/ ]?)?[A-Z]{2}[/ ]?\d{3,7}$/.test(o.toUpperCase().replace(/[.\-]/g, '')));
+
+async function rodarCadastroIncompleto(admin, res, hoje, simular) {
+  const users = [];
+  for (let page = 1; ; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ perPage: 1000, page });
+    if (error) throw error;
+    users.push(...(data?.users || []));
+    if ((data?.users || []).length < 1000) break;
+  }
+  const agora   = Date.now();
+  const recentes = users.filter(u => agora - new Date(u.created_at) <= 30 * 86400000);
+  if (!recentes.length) return res.status(200).json({ ok: true, tipo: 'cadastro_incompleto', enviados: 0, motivo: 'nenhuma conta recente' });
+
+  const ids = recentes.map(u => u.id);
+  const [{ data: colabs }, { data: logs }, comAcesso] = await Promise.all([
+    admin.from('colaboradores').select('user_id').in('user_id', ids).eq('status', 'ativo'),
+    admin.from('notif_log').select('user_id, tipo, data').in('user_id', ids).in('tipo', ['cadastro_nunca_entrou', 'cadastro_sem_oab']),
+    usuariosComAcesso(admin, ids),
+  ]);
+  const ehColab = new Set((colabs || []).map(c => c.user_id));
+  const historico = (uid, tipo) => (logs || []).filter(l => l.user_id === uid && l.tipo === tipo).map(l => l.data).sort();
+
+  const plano = [];
+  for (const u of recentes) {
+    if (!u.email || !comAcesso.has(u.id)) continue;
+    const idadeDias = (agora - new Date(u.created_at)) / 86400000;
+    const nuncaEntrou = !u.last_sign_in_at && !!u.email_confirmed_at;   // e-mail não confirmado = o Supabase já cuida
+    const semOab = !!u.last_sign_in_at && !ehColab.has(u.id) && oabsValidas(u.user_metadata?.oab).length === 0;
+    const tipo = nuncaEntrou ? 'cadastro_nunca_entrou' : semOab ? 'cadastro_sem_oab' : null;
+    if (!tipo) continue;
+
+    const envios = historico(u.id, tipo);
+    if (envios.length >= MAX_LEMBRETES || envios.includes(hoje)) continue;
+    const intervalo2 = tipo === 'cadastro_nunca_entrou' ? 3 : 4;
+    const diasDesdeUltimo = envios.length ? (agora - new Date(envios.at(-1) + 'T12:00:00Z')) / 86400000 : Infinity;
+    const vence = envios.length === 0 ? idadeDias >= 1 : (idadeDias >= intervalo2 && diasDesdeUltimo >= 2);
+    if (vence) plano.push({ u, tipo, envio: envios.length + 1 });
+  }
+
+  if (simular) {
+    return res.status(200).json({ ok: true, tipo: 'cadastro_incompleto', simulado: true,
+      receberiam: plano.map(p => ({ email: p.u.email, situacao: p.tipo, envio: `${p.envio}/${MAX_LEMBRETES}` })) });
+  }
+
+  let enviados = 0;
+  for (const p of plano) {
+    try {
+      const { assunto, html } = emailCadastroIncompleto(p.u, p.tipo, p.envio);
+      await enviarEmail(p.u.email, assunto, html);
+      await logNotif(admin, p.u.id, p.tipo, hoje);
+      enviados++;
+    } catch (e) {
+      await logErro(admin, 'cron:email-cadastro_incompleto', e.message, { email: p.u.email }, p.u.id);
+    }
+  }
+  return res.status(200).json({ ok: true, tipo: 'cadastro_incompleto', enviados, avaliados: recentes.length, hoje });
+}
+
+export function emailCadastroIncompleto(u, tipo, envio) {
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const primeiro = esc(((u.user_metadata?.full_name || u.user_metadata?.nome || '').trim().split(/\s+/)[0]) || '');
+  const ola = primeiro ? `Olá, ${primeiro}!` : 'Olá!';
+  const google = (u.app_metadata?.providers || []).includes('google');
+  const botao = (txt, url) => `<div style="text-align:center;padding:8px 28px 28px"><a href="${url}" style="display:inline-block;background:linear-gradient(135deg,#053958 0%,#0d5a96 55%,#2196f3 100%);color:#fff;text-decoration:none;padding:14px 34px;border-radius:9px;font-size:15px;font-weight:700">${txt}</a>`;
+
+  let assunto, subtitulo, corpo, cta;
+  if (tipo === 'cadastro_nunca_entrou') {
+    assunto   = envio === 1 ? `${primeiro || 'Sua conta'}${primeiro ? ', sua conta' : ''} no Meu Processo já está pronta` : 'Seu teste grátis no Meu Processo está esperando por você';
+    subtitulo = 'Sua conta está pronta';
+    corpo = `<p style="margin:0 0 14px">${ola}</p>
+      <p style="margin:0 0 14px">Você começou seu cadastro no Meu Processo, mas o acesso não chegou a ser concluído. A boa notícia: <b>sua conta já está criada</b> e o <b>teste grátis está ativo</b>. Falta só entrar.</p>`;
+    cta = botao('Entrar no Meu Processo →', 'https://www.meuprocesso.app.br/login')
+      + `<div style="font-size:12px;color:#6b7280;margin-top:10px">${google
+          ? 'Na tela de login, clique em <b>"Entrar com Google"</b>.'
+          : 'Use o e-mail e a senha do cadastro. Esqueceu a senha? <a href="https://www.meuprocesso.app.br/esqueci-senha" style="color:#0d5a96">Crie uma nova</a>.'}</div></div>`;
+  } else {
+    assunto   = envio === 1 ? 'Falta só sua OAB para encontrarmos suas intimações' : 'Suas intimações ainda não estão sendo monitoradas';
+    subtitulo = 'Falta um passo';
+    corpo = `<p style="margin:0 0 14px">${ola}</p>
+      <p style="margin:0 0 14px">Sua conta está ativa, mas ainda <b>sem a OAB cadastrada</b>. É por ela que encontramos automaticamente suas intimações e processos no Diário Eletrônico — sem ela, não temos como avisar você.</p>
+      <p style="margin:0 0 14px">Leva 10 segundos: entre no sistema e informe estado e número na faixa amarela do topo.</p>`;
+    cta = botao('Informar minha OAB →', 'https://www.meuprocesso.app.br/dashboard') + '</div>';
+  }
+
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+<div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
+  ${cabecalho(subtitulo)}
+  <div style="padding:24px 28px 8px;font-size:14px;color:#374151;line-height:1.65">${corpo}</div>
+  ${cta}
+  ${rodape()}
+</div></body></html>`;
+  return { assunto, html };
 }
 
 // ── AGENDA ────────────────────────────────────────────────────────────────────
