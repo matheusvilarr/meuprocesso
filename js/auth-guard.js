@@ -46,10 +46,11 @@ window._oabsValidas = function (raw) {
 
   // O Supabase só atualiza last_sign_in_at num login de verdade — quem fica
   // semanas logado (a sessão renova sozinha) aparecia no painel admin como se
-  // nunca tivesse entrado. Registra a data de acesso uma vez por dia; o
-  // updateUser mescla o user_metadata, não sobrescreve os outros campos.
-  const hojeBR = new Date(Date.now() - 3 * 3600 * 1000).toISOString().slice(0, 10);
-  if ((session.user.user_metadata?.ultimo_acesso || '').slice(0, 10) !== hojeBR) {
+  // nunca tivesse entrado. Registra o acesso no máximo 1x por hora (era 1x por
+  // dia, e o painel admin mostrava o horário do PRIMEIRO acesso do dia, não do
+  // último); o updateUser mescla o user_metadata, não sobrescreve os outros campos.
+  const ultimoAcesso = Date.parse(session.user.user_metadata?.ultimo_acesso || '') || 0;
+  if (Date.now() - ultimoAcesso > 3600 * 1000) {
     _supabase.auth.updateUser({ data: { ultimo_acesso: new Date().toISOString() } })
       .then(() => {}, () => {});   // não bloqueia a abertura do dashboard
   }

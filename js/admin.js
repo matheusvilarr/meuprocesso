@@ -652,11 +652,19 @@ function renderAdvogados() {
     : `${lista.length} de ${_adminData.advogados.length}`;
 
   const curta = iso => iso ? new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—';
-  const relativo = iso => {
+  // "hoje, 14:32" / "ontem, 09:10" / "14/10, 18:05" — dia de calendário no
+  // fuso de quem está olhando (o registro é no máximo 1x/hora, ver auth-guard)
+  const comHora = iso => {
     if (!iso) return null;
-    const d = Math.floor((Date.now() - new Date(iso)) / 86400000);
-    return d <= 0 ? 'hoje' : d === 1 ? 'ontem' : d < 30 ? `há ${d} dias` : curta(iso);
+    const d = new Date(iso);
+    const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const dia0 = x => { const y = new Date(x); y.setHours(0, 0, 0, 0); return y; };
+    const dias = Math.round((dia0(Date.now()) - dia0(d)) / 86400000);
+    const quando = dias === 0 ? 'hoje' : dias === 1 ? 'ontem'
+      : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', ...(d.getFullYear() !== new Date().getFullYear() ? { year: '2-digit' } : {}) });
+    return `${quando}, ${hora}`;
   };
+  const relativo = comHora;
 
   document.getElementById('adv-tbody').innerHTML = lista.map(a => `
     <tr class="adv-linha" onclick="abrirFicha('${a.id}')" title="Ver ficha completa">
@@ -666,7 +674,7 @@ function renderAdvogados() {
       </td>
       <td class="adv-oab">${a.oab === '—' ? '<span style="color:#9f9f98">—</span>' : esc(a.oab).split(/\s*,\s*/).join('<br>')}${a.oabDuplicado ? '<br><span class="adm-status-pill adm-status-bloqueado" title="Outra conta usa a mesma OAB" style="font-size:9px;"><i class="ti ti-alert-triangle"></i> duplicada</span>' : ''}</td>
       <td title="${fmtData(a.criadoEm)}">${curta(a.criadoEm)}${ehRecente(a.criadoEm) ? ' <span class="adm-status-pill" style="font-size:9px;background:#dcfce7;color:#166534" title="Entrou nos últimos 7 dias — confira se a licença está como você quer">novo</span>' : ''}</td>
-      <td title="${a.ultimoLogin ? 'Abriu o dashboard em ' + fmtData(a.ultimoLogin) : 'Nunca abriu o dashboard desde 29/09, quando esse registro passou a existir'}${a.ultimoSignIn ? ' · sessão mais recente: ' + fmtData(a.ultimoSignIn) : ''}">${a.ultimoLogin ? relativo(a.ultimoLogin) : '<span style="color:#9f9f98">nunca abriu</span>'}</td>
+      <td title="${a.ultimoLogin ? 'Última vez que abriu o sistema: ' + comHora(a.ultimoLogin) : 'Nunca abriu o dashboard desde 29/09, quando esse registro passou a existir'}${a.ultimoSignIn ? ' · último login (senha/Google/LinkedIn): ' + comHora(a.ultimoSignIn) : ''}">${a.ultimoLogin ? relativo(a.ultimoLogin) : '<span style="color:#9f9f98">nunca abriu</span>'}${a.ultimoSignIn ? `<div class="adv-sub">login: ${comHora(a.ultimoSignIn)}</div>` : ''}</td>
       <td><span class="adv-num">${a.numProcessos}</span> processo${a.numProcessos === 1 ? '' : 's'}<div class="adv-sub">${a.numTarefas} tarefa${a.numTarefas === 1 ? '' : 's'} · ${a.numColaboradores} colab.</div></td>
       <td class="adm-td-livre">${a.bloqueado ? '<span class="adm-status-pill adm-status-bloqueado" style="margin-bottom:3px">Bloqueado</span>' : ''}${celulaAssinatura(a)}</td>
       <td class="adv-acoes" onclick="event.stopPropagation()">
