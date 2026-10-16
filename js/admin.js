@@ -160,7 +160,7 @@ function renderSaude(s) {
       `Último envio: ${em.ultimoEnvio ? em.ultimoEnvio.split('-').reverse().join('/') + (em.ultimoTipo ? ' (' + esc(em.ultimoTipo) + ')' : '') : 'nunca'}`,
     ], s.config.resend ? 'ok' : 'critico'),
     (() => {
-      const q = s.emails;
+      const q = s.cotaResend;
       if (!q || q.ultimas24h == null) return card('ti-send', 'Cota da Resend', '—',
         ['Contador ainda não ativo.', 'Rode a migration migration_email_envios.sql no Supabase.'], 'atencao');
       const pior = Math.max(q.ultimas24h / q.limiteDia, q.mes / q.limiteMes);
@@ -169,10 +169,17 @@ function renderSaude(s) {
         'Plano grátis — passou do limite, a Resend recusa o resto',
       ], pior >= 0.9 ? 'critico' : pior >= 0.7 ? 'atencao' : 'ok');
     })(),
-    card('ti-shield-check', 'Configuração', s.config.cronSecret && s.config.resend ? 'OK' : 'Pendências', [
-      `CRON_SECRET ${s.config.cronSecret ? '✓' : '✗ faltando'} · Resend ${s.config.resend ? '✓' : '✗ faltando'}`,
-      `Região ${esc(s.config.regiao || '—')}${s.config.regiao === 'gru1' ? ' (São Paulo) ✓' : ''}`,
-    ], s.config.cronSecret && s.config.resend ? 'ok' : 'critico'),
+    // No localhost (vercel dev) as variáveis de produção não carregam — mostra
+    // "Ambiente local" em vez de um falso "Pendências" vermelho.
+    s.config.ambiente && s.config.ambiente !== 'production'
+      ? card('ti-device-laptop', 'Configuração', 'Ambiente local', [
+          'Painel aberto pelo localhost — dados reais, variáveis de produção não carregam aqui.',
+          'No site (www.meuprocesso.app.br) este card mostra a configuração de verdade.',
+        ], 'atencao')
+      : card('ti-shield-check', 'Configuração', s.config.cronSecret && s.config.resend ? 'OK' : 'Pendências', [
+          `CRON_SECRET ${s.config.cronSecret ? '✓' : '✗ faltando'} · Resend ${s.config.resend ? '✓' : '✗ faltando'}`,
+          `Região ${esc(s.config.regiao || '—')}${s.config.regiao === 'gru1' ? ' (São Paulo) ✓' : ''}`,
+        ], s.config.cronSecret && s.config.resend ? 'ok' : 'critico'),
     card('ti-receipt', 'Licenças', `${s.assinaturas.emTrial} em teste`, [
       s.assinaturas.pedidosPendentes
         ? `<span style="color:#166534;font-weight:600">${s.assinaturas.pedidosPendentes} pedido(s) de licença esperando você</span>`
@@ -644,28 +651,30 @@ function renderAdvogados() {
     ? `${_adminData.advogados.length} cadastrado(s)`
     : `${lista.length} de ${_adminData.advogados.length}`;
 
+  const curta = iso => iso ? new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—';
+  const relativo = iso => {
+    if (!iso) return null;
+    const d = Math.floor((Date.now() - new Date(iso)) / 86400000);
+    return d <= 0 ? 'hoje' : d === 1 ? 'ontem' : d < 30 ? `há ${d} dias` : curta(iso);
+  };
+
   document.getElementById('adv-tbody').innerHTML = lista.map(a => `
     <tr class="adv-linha" onclick="abrirFicha('${a.id}')" title="Ver ficha completa">
-      <td><span class="adv-nome">${esc(a.nome)}</span>${a.nivelAdmin ? ' <span class="adm-badge" style="font-size:9px;vertical-align:middle;">' + esc(a.nivelAdmin.toUpperCase()) + '</span>' : ''}${a.numDesatualizados ? ` <span class="adm-status-pill adm-status-pendente" style="font-size:9px;" title="Processos sem consulta ao DataJud há 48h+">${a.numDesatualizados} atrasado(s)</span>` : ''}</td>
-      <td>${esc(a.email)}${a.emailConfirmado ? '' : ` <span class="adm-status-pill adm-status-pendente" style="font-size:9px;">não confirmado</span> <button class="adm-btn-small ok" style="font-size:10px;padding:2px 7px;" onclick="event.stopPropagation();confirmarEmailManual('${a.id}','${esc(a.email)}')" title="A pessoa não recebeu o e-mail de confirmação? Libere o acesso por aqui.">liberar</button>`}</td>
-      <td>${esc(a.oab)}${a.oabDuplicado ? ' <span class="adm-status-pill adm-status-bloqueado" title="Outra conta usa a mesma OAB" style="font-size:9px;"><i class="ti ti-alert-triangle"></i> duplicada</span>' : ''}</td>
-      <td>${fmtData(a.criadoEm)}${ehRecente(a.criadoEm) ? ' <span class="adm-status-pill" style="font-size:9px;background:#dcfce7;color:#166534" title="Entrou nos últimos 7 dias — confira se a licença está como você quer">novo</span>' : ''}</td>
-      <td title="${a.ultimoLogin ? 'Abriu o dashboard em ' + fmtData(a.ultimoLogin) : 'Nunca abriu o dashboard desde 29/09, quando esse registro passou a existir'}${a.ultimoSignIn ? ' · sessão mais recente: ' + fmtData(a.ultimoSignIn) : ''}">${a.ultimoLogin ? fmtData(a.ultimoLogin) : '<span style="color:#9f9f98" title="Sem uso registrado">nunca abriu</span>'}</td>
-      <td>${a.numProcessos}</td>
-      <td>${a.numTarefas}</td>
-      <td>${a.numColaboradores}</td>
-      <td><span class="adm-status-pill ${a.bloqueado ? 'adm-status-bloqueado' : 'adm-status-ativo'}">${a.bloqueado ? 'Bloqueado' : 'Ativo'}</span></td>
-      <td class="adm-td-livre">${celulaAssinatura(a)}</td>
-      <td onclick="event.stopPropagation()">
-        <button class="adm-btn-small ${a.bloqueado ? 'ok' : 'danger'}" onclick="toggleStatus('${a.id}', ${!a.bloqueado})">
-          ${a.bloqueado ? 'Desbloquear' : 'Bloquear'}
-        </button>
-        <button class="adm-btn-small" onclick="abrirAssinatura('${a.id}')">
-          Assinatura
-        </button>
+      <td>
+        <span class="adv-nome">${esc(a.nome)}</span>${a.nivelAdmin ? ' <span class="adm-badge" style="font-size:9px;vertical-align:middle;">' + esc(a.nivelAdmin.toUpperCase()) + '</span>' : ''}${a.numDesatualizados ? ` <span class="adm-status-pill adm-status-pendente" style="font-size:9px;" title="Processos sem consulta ao DataJud há 48h+">${a.numDesatualizados} atrasado(s)</span>` : ''}
+        <div class="adv-email">${esc(a.email)}${a.emailConfirmado ? '' : ` <span class="adm-status-pill adm-status-pendente" style="font-size:9px;">não confirmado</span> <button class="adm-btn-small ok" style="font-size:10px;padding:2px 7px;" onclick="event.stopPropagation();confirmarEmailManual('${a.id}','${esc(a.email)}')" title="A pessoa não recebeu o e-mail de confirmação? Libere o acesso por aqui.">liberar</button>`}</div>
+      </td>
+      <td class="adv-oab">${a.oab === '—' ? '<span style="color:#9f9f98">—</span>' : esc(a.oab).split(/\s*,\s*/).join('<br>')}${a.oabDuplicado ? '<br><span class="adm-status-pill adm-status-bloqueado" title="Outra conta usa a mesma OAB" style="font-size:9px;"><i class="ti ti-alert-triangle"></i> duplicada</span>' : ''}</td>
+      <td title="${fmtData(a.criadoEm)}">${curta(a.criadoEm)}${ehRecente(a.criadoEm) ? ' <span class="adm-status-pill" style="font-size:9px;background:#dcfce7;color:#166534" title="Entrou nos últimos 7 dias — confira se a licença está como você quer">novo</span>' : ''}</td>
+      <td title="${a.ultimoLogin ? 'Abriu o dashboard em ' + fmtData(a.ultimoLogin) : 'Nunca abriu o dashboard desde 29/09, quando esse registro passou a existir'}${a.ultimoSignIn ? ' · sessão mais recente: ' + fmtData(a.ultimoSignIn) : ''}">${a.ultimoLogin ? relativo(a.ultimoLogin) : '<span style="color:#9f9f98">nunca abriu</span>'}</td>
+      <td><span class="adv-num">${a.numProcessos}</span> processo${a.numProcessos === 1 ? '' : 's'}<div class="adv-sub">${a.numTarefas} tarefa${a.numTarefas === 1 ? '' : 's'} · ${a.numColaboradores} colab.</div></td>
+      <td class="adm-td-livre">${a.bloqueado ? '<span class="adm-status-pill adm-status-bloqueado" style="margin-bottom:3px">Bloqueado</span>' : ''}${celulaAssinatura(a)}</td>
+      <td class="adv-acoes" onclick="event.stopPropagation()">
+        <button class="adm-btn-small" onclick="abrirAssinatura('${a.id}')">Assinatura</button>
+        <button class="adm-btn-small ${a.bloqueado ? 'ok' : 'danger'}" onclick="toggleStatus('${a.id}', ${!a.bloqueado})">${a.bloqueado ? 'Desbloquear' : 'Bloquear'}</button>
       </td>
     </tr>
-  `).join('') || `<tr><td colspan="11" style="text-align:center;color:#9f9f98;">Nenhum advogado encontrado com esse filtro/busca.</td></tr>`;
+  `).join('') || `<tr><td colspan="7" style="text-align:center;color:#9f9f98;">Nenhum advogado encontrado com esse filtro/busca.</td></tr>`;
 }
 
 // ── FICHA DO ADVOGADO ──────────────────────────────────────────────────────────

@@ -953,23 +953,33 @@ async function acaoSaude(req, res, admin) {
     resend:     !!process.env.RESEND_API_KEY,
     regiao:     process.env.VERCEL_REGION || null,
     deploy:     (process.env.VERCEL_GIT_COMMIT_SHA || '').slice(0, 7) || null,
+    ambiente:   process.env.VERCEL_ENV || 'local',
   };
 
   // nivel: 'critico' | 'atencao' | 'info'
   const alertas = [];
   const add = (nivel, titulo, detalhe, acao) => alertas.push({ nivel, titulo, detalhe, acao: acao || null });
 
-  if (!config.cronSecret) add('critico', 'CRON_SECRET não configurado',
-    'Qualquer pessoa consegue disparar os crons pela URL. Na Vercel: Settings → Environment Variables → adicione CRON_SECRET com uma senha longa e faça um novo deploy.');
+  // No localhost (vercel dev) o CRON_SECRET não vem — ele só existe no
+  // ambiente de produção da Vercel. Lá é alerta crítico; aqui era falso alarme.
+  const producao = process.env.VERCEL_ENV === 'production';
+  if (!config.cronSecret) add(producao ? 'critico' : 'info',
+    producao ? 'CRON_SECRET não configurado' : 'Ambiente local — CRON_SECRET só existe em produção',
+    producao
+      ? 'Qualquer pessoa consegue disparar os crons pela URL. Na Vercel: Settings → Environment Variables → adicione CRON_SECRET com uma senha longa e faça um novo deploy.'
+      : 'Você está vendo o painel pelo localhost. Os dados são os reais, mas as variáveis de produção (como o CRON_SECRET) não carregam aqui. No site, este aviso não aparece.');
   if (!config.resend) add('critico', 'RESEND_API_KEY ausente', 'Nenhum e-mail está sendo enviado.');
-  if (config.regiao && config.regiao !== 'gru1') add('atencao', `Funções rodando em ${config.regiao}`,
+  // "dev1" é a região que o vercel dev inventa no localhost — só vale em produção
+  if (producao && config.regiao && config.regiao !== 'gru1') add('atencao', `Funções rodando em ${config.regiao}`,
     'A API do DJEN bloqueia IPs fora do Brasil (403). Confira "regions": ["gru1"] no vercel.json.');
 
   // Plano grátis da Resend: 100/dia e 3.000/mês — estourou, o resto é recusado
   // (inclusive aviso de prazo). Avisa com folga pra dar tempo de trocar de plano.
-  const emails = { ultimas24h: emails24h, mes: emailsMes, limiteDia: 100, limiteMes: 3000 };
+  // nome próprio: "emails" já é a fila de e-mails mais abaixo (as duas chaves
+  // com o mesmo nome faziam uma apagar a outra no JSON)
+  const cotaResend = { ultimas24h: emails24h, mes: emailsMes, limiteDia: 100, limiteMes: 3000 };
   if (emails24h !== null) {
-    const pDia = emails24h / emails.limiteDia, pMes = emailsMes / emails.limiteMes;
+    const pDia = emails24h / cotaResend.limiteDia, pMes = emailsMes / cotaResend.limiteMes;
     if (pDia >= 0.9 || pMes >= 0.9) add('critico', `E-mails perto do limite da Resend (${emails24h}/100 em 24h · ${emailsMes}/3.000 no mês)`,
       'Passou do limite, a Resend recusa o resto — inclusive avisos de prazo. Troque para o plano pago na Resend.');
     else if (pDia >= 0.7 || pMes >= 0.7) add('atencao', `E-mails em ${Math.round(Math.max(pDia, pMes) * 100)}% do limite da Resend`,
@@ -1050,7 +1060,7 @@ async function acaoSaude(req, res, admin) {
     emails: { pendentes: emailsPendentes, avisosSite, ultimoEnvio: ultimoEmailData, ultimoTipo: ultimoEmail?.[0]?.tipo || null },
     erros24h: errosPorOrigem,
     assinaturas: { vencendo7d, vencidas, emTrial, pedidosPendentes: (pedidosLicenca || []).length },
-    emails,
+    cotaResend,
     alertas,
   });
 }

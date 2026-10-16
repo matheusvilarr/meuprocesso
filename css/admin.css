@@ -61,11 +61,12 @@ body {
 }
 .adm-voltar:hover { color: #fff; }
 
-.adm-main { max-width: 1100px; margin: 0 auto; padding: 28px 24px 60px; }
+.adm-main { max-width: 1320px; margin: 0 auto; padding: 28px 24px 60px; }
 
 .adm-stats {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  /* auto-fit: 6 cards cabem numa linha só (antes eram 5 colunas e sobrava 1 sozinho embaixo) */
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
   margin-bottom: 24px;
 }
@@ -93,10 +94,9 @@ body {
   gap: 2px;
   margin-bottom: 24px;
   border-bottom: 1px solid var(--gray-200);
-  /* com 9 abas elas não cabem em telas menores; rolar na horizontal é melhor
-     do que apertar o texto */
-  overflow-x: auto;
-  scrollbar-width: thin;
+  /* quebram em 2 linhas se não couberem — antes ganhavam barra de rolagem
+     própria (no celular continuam rolando, ver @media abaixo) */
+  flex-wrap: wrap;
 }
 
 .adm-tab {
@@ -163,6 +163,18 @@ body {
 .adm-table td:first-child,
 .adm-table td:nth-child(2),
 .adm-table td.adm-td-livre { white-space: normal; }
+
+/* Tabela de advogados: 7 colunas (eram 11 e metade ficava escondida atrás
+   de uma barra horizontal). Nome + e-mail juntos; uso (processos/tarefas/
+   colaboradores) junto; status de bloqueio dentro da coluna de assinatura. */
+.adv-tabela td { white-space: normal; }
+.adv-email { font-size: 11.5px; color: var(--gray-600); margin-top: 2px; word-break: break-all; }
+.adv-email .adm-status-pill, .adv-email .adm-btn-small { word-break: normal; }
+.adv-sub { font-size: 11px; color: var(--gray-400); margin-top: 2px; }
+.adv-num { font-weight: 600; color: var(--gray-800); }
+.adv-oab { line-height: 1.5; }
+.adv-acoes { white-space: nowrap; text-align: right; }
+.adv-tabela th:nth-child(1) { width: 30%; }
 .adm-table tr:last-child td { border-bottom: none; }
 
 .adm-status-pill {
@@ -459,7 +471,7 @@ code.adm-code {
 .alerta-atencao { background: #fffbeb; border-color: #fde68a; color: #92400e; }
 .alerta-info    { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
 .alerta-ok      { background: var(--green-light); border-color: #bbf7d0; color: var(--green); }
-.saude-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+.saude-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 12px; }
 .saude-card { border: 1px solid var(--gray-200); border-top: 3px solid var(--green); border-radius: var(--radius); padding: 12px 14px; background: var(--gray-50); }
 .saude-card.atencao { border-top-color: #d97706; }
 .saude-card.critico { border-top-color: var(--red); }
