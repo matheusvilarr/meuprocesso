@@ -262,6 +262,28 @@ html, body {
   border-color: #4285F4;
   box-shadow: 0 0 0 3px rgba(66,133,244,.12);
 }
+.btn-linkedin:hover {
+  border-color: #0A66C2;
+  box-shadow: 0 0 0 3px rgba(10,102,194,.12);
+}
+
+/* Login social em quadrados só com as marcas, lado a lado. O texto do botão
+   continua no HTML (leitor de tela e "Redirecionando…"), só não aparece. */
+.social-login { display: flex; justify-content: center; gap: 12px; margin-bottom: 16px; }
+.social-login .btn-google {
+  width: 52px; height: 52px; padding: 0; margin: 0; flex: none; gap: 0;
+  border-radius: 12px; position: relative;
+}
+.social-login .btn-google span {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+.social-login .btn-google:disabled svg { opacity: 0; }
+.social-login .btn-google:disabled::after {
+  content: ''; position: absolute; inset: 0; margin: auto; width: 18px; height: 18px;
+  border: 2px solid var(--g200); border-top-color: #0A66C2; border-radius: 50%;
+  animation: giroSocial .7s linear infinite;
+}
+@keyframes giroSocial { to { transform: rotate(360deg); } }
 
 /* ── DIVIDER OR ── */
 .divider-or {

@@ -33,6 +33,8 @@ function switchTab(tab) {
   // na aba de cadastro entender que não precisa preencher o formulário.
   document.getElementById('btnGoogleTxt').textContent =
     isSignup ? 'Criar conta com Google' : 'Entrar com Google';
+  document.getElementById('btnLinkedinTxt').textContent =
+    isSignup ? 'Criar conta com LinkedIn' : 'Entrar com LinkedIn';
   document.getElementById('googleHint').style.display = isSignup ? 'block' : 'none';
   document.getElementById('trialBanner').style.display = isSignup ? 'block' : 'none';
 }
@@ -40,6 +42,25 @@ function switchTab(tab) {
 if (new URLSearchParams(window.location.search).get('tab') === 'signup') {
   switchTab('signup');
 }
+
+// ── LinkedIn OAuth ────────────────────────────────────────────────────────────
+// Mesmo fluxo do Google: cria a conta na 1ª vez, sem OAB (a faixa do
+// dashboard pede depois, com a checagem anti-abuso). Provedor "linkedin_oidc"
+// — o "linkedin" antigo foi desligado pelo LinkedIn.
+document.getElementById('btnLinkedin').addEventListener('click', async function () {
+  this.disabled = true;
+  document.getElementById('btnLinkedinTxt').textContent = 'Redirecionando...';
+  const destino = new URLSearchParams(window.location.search).get('redirect') || '/dashboard';
+  const { error } = await _supabase.auth.signInWithOAuth({
+    provider: 'linkedin_oidc',
+    options: { redirectTo: window.location.origin + destino },
+  });
+  if (error) {
+    this.disabled = false;
+    document.getElementById('btnLinkedinTxt').textContent = 'Entrar com LinkedIn';
+    alert('Não foi possível entrar com o LinkedIn agora. Tente de novo ou use o Google/e-mail.');
+  }
+});
 
 // ── Google OAuth ──────────────────────────────────────────────────────────────
 
