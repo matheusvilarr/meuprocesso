@@ -4,7 +4,9 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { timingSafeEqual } from 'node:crypto';
-import { usuariosComAcesso, enviarAvisoReativacao, enviarEmail,
+// Títulos antigos vieram gravados como 'APELAçãO CíVEL' (importação de jun/2026);
+// o painel normaliza na tela e o e-mail precisa normalizar igual.
+import { usuariosComAcesso, enviarAvisoReativacao, enviarEmail, tituloProcesso,
          tokenDescadastro, linkDescadastro, definirDescadastro } from '../../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
@@ -125,7 +127,7 @@ async function rodarInstant(admin, res, hoje) {
     const autoImportado = novos.some(m => m._auto_importado);
     const item = {
       processoId: p.id, numero: p.numero,
-      nome: p.apelido || p.nome, cliente: p.cliente || null,
+      nome: p.apelido || tituloProcesso(p.nome), cliente: p.cliente || null,
       tribunal: p.tribunal || extrairTribunal(p.datajud_index),
       ultimaVerificacao: p.ultima_verificacao, novos,
     };
@@ -193,7 +195,7 @@ async function rodarMorning(admin, res, hoje) {
     const item = {
       processoId:        p.id,
       numero:            p.numero,
-      nome:              p.apelido || p.nome,
+      nome:              p.apelido || tituloProcesso(p.nome),
       cliente:           p.cliente || null,
       tribunal:          p.tribunal || extrairTribunal(p.datajud_index),
       ultimaVerificacao: p.ultima_verificacao,
@@ -273,7 +275,7 @@ async function rodarAfternoon(admin, res, hoje) {
     const item = {
       processoId:        p.id,
       numero:            p.numero,
-      nome:              p.apelido || p.nome,
+      nome:              p.apelido || tituloProcesso(p.nome),
       cliente:           p.cliente || null,
       tribunal:          p.tribunal || extrairTribunal(p.datajud_index),
       ultimaVerificacao: p.ultima_verificacao,
@@ -410,7 +412,7 @@ async function rodarPrazoFatal(admin, res, hoje) {
     porUsuario[t.user_id].push({
       titulo:   t.titulo,
       prazo:    t.prazo,
-      processo: proc ? (proc.apelido || proc.nome) + (proc.numero ? ' · ' + proc.numero : '') : (t.cliente_manual || t.numero_processo_manual || null),
+      processo: proc ? (proc.apelido || tituloProcesso(proc.nome)) + (proc.numero ? ' · ' + proc.numero : '') : (t.cliente_manual || t.numero_processo_manual || null),
     });
   }
 
