@@ -79,6 +79,11 @@ function showPage(id) {
   // Sem OAB a pessoa entra normalmente (até 16/10/2026 ficava presa no
   // perfil — afastava quem só queria conhecer). O lembrete é a faixa do topo
   // (_mostrarFaixaOAB), já que sem OAB o DJEN não acha nada dela.
+  // Assinatura vencida/cancelada/bloqueada: só "Minha Assinatura" (ver auth-guard).
+  if (window._acessoRestrito && id !== 'assinatura') {
+    showToast('Sua assinatura está inativa — escolha um plano para voltar a usar o sistema.', 'warning');
+    return;
+  }
   closeSidebar();
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -4421,6 +4426,15 @@ window.addEventListener('DOMContentLoaded', () => {
 
   function _iniciarCarregamento() {
     if (!window._user) return;
+    // Acesso restrito: abre direto em "Minha Assinatura" e não carrega
+    // processos, tarefas, sync etc. — só o necessário pra escolher o plano.
+    if (window._acessoRestrito) {
+      document.body.classList.add('acesso-restrito');
+      showPage('assinatura');
+      _liberarTela();
+      return;
+    }
+    _liberarTela();
     _mostrarFaixaOAB();
     carregarProcessos().then(() => {
       iniciarSyncAutomatico();
@@ -4441,6 +4455,12 @@ window.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('authReady', _iniciarCarregamento, { once: true });
   }
 });
+
+// Tira o "carregando" do <head> (dashboard.html) — só depois que o
+// auth-guard decidiu e a página certa já está na tela.
+function _liberarTela() {
+  document.documentElement.classList.remove('auth-pendente');
+}
 
 function _abrirBuscaOABAutomatica(oabs) {
   openModal('modal-busca-tribunal');
@@ -5399,7 +5419,9 @@ async function carregarAssinatura() {
   const dias    = Math.ceil((new Date(assinatura.data_expiracao) - new Date()) / 86400000);
   const vencida = assinatura.status !== 'ativo' || dias < 0;
   const nivel   = vencida ? 'fatal' : dias <= 5 ? 'urgente' : dias <= 10 ? 'medio' : 'baixo';
-  const diasTxt = vencida ? 'Vencida' : dias === 0 ? 'Vence hoje' : `Vence em ${dias} dia${dias > 1 ? 's' : ''}`;
+  const diasTxt = assinatura.status === 'bloqueado' ? 'Acesso pausado'
+    : assinatura.status === 'cancelado' ? 'Cancelada'
+    : vencida ? 'Vencida' : dias === 0 ? 'Vence hoje' : `Vence em ${dias} dia${dias > 1 ? 's' : ''}`;
   const fmtData = iso => iso ? new Date(iso).toLocaleDateString('pt-BR') : '—';
 
   const notaColaborador = window._isColaborador
@@ -5408,15 +5430,31 @@ async function carregarAssinatura() {
 
   // Pedido de licença em aberto: o advogado precisa ver que já pediu, senão
   // pede de novo achando que não foi.
-  const { data: pedido } = await _supabase
-    .from('solicitacoes_licenca')
-    .select('plano, valor, status, criado_em')
-    .eq('escritorio_id', window._escritorioId)
-    .eq('status', 'pendente')
-    .maybeSingle();
+  const [{ data: pedido }, { count: nProcessos }] = await Promise.all([
+    _supabase.from('solicitacoes_licenca')
+      .select('plano, valor, status, criado_em')
+      .eq('escritorio_id', window._escritorioId)
+      .eq('status', 'pendente')
+      .maybeSingle(),
+    window._acessoRestrito
+      ? _supabase.from('processos').select('id', { count: 'exact', head: true })
+          .eq('user_id', window._escritorioId).neq('status', 'Arquivado')
+      : Promise.resolve({ count: 0 }),
+  ]);
   window._pedidoLicenca = pedido || null;
 
+  // Acesso restrito: diz por que o resto do sistema está travado e lembra o
+  // que está guardado esperando (antes isso ficava na tela /assinatura-vencida).
+  const bloqueada = assinatura.status === 'bloqueado';
+  const avisoRestrito = window._acessoRestrito ? `
+    <div class="restrito-aviso">
+      <i class="ti ti-lock"></i>
+      <div><strong>${bloqueada ? 'Seu acesso está pausado.' : assinatura.status === 'cancelado' ? 'Sua assinatura foi cancelada.' : 'Sua licença venceu.'}</strong>
+      ${nProcessos ? `Seus <strong>${nProcessos} processo${nProcessos > 1 ? 's' : ''}</strong>, prazos e documentos continuam guardados — ` : 'Seus dados continuam guardados — '}escolha um plano abaixo para voltar a usar o sistema.</div>
+    </div>` : '';
+
   wrap.innerHTML = `
+    ${avisoRestrito}
     <div style="display:flex;flex-direction:column;gap:20px;max-width:720px">
 
       <div style="background:#fff;border:1px solid var(--gray-200);border-radius:14px;padding:28px">
@@ -5465,7 +5503,9 @@ function _blocoPedidoEnviado(p) {
 }
 
 function _blocoEscolherPlano(assinatura, vencida) {
-  const titulo = vencida
+  const titulo = assinatura.status === 'bloqueado'
+    ? 'Escolha um plano para reativar seu acesso'
+    : vencida
     ? 'Sua licença venceu — escolha um plano para continuar'
     : assinatura.plano === 'trial'
       ? 'Gostou? Escolha seu plano'

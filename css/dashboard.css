@@ -2136,6 +2136,24 @@ body.kanban-dragging .task-col-body {
 }
 .btn-danger-ghost:hover { background: var(--red); color: #fff; }
 
+/* Painel escondido enquanto o auth-guard confere sessão e assinatura */
+html.auth-pendente .sidebar,
+html.auth-pendente .main,
+html.auth-pendente .hamburger { visibility: hidden; }
+html.auth-pendente body::after {
+  content: ''; position: fixed; inset: 0; margin: auto; width: 34px; height: 34px;
+  border: 3px solid var(--gray-200); border-top-color: var(--navy); border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+
+/* Acesso restrito (assinatura vencida/bloqueada): menu fica, mas apagado */
+body.acesso-restrito .nav-item:not([data-livre]) { opacity: .4; }
+.restrito-aviso {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 18px; padding: 14px 18px; max-width: 720px;
+  background: #fef2f2; border: 1px solid #fecaca; border-radius: var(--radius-lg); color: #7f1d1d; font-size: 13.5px; line-height: 1.55;
+}
+.restrito-aviso i { font-size: 22px; color: var(--red); flex-shrink: 0; }
+
 /* Faixa "informe sua OAB" (quem entrou sem OAB — ex: cadastro pelo Google) */
 .faixa-oab[hidden] { display: none !important; }
 .faixa-oab {

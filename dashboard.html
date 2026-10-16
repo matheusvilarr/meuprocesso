@@ -19,6 +19,13 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css">
 <link rel="stylesheet" href="css/dashboard.css">
+<script>
+  // Painel escondido até o auth-guard decidir (sessão + assinatura). Sem isso
+  // conta bloqueada via o dashboard por um instante antes de ser redirecionada.
+  // _liberarTela() (dashboard.js) tira a marca; 10s é rede de segurança.
+  document.documentElement.classList.add('auth-pendente');
+  setTimeout(function () { document.documentElement.classList.remove('auth-pendente'); }, 10000);
+</script>
 </head>
 <body>
 <script>document.body.classList.add('sidebar-collapsed');</script>
@@ -87,7 +94,7 @@
     </div>
 
     <div class="nav-section">Conta</div>
-    <div class="nav-item" onclick="showPage('assinatura')">
+    <div class="nav-item" data-livre onclick="showPage('assinatura')">
       <i class="ti ti-credit-card"></i>
       <span class="nav-label">Minha Assinatura</span>
     </div>
@@ -99,7 +106,7 @@
       <i class="ti ti-help-circle"></i>
       <span class="nav-label">Ajuda</span>
     </div>
-    <div class="nav-item" onclick="fazerLogout()" style="color:#ff8a8a">
+    <div class="nav-item" data-livre onclick="fazerLogout()" style="color:#ff8a8a">
       <i class="ti ti-logout"></i>
       <span class="nav-label">Sair</span>
     </div>

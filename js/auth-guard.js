@@ -66,12 +66,15 @@ window._oabsValidas = function (raw) {
   const assinaturaValida = !!assinatura && assinatura.status === 'ativo' &&
     new Date(assinatura.data_expiracao) > new Date();
 
-  if (!window._isAdmin && !assinaturaValida) {
-    // Sem nenhuma linha de assinatura (caso raro) → fluxo antigo de aprovação.
-    // Com assinatura mas vencida (trial ou plano expirado) → tela de cobrança.
-    window.location.href = assinatura ? '/assinatura-vencida' : '/aguardando';
+  // Sem nenhuma linha de assinatura (caso raro) → fluxo antigo de aprovação.
+  if (!window._isAdmin && !assinatura) {
+    window.location.href = '/aguardando';
     return;
   }
+  // Vencida, cancelada ou bloqueada: entra, mas só na "Minha Assinatura"
+  // (escolher plano / pedir licença). Até 16/10/2026 ia pra /assinatura-vencida,
+  // que no bloqueado só tinha "fale com a gente" — tela sem saída.
+  window._acessoRestrito = !window._isAdmin && !assinaturaValida;
 
   // Quem entra pelo Google não traz OAB (o Google só devolve nome e e-mail),
   // e sem OAB o monitoramento do DJEN não encontra nada dessa pessoa. Então o
