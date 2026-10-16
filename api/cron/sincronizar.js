@@ -16,7 +16,7 @@
 // DataJud: filtro de 20h (browser cobre usuários ativos). Time guard 60s.
 
 import { createClient } from '@supabase/supabase-js';
-import djenCadernos from '../../lib/djen-cadernos.js';
+import djenCadernos, { importarHistoricoOab } from '../../lib/djen-cadernos.js';
 import {
   parsarData, decodificarBuffer, logErro, chaveMov, movimentosDosHits,
   ehMovDJEN, datajudIndexFromNumero, buscarOabsUsuarios, corrigirMojibake,
@@ -59,6 +59,7 @@ export default async function handler(req, res) {
   // mandasse o CRON_SECRET pro browser pra autorizar essa chamada, qualquer
   // um veria o segredo no código-fonte da página.
   if (tipo === 'onboarding') return rodarOnboarding(req, res);
+  if (tipo === 'historico_oab') return rodarHistoricoOab(req, res);
 
   // Fecha por padrão: se a variável CRON_SECRET desaparecer da Vercel (num
   // deploy novo, um erro de digitação), antes isso liberava o cron para
@@ -77,7 +78,10 @@ export default async function handler(req, res) {
     return res.status(500).json({ erro: 'SUPABASE_SERVICE_KEY não configurada.' });
   }
 
-  if (tipo === 'djen') return djenCadernos(req, res);
+  if (tipo === 'djen') {
+    await retentarOnboardingDjen(createClient(SUPA_URL, SUPA_SERVICE_KEY)).catch(() => {});
+    return djenCadernos(req, res);
+  }
 
   const admin = createClient(SUPA_URL, SUPA_SERVICE_KEY);
   const hoje  = new Date().toISOString().slice(0, 10);
@@ -945,15 +949,24 @@ async function buscarDJENPorOab(oab) {
     dataDisponibilizacaoFim: new Date().toISOString().slice(0, 10),
     tamanhoPagina: DJEN_TAMANHO_PAGINA,
   };
+  let parcial = false;
+  // Até 16/10/2026 qualquer falha (limite de 20/min do DJEN, timeout) virava
+  // "0 processos" em silêncio — com vários cadastros ao mesmo tempo o advogado
+  // recebia "não achamos nada" sem ninguém saber. Agora repete limite/instabilidade
+  // e, se não der, a página 1 LANÇA erro (quem chama marca pra tentar depois).
   const buscarPagina = async (pagina) => {
-    try {
-      const params = new URLSearchParams({ ...base, pagina });
-      const r = await fetch(`${DJEN_API}?${params}`, { signal: AbortSignal.timeout(20000) });
-      if (!r.ok) return { count: 0, items: [] };
-      return await r.json();
-    } catch {
-      return { count: 0, items: [] };
+    const params = new URLSearchParams({ ...base, pagina });
+    for (const espera of [0, 4000, 10000]) {
+      if (espera) await new Promise(r => setTimeout(r, espera));
+      try {
+        const r = await fetch(`${DJEN_API}?${params}`, { signal: AbortSignal.timeout(15000) });
+        if (r.ok) return await r.json();
+        if (r.status !== 429 && r.status < 500) throw new Error(`DJEN respondeu ${r.status}`);
+      } catch (e) {
+        if (/DJEN respondeu 4/.test(e.message)) throw e;
+      }
     }
+    throw new Error('DJEN indisponível ou no limite de consultas');
   };
 
   const primeira = await buscarPagina(1);
@@ -962,9 +975,11 @@ async function buscarDJENPorOab(oab) {
 
   const numPaginas = Math.min(Math.ceil(totalPublicacoes / DJEN_TAMANHO_PAGINA), DJEN_PAGINAS_MAX);
   if (numPaginas > 1) {
+    // Páginas extras que falharem só deixam a contagem como "pelo menos X"
     const extras = await Promise.all(
-      Array.from({ length: numPaginas - 1 }, (_, i) => buscarPagina(i + 2))
+      Array.from({ length: numPaginas - 1 }, (_, i) => buscarPagina(i + 2).catch(() => ({ items: [], falhou: true })))
     );
+    if (extras.some(e => e.falhou)) parcial = true;
     itens = itens.concat(...extras.map(e => e.items || []));
   }
 
@@ -975,8 +990,41 @@ async function buscarDJENPorOab(oab) {
   }
 
   // Só é um total exato se a gente trouxe todas as páginas que existem.
-  const completo = totalPublicacoes <= numPaginas * DJEN_TAMANHO_PAGINA;
+  const completo = !parcial && totalPublicacoes <= numPaginas * DJEN_TAMANHO_PAGINA;
   return { totalProcessos: distintos.size, exato: completo, itens: [...distintos.values()] };
+}
+
+// Primeiro acesso cuja busca no DJEN falhou (limite/instabilidade): tenta de
+// novo a cada scan do DJEN até conseguir. Teto de 2 contas e ~25s por
+// execução pra não comer o tempo do scan que vem logo depois.
+async function retentarOnboardingDjen(admin) {
+  const inicio = Date.now();
+  const pendentes = [];
+  for (let page = 1; ; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ perPage: 1000, page });
+    if (error) return;
+    pendentes.push(...(data?.users || []).filter(u => u.user_metadata?.onboarding_djen_pendente));
+    if ((data?.users || []).length < 1000) break;
+  }
+  for (const user of pendentes.slice(0, 2)) {
+    if (Date.now() - inicio > 25000) break;
+    const oabs = (await buscarOabsUsuarios(admin, [user.id]))[user.id] || [];
+    const limpar = () => admin.auth.admin.updateUserById(user.id, {
+      user_metadata: { ...user.user_metadata, onboarding_djen_pendente: false },
+    });
+    if (!oabs.length) { await limpar(); continue; }
+    try {
+      const { totalProcessos, exato, itens } = await buscarDJENPorOab(oabs[0]);
+      const primeiroNome = (user.user_metadata?.full_name || user.user_metadata?.nome || '').trim().split(' ')[0] || 'Advogado(a)';
+      const tratamento = inferirTratamento(primeiroNome);
+      if (totalProcessos > 0 && itens.length) {
+        await enviarEmailDescoberta(user.email, tratamento ? `${tratamento} ${primeiroNome}` : primeiroNome, oabs[0], totalProcessos, exato, itens);
+      }
+      await limpar();
+    } catch (e) {
+      await logErro(admin, 'onboarding-djen', `Nova tentativa falhou: ${String(e.message || e).slice(0, 200)}`, {}, user.id);
+    }
+  }
 }
 
 async function enviarBoasVindas(email, nome) {
@@ -1049,6 +1097,63 @@ async function enviarEmailDescoberta(email, nome, oab, totalProcessos, exato, it
   await enviarEmail(email, assunto, html);
 }
 
+// Uma página (até 100 publicações) do scan de 1 ano que o navegador do
+// advogado fez no DJEN — ver importarHistoricoOab em lib/djen-cadernos.js.
+// O conteúdo vem do cliente: só os campos usados passam, data fora do último
+// ano e link que não seja https (vai pra um <a href> na timeline) são descartados.
+async function rodarHistoricoOab(req, res) {
+  if (req.method !== 'POST') return res.status(405).json({ erro: 'Método não permitido.' });
+  const authHeader = req.headers['authorization'];
+  if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ erro: 'Não autenticado.' });
+  if (!SUPA_SERVICE_KEY) return res.status(500).json({ erro: 'SUPABASE_SERVICE_KEY não configurada.' });
+
+  const supaAnon = createClient(SUPA_URL, SUPA_ANON_KEY);
+  const { data: { user }, error: authErr } = await supaAnon.auth.getUser(authHeader.slice(7));
+  if (authErr || !user) return res.status(401).json({ erro: 'Token inválido.' });
+
+  const admin = createClient(SUPA_URL, SUPA_SERVICE_KEY);
+  if (!(await usuariosComAcesso(admin, [user.id])).has(user.id)) {
+    return res.status(403).json({ erro: 'Assinatura inativa.' });
+  }
+
+  const { oab, itens } = req.body || {};
+  if (typeof oab !== 'string' || !Array.isArray(itens) || itens.length > 100) {
+    return res.status(400).json({ erro: 'oab e itens (até 100) são obrigatórios.' });
+  }
+  const minimo = new Date(Date.now() - 400 * 86400000).toISOString().slice(0, 10);
+  const maximo = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const txt = (v, max = 300) => typeof v === 'string' ? v.slice(0, max) : null;
+  const limpos = itens.filter(it => {
+    const d = String(it?.data_disponibilizacao || '');
+    return /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= minimo && d <= maximo;
+  }).map(it => ({
+    data_disponibilizacao:    it.data_disponibilizacao,
+    siglaTribunal:            txt(it.siglaTribunal, 20),
+    tipoComunicacao:          txt(it.tipoComunicacao, 100),
+    tipoDocumento:            txt(it.tipoDocumento, 100),
+    nomeClasse:               txt(it.nomeClasse),
+    nomeOrgao:                txt(it.nomeOrgao),
+    numeroprocessocommascara: txt(it.numeroprocessocommascara, 30),
+    numero_processo:          txt(it.numero_processo, 30),
+    texto:                    txt(it.texto, 5000),
+    link:                     /^https:\/\//.test(it.link || '') ? txt(it.link, 500) : null,
+    ativo:                    it.ativo !== false,
+    data_cancelamento:        it.data_cancelamento ? true : null,
+    destinatarios: (Array.isArray(it.destinatarios) ? it.destinatarios : []).slice(0, 20)
+      .map(d => ({ nome: txt(d?.nome), polo: txt(d?.polo, 10) })),
+    destinatarioadvogados: [],   // a OAB consultada já identifica a conta
+  }));
+
+  try {
+    const r = await importarHistoricoOab(admin, user.id, oab.toUpperCase().replace(/[^A-Z0-9]/g, ''), limpos);
+    if (r.erro) return res.status(403).json(r);
+    return res.status(200).json({ ok: true, recebidas: limpos.length, ...r });
+  } catch (e) {
+    await logErro(admin, 'historico-oab', String(e.message || e).slice(0, 300), { oab }, user.id);
+    return res.status(500).json({ erro: 'Falha ao gravar.' });
+  }
+}
+
 async function rodarOnboarding(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ erro: 'Método não permitido.' });
   const authHeader = req.headers['authorization'];
@@ -1113,7 +1218,19 @@ async function rodarOnboarding(req, res) {
     const nome = tratamento ? `${tratamento} ${primeiroNome}` : primeiroNome;
     await enviarBoasVindas(user.email, nome);
 
-    const { totalProcessos, exato, itens } = await buscarDJENPorOab(oabs[0]);
+    let busca;
+    try {
+      busca = await buscarDJENPorOab(oabs[0]);
+    } catch (e) {
+      // DJEN no limite/fora do ar: não diz "não achamos nada". Marca pra o
+      // próximo scan do DJEN (6x/dia) tentar de novo — retentarOnboardingDjen().
+      await admin.auth.admin.updateUserById(user.id, {
+        user_metadata: { ...user.user_metadata, onboarding_email_enviado: true, onboarding_djen_pendente: true },
+      });
+      await logErro(admin, 'onboarding-djen', `Busca adiada: ${String(e.message || e).slice(0, 200)}`, {}, user.id);
+      return res.status(200).json({ ok: true, enviouBoasVindas: true, buscaAdiada: true });
+    }
+    const { totalProcessos, exato, itens } = busca;
     if (totalProcessos > 0 && itens.length) {
       await enviarEmailDescoberta(user.email, nome, oabs[0], totalProcessos, exato, itens);
     }

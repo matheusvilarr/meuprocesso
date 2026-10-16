@@ -1049,6 +1049,7 @@ async function buscarAdvogadoDJEN() {
     // e avisa claramente quando alguma página falha, em vez de esconder.
     let houveFalha = false;
     const _fetchDJEN = async (params) => {
+      _marcarUsoDjen();
       const r = await fetch(`${DJEN_API}?${new URLSearchParams(params)}`);
       if (!r.ok) { houveFalha = true; return { items: [], count: 0 }; }
       return r.json();
@@ -4441,6 +4442,7 @@ window.addEventListener('DOMContentLoaded', () => {
       sincronizarTodos();
       _tentarOnboardingOAB();
       _tentarAbrirBuscaOABPorLink();
+      _scanHistoricoDjen();
     });
     carregarTarefas().then(() => carregarEventosDashboard());
     carregarDescobertos();
@@ -4463,6 +4465,7 @@ function _liberarTela() {
 }
 
 function _abrirBuscaOABAutomatica(oabs) {
+  _marcarUsoDjen();
   openModal('modal-busca-tribunal');
   selecionarAbaBusca('advogado', document.getElementById('tab-btn-advogado'));
   const q  = document.getElementById('modal-dje-query');
@@ -4550,6 +4553,7 @@ async function _salvarFaixaOAB() {
     showToast('OAB salva! Vamos buscar suas intimações no Diário Eletrônico.', 'success');
     if (document.getElementById('page-configuracoes')?.classList.contains('active')) carregarConfiguracoes();
     _tentarOnboardingOAB();
+    _scanHistoricoDjen();
   } finally {
     btn.disabled = false; btn.textContent = 'Salvar';
   }
@@ -8076,17 +8080,121 @@ async function carregarDescobertos() {
     if (!r.ok) return;
     const { descobertos } = await r.json();
     _descobertosCache = descobertos || [];
-
-    const banner = document.getElementById('descobertos-banner');
-    if (!banner) return;
-    if (_descobertosCache.length) {
-      document.getElementById('descobertos-banner-texto').textContent =
-        `Encontramos ${_descobertosCache.length} processo(s) novo(s) na sua OAB`;
-      banner.style.display = 'flex';
-    } else {
-      banner.style.display = 'none';
-    }
+    _atualizarBannerDescobertos();
   } catch (_) {}
+}
+
+// Achados em publicação antiga (scan de 1 ano) não são "novos" — contados à parte.
+function _atualizarBannerDescobertos() {
+  const banner = document.getElementById('descobertos-banner');
+  if (!banner) return;
+  const hist  = _descobertosCache.filter(d => d.dados?._historico).length;
+  const novos = _descobertosCache.length - hist;
+  if (!_descobertosCache.length) { banner.style.display = 'none'; return; }
+  document.getElementById('descobertos-banner-texto').textContent = novos
+    ? `Encontramos ${novos} processo(s) novo(s) na sua OAB` + (hist ? ` · ${hist} com publicação no último ano` : '')
+    : `${hist} processo(s) com sua OAB no DJEN no último ano ainda não cadastrados`;
+  banner.style.display = 'flex';
+}
+
+// ── SCAN DE 1 ANO NO DJEN ────────────────────────────────────────────────────
+// Uma vez por OAB, no navegador: o limite de 20 consultas/min do DJEN é por IP,
+// então cada advogado usa a própria cota em vez de travar o scan diário do
+// servidor. Cada página vai pra ?tipo=historico_oab, que grava em silêncio.
+// O progresso fica no user_metadata (historico_djen): fechou a aba no meio,
+// continua da mesma página na próxima abertura.
+let _scanHistoricoRodando = false;
+
+// A busca por OAB/nome que o advogado faz na tela usa a mesma cota do DJEN
+// (mesmo IP). Enquanto ela roda, o scan de 1 ano espera — a busca pedida
+// por ele tem prioridade e não pode falhar por causa do scan.
+let _djenUsoManual = 0;
+function _marcarUsoDjen() { _djenUsoManual = Date.now(); }
+
+async function _scanHistoricoDjen() {
+  if (_scanHistoricoRodando || window._isColaborador || window._acessoRestrito) return;
+  const meta   = window._user?.user_metadata || {};
+  const estado = { ...(meta.historico_djen || {}) };
+  const faltam = window._oabsValidas(meta.oab).map(o => `${o.uf}${o.num}`).filter(c => !estado[c]?.concluido);
+  if (!faltam.length) return;
+  // Duas abas abertas não fazem o mesmo scan em dobro
+  try { if (Date.now() - (+localStorage.getItem('scanHistoricoDjen') || 0) < 120000) return; } catch (_) {}
+  const travar = () => { try { localStorage.setItem('scanHistoricoDjen', String(Date.now())); } catch (_) {} };
+  _scanHistoricoRodando = true;
+  travar();
+
+  const espera = ms => new Promise(r => setTimeout(r, ms));
+  const salvar = async () => {
+    const { data } = await _supabase.auth.updateUser({ data: { historico_djen: estado } });
+    if (data?.user) window._user = data.user;
+  };
+  const dia = deltaDias => new Date(Date.now() - 3 * 3600e3 + deltaDias * 86400e3).toISOString().slice(0, 10);
+  let novas = 0;
+
+  try {
+    for (const chave of faltam) {
+      const e = estado[chave] = estado[chave] || { ini: dia(-365), fim: dia(0), pagina: 1 };
+      while (true) {
+        while (Date.now() - _djenUsoManual < 60000) { travar(); await espera(5000); }
+        let json = null;
+        for (const pausa of [0, 15000, 30000]) {
+          if (pausa) await espera(pausa);
+          try {
+            const r = await fetch(`${DJEN_API}?` + new URLSearchParams({
+              numeroOab: chave.slice(2), ufOab: chave.slice(0, 2),
+              dataDisponibilizacaoInicio: e.ini, dataDisponibilizacaoFim: e.fim,
+              pagina: e.pagina, itensPorPagina: 100,
+            }));
+            if (r.ok) { json = await r.json(); break; }
+            if (r.status !== 429 && r.status < 500) break;
+          } catch (_) {}
+        }
+        if (!json) return;   // DJEN fora/no limite: continua na próxima abertura
+
+        const paginas = Math.max(1, Math.ceil((json.count || 0) / 100));
+        _progressoHistorico(`Buscando suas publicações do último ano no DJEN… ${Math.min(e.pagina, paginas)}/${paginas}`);
+        const itens = json.items || [];
+        if (itens.length) {
+          const { data: { session } } = await _supabase.auth.getSession();
+          const r = await fetch('/api/cron/sincronizar?tipo=historico_oab', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+            body: JSON.stringify({ oab: chave, itens: itens.map(it => ({ ...it, texto: String(it.texto || '').slice(0, 5000), destinatarioadvogados: undefined })) }),
+          });
+          if (!r.ok) return;
+          novas += (await r.json()).sugestoesNovas || 0;
+        }
+        travar();
+        if (itens.length < 100 || e.pagina >= paginas) break;
+        e.pagina++;
+        await salvar();
+        await espera(6000);   // ~10/min: metade da cota, sobra pra uma busca dele
+      }
+      e.concluido = new Date().toISOString();
+      await salvar();
+    }
+  } catch (_) {
+  } finally {
+    _scanHistoricoRodando = false;
+    _progressoHistorico(null);
+    if (novas) {
+      await carregarDescobertos();
+      showToast(`${novas} processo(s) com sua OAB no último ano. Veja no aviso em Meus Processos.`, 'success');
+    }
+  }
+}
+
+function _progressoHistorico(texto) {
+  let el = document.getElementById('progresso-historico-djen');
+  if (!texto) { el?.remove(); return; }
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'progresso-historico-djen';
+    el.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:900;max-width:calc(100vw - 32px);display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--white,#fff);border:1px solid var(--gray-200);border-radius:var(--radius);box-shadow:0 4px 14px rgba(0,0,0,.08);font-size:12px;color:var(--gray-600)';
+    document.body.appendChild(el);
+  }
+  el.innerHTML = `<i class="ti ti-loader-2" style="animation:spin 1s linear infinite"></i><span></span>`;
+  el.lastChild.textContent = texto;
 }
 
 // ── AVISOS DA FILA STJ ───────────────────────────────────────────────────────
@@ -8128,15 +8236,44 @@ function renderizarDescobertos() {
 
   const fmtDia = iso => iso ? new Date(String(iso).slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR') : '—';
 
-  lista.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 2px 10px;border-bottom:1px solid var(--gray-200);margin-bottom:4px">
-      <div style="font-size:12px;color:var(--gray-500);line-height:1.5">
-        Sua OAB apareceu nestas publicações, mas os processos não estão cadastrados.
-        Escolha quais você quer acompanhar.
-      </div>
-      ${_descobertosCache.length > 1 ? `<button class="btn-primary" style="font-size:11px;padding:6px 12px;white-space:nowrap" onclick="importarTodosDescobertos()">Importar todos</button>` : ''}
-    </div>` +
-  _descobertosCache.map(item => {
+  // Só o que é fato: a data da última publicação no DJEN. Nada de "parece
+  // encerrado" — o processo pode ter andado sem publicar nada.
+  const dataPub = d => String(d.dados?._intimacao?.data || d.encontrado_em || '').slice(0, 10);
+  const meses   = d => (Date.now() - new Date(dataPub(d) + 'T12:00:00').getTime()) / (30 * 86400e3);
+  const hist    = _descobertosCache.filter(d => d.dados?._historico).sort((a, b) => dataPub(b).localeCompare(dataPub(a)));
+  _gruposDescobertos = {
+    novos: _descobertosCache.filter(d => !d.dados?._historico),
+    ate3:  hist.filter(d => meses(d) < 3),
+    ate6:  hist.filter(d => meses(d) >= 3 && meses(d) < 6),
+    mais6: hist.filter(d => meses(d) >= 6),
+  };
+  const titulos = {
+    novos: 'Novos',
+    ate3:  'Última publicação nos últimos 3 meses',
+    ate6:  'Última publicação entre 3 e 6 meses atrás',
+    mais6: 'Última publicação há mais de 6 meses',
+  };
+  const grupoAberto = g => g === 'novos' || _gruposAbertos.has(g) || (g === 'ate3' && !_gruposDescobertos.novos.length && !_gruposAbertos.has('-ate3'));
+
+  lista.innerHTML = Object.entries(_gruposDescobertos).filter(([, itens]) => itens.length).map(([g, itens]) => `
+    <details ${grupoAberto(g) ? 'open' : ''} ontoggle="_lembrarGrupoDescobertos('${g}', this.open)" style="border-bottom:1px solid var(--gray-200);padding-bottom:8px">
+      <summary style="display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;padding:6px 2px;font-size:12.5px;font-weight:700;color:var(--navy)">
+        <span>${titulos[g]} <span style="color:var(--gray-400);font-weight:600">(${itens.length})</span></span>
+        ${itens.length > 1 ? `<button class="btn-secondary" style="font-size:11px;padding:4px 10px;white-space:nowrap" onclick="event.preventDefault();importarTodosDescobertos('${g}')">Acompanhar todos</button>` : ''}
+      </summary>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px">${itens.map(_itemDescobertoHtml).join('')}</div>
+    </details>`).join('');
+}
+
+let _gruposDescobertos = {};
+const _gruposAbertos = new Set();
+function _lembrarGrupoDescobertos(g, aberto) {
+  if (g === 'ate3') aberto ? _gruposAbertos.delete('-ate3') : _gruposAbertos.add('-ate3');
+  aberto ? _gruposAbertos.add(g) : _gruposAbertos.delete(g);
+}
+
+function _itemDescobertoHtml(item) {
+  const fmtDia = iso => iso ? new Date(String(iso).slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR') : '—';
     const d  = item.dados || {};
     // O que convence o advogado é a intimação, não a classe processual
     const it = d._intimacao || {};
@@ -8151,8 +8288,11 @@ function renderizarDescobertos() {
            ${cliente ? `<b>${escHtml(cliente)}</b>` : ''}${cliente && idPartes ? ' · ' : ''}${escHtml(idPartes)}
          </div>`
       : '';
-    const detalhe = it.nome
-      ? `<div style="font-size:11.5px;color:var(--gray-500);margin-top:2px;line-height:1.45">${escHtml(String(it.nome).replace(/^DJEN — /, ''))} · ${fmtDia(it.data)}</div>`
+    const tipoPub = it.nome ? escHtml(String(it.nome).replace(/^DJEN — /, '')) : '';
+    const detalhe = d._historico && it.data
+      ? `<div style="font-size:11.5px;color:var(--gray-500);margin-top:2px;line-height:1.45">Última publicação no DJEN em ${fmtDia(it.data)}${tipoPub ? ' · ' + tipoPub : ''}</div>`
+      : it.nome
+      ? `<div style="font-size:11.5px;color:var(--gray-500);margin-top:2px;line-height:1.45">${tipoPub} · ${fmtDia(it.data)}</div>`
       : `<div style="font-size:11px;color:var(--gray-400);margin-top:2px">encontrado em ${fmtDia(item.encontrado_em)}</div>`;
     return `
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 12px;background:var(--gray-50);border-radius:var(--radius)" id="descoberto-${item.id}">
@@ -8166,13 +8306,12 @@ function renderizarDescobertos() {
         <button class="btn-primary" style="font-size:11px;padding:5px 10px" onclick="importarDescoberto('${item.id}')">Acompanhar</button>
       </div>
     </div>`;
-  }).join('');
 }
 
 // O Lucas tem 439 processos — se aparecerem 15 sugestões, decidir uma a uma
 // não escala.
-async function importarTodosDescobertos() {
-  const todos = [..._descobertosCache];
+async function importarTodosDescobertos(grupo) {
+  const todos = [...(_gruposDescobertos[grupo] || [])];
   if (!todos.length) return;
   const ok = await _confirmar(
     `Os ${todos.length} processos passam a ser acompanhados e entram na sua lista.`,
@@ -8185,17 +8324,19 @@ async function importarTodosDescobertos() {
   for (const item of todos) {
     const r = await _importarComMerge(item.dados);
     if (r.status === 'erro') { erros++; continue; }
-    await decidirDescoberto(item.id, 'marcar-importado');
+    // Sem redesenhar a lista a cada item — com centenas (scan de 1 ano) travava
+    await decidirDescoberto(item.id, 'marcar-importado', { semRedesenhar: true });
     importados++;
   }
   await carregarDescobertos();
+  renderizarDescobertos();
   carregarProcessos();
   showToast(erros
     ? `${importados} importado(s), ${erros} falharam.`
     : `${importados} processo(s) agora em acompanhamento.`, erros ? 'warning' : 'success');
 }
 
-async function decidirDescoberto(id, acao) {
+async function decidirDescoberto(id, acao, { semRedesenhar = false } = {}) {
   const { data: { session } } = await _supabase.auth.getSession();
   await fetch('/api/processos-descobertos', {
     method: 'POST',
@@ -8203,11 +8344,9 @@ async function decidirDescoberto(id, acao) {
     body: JSON.stringify({ id, acao }),
   });
   _descobertosCache = _descobertosCache.filter(d => d.id !== id);
+  if (semRedesenhar) return;
   renderizarDescobertos();
-  const banner = document.getElementById('descobertos-banner');
-  if (banner && !_descobertosCache.length) banner.style.display = 'none';
-  else if (banner) document.getElementById('descobertos-banner-texto').textContent =
-    `Encontramos ${_descobertosCache.length} processo(s) novo(s) na sua OAB`;
+  _atualizarBannerDescobertos();
 }
 
 async function ignorarDescoberto(id) {
@@ -8365,6 +8504,7 @@ async function rodarMonitorDJe() {
     };
 
     // Faz uma requisição por OAB em paralelo; sem OAB faz uma só requisição por nome
+    _marcarUsoDjen();
     const requisicoes = isOAB
       ? oabsParsadas.map(oab => {
           const p = new URLSearchParams({ ...baseParams, numeroOab: oab.num, ufOab: oab.uf });
