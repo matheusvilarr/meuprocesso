@@ -32,9 +32,6 @@
       <div class="logo-version">Beta 1.0</div>
     </div>
   </div>
-  <button class="sidebar-collapse-btn" id="btn-collapse-sidebar" onclick="toggleSidebarCollapse()" title="Expandir menu">
-    <i class="ti ti-layout-sidebar-left-expand"></i>
-  </button>
 
   <nav class="sidebar-nav">
     <div class="nav-section">Principal</div>
@@ -159,6 +156,18 @@
       </div>
     </div>
   </header>
+
+  <!-- Faixa "informe sua OAB" — só pra quem entrou sem OAB (ver _mostrarFaixaOAB) -->
+  <div id="faixa-oab" class="faixa-oab" hidden>
+    <i class="ti ti-id-badge-2 faixa-oab-ico"></i>
+    <div class="faixa-oab-txt"><span id="faixa-oab-texto"></span><div class="faixa-oab-erro" id="faixa-oab-erro"></div></div>
+    <form class="faixa-oab-form" onsubmit="event.preventDefault();_salvarFaixaOAB()">
+      <select id="faixa-oab-uf" aria-label="Estado da OAB"><option value="">UF</option></select>
+      <input id="faixa-oab-num" type="text" inputmode="numeric" placeholder="Número da OAB" autocomplete="off" aria-label="Número da OAB">
+      <button type="submit" id="faixa-oab-btn">Salvar</button>
+    </form>
+    <button type="button" class="faixa-oab-depois" onclick="_adiarFaixaOAB()">Lembrar depois</button>
+  </div>
 
   <!-- ── DASHBOARD ── -->
   <div id="page-dashboard" class="page active">
@@ -310,6 +319,13 @@
         <option>Suspenso</option>
         <option>Encerrado</option>
       </select>
+      <div class="visao-toggle" role="group" aria-label="Forma de visualização">
+        <button type="button" data-visao="tabela" title="Ver em tabela" onclick="trocarVisaoProcessos('tabela')"><i class="ti ti-table"></i><span>Tabela</span></button>
+        <button type="button" data-visao="cards" title="Ver em cartões" onclick="trocarVisaoProcessos('cards')"><i class="ti ti-layout-grid"></i><span>Cartões</span></button>
+      </div>
+      <button type="button" class="btn-secondary" style="font-size:13px;padding:7px 12px" onclick="_tbExportar(false)" title="Baixar planilha (Excel) dos processos filtrados">
+        <i class="ti ti-download"></i> Exportar
+      </button>
       <span id="chip-semana" class="filter-chip" style="display:none" onclick="limparFiltroSemana()">
         <i class="ti ti-calendar-week"></i> Esta semana <i class="ti ti-x"></i>
       </span>

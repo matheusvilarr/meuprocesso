@@ -58,6 +58,17 @@ function toggleSidebarCollapse() {
   document.body.classList.toggle('sidebar-collapsed');
 }
 
+// Abre/fecha clicando em qualquer área vazia da barra (no lugar do botão
+// flutuante, que só abria — depois de aberta não havia como recolher).
+// Item de menu, logo, usuário e botões continuam fazendo só a ação deles.
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelector('.sidebar')?.addEventListener('click', e => {
+    if (window.innerWidth <= 768) return;   // celular usa a gaveta (hamburger)
+    if (e.target.closest('.nav-item, a, button, input, select, .logo-mark, .sidebar-user, [onclick]')) return;
+    toggleSidebarCollapse();
+  });
+});
+
 // Pilha de navegação do SPA — fonte da verdade pro botão voltar, em vez de
 // inspecionar o DOM (que pode não refletir a página certa se algo atrasar).
 // 'dashboard' (home) é a base: dela não dá pra voltar mais (nunca desloga).
@@ -65,13 +76,9 @@ let _navStack           = ['dashboard'];
 let _navegandoPorHistorico = false; // true durante popstate, pra não empilhar de novo
 
 function showPage(id) {
-  // Sem OAB o DJEN não acha nada dessa pessoa — ela usaria o sistema achando
-  // que está monitorada. Por isso o primeiro acesso fica preso no perfil.
-  if (window._oabPendente && id !== 'configuracoes' && id !== 'assinatura') {
-    showPage('configuracoes');
-    showToast('Cadastre sua OAB para liberar o sistema.', 'warning');
-    return;
-  }
+  // Sem OAB a pessoa entra normalmente (até 16/10/2026 ficava presa no
+  // perfil — afastava quem só queria conhecer). O lembrete é a faixa do topo
+  // (_mostrarFaixaOAB), já que sem OAB o DJEN não acha nada dela.
   closeSidebar();
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
@@ -422,6 +429,13 @@ let _eventoEditando  = null; // id do evento em edição no modal-lembrete; null
 
 function _eventoPorId(id) { return (_eventosDB || []).find(e => e.id === id); }
 
+// Honorários em aberto (a vencer ou vencidos) com vencimento no dia — os 3
+// calendários (mini, expandido e a página Calendário) usam esta mesma regra.
+function _honorariosDoDia(iso) {
+  return (_honorariosDB || []).filter(h => h.data_vencimento === iso && h.status !== 'pago' && h.status !== 'cancelado');
+}
+const _fmtBRL = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
 function abrirDiaPopover(ano, mes, dia, celEl) {
   const pop    = document.getElementById('dia-popover');
   const titulo = document.getElementById('dia-popover-titulo');
@@ -484,8 +498,23 @@ function abrirDiaPopover(ano, mes, dia, celEl) {
     </div>`;
   }).join('');
 
-  lista.innerHTML = (eventos.length || tarefas.length)
-    ? htmlEventos + htmlTarefas
+  // Honorário marcava o dia com "$" mas não aparecia aqui — clicar no dia
+  // mostrava "Nenhum compromisso". Agora lista e abre o honorário.
+  const honorarios = _honorariosDoDia(isoDate);
+  const htmlHonorarios = honorarios.map(h => {
+    const vencido = h.status === 'vencido';
+    return `
+    <div onclick="fecharDiaPopover();abrirEditarHonorario('${h.id}')" style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:8px;background:var(--gray-50);cursor:pointer">
+      <div style="width:3px;min-height:34px;border-radius:4px;background:${vencido ? 'var(--red)' : 'var(--green)'};flex-shrink:0;margin-top:2px"></div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(h.cliente_nome || h.descricao || 'Honorário')} — ${_fmtBRL(h.valor)}</div>
+        <div style="font-size:11px;color:${vencido ? 'var(--red)' : 'var(--green)'};margin-top:1px">${vencido ? 'Honorário vencido' : 'Honorário a vencer'}${h.cliente_nome && h.descricao ? ' · ' + _esc(h.descricao) : ''}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  lista.innerHTML = (eventos.length || tarefas.length || honorarios.length)
+    ? htmlEventos + htmlTarefas + htmlHonorarios
     : `<div style="text-align:center;padding:16px 0;color:var(--gray-300)">
          <i class="ti ti-calendar-off" style="font-size:24px;display:block;margin-bottom:6px"></i>
          <div style="font-size:12px">Nenhum compromisso</div>
@@ -899,7 +928,9 @@ function buildFullCal() {
                     fullCalDate.getMonth() === today.getMonth() && d === today.getDate();
     const events      = eventosPorDia[d] || [];
     const tarefasDia  = tarefasPorDia[d] || [];
-    const total       = events.length + tarefasDia.length;
+    const isoDia      = `${fullCalDate.getFullYear()}-${String(fullCalDate.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const honsDia     = _honorariosDoDia(isoDia);
+    const total       = events.length + tarefasDia.length + honsDia.length;
 
     const itensHtml = [
       ...events.map(e => `<div class="fcal-event ${_tipoEvtCls[e.tipo] || 'event-lembrete'}">${e.concluido ? '<i class="ti ti-circle-check" style="font-size:9px;margin-right:2px"></i>' : ''}<span style="${e.concluido ? 'text-decoration:line-through;opacity:.6' : ''}">${_esc(e.titulo)}</span></div>`),
@@ -911,6 +942,7 @@ function buildFullCal() {
         const tituloEstilo = concluida ? 'text-decoration:line-through' : '';
         return `<div class="fcal-event event-tarefa event-tarefa-${nivelCls}"><i class="ti ${icone}" style="font-size:9px;margin-right:2px"></i><span style="${tituloEstilo}">${_esc(t.titulo)}</span></div>`;
       }),
+      ...honsDia.map(h => `<div class="fcal-event event-honorario${h.status === 'vencido' ? ' vencido' : ''}"><span class="fcal-money">$</span><span>${_esc(h.cliente_nome || h.descricao || 'Honorário')} · ${_fmtBRL(h.valor)}</span></div>`),
     ].slice(0, LIMITE_DIA).join('');
     const maisHtml = total > LIMITE_DIA ? `<div class="fcal-event fcal-mais">+${total - LIMITE_DIA} mais</div>` : '';
 
@@ -2251,7 +2283,12 @@ function renderizarListaProcessos(lista) {
   const empty = document.getElementById('processos-empty');
   if (!grid) return;
 
-  grid.querySelectorAll('.process-card[data-db], .section-sep[data-dyn]').forEach(el => el.remove());
+  grid.querySelectorAll('.process-card[data-db], .section-sep[data-dyn], .tb-wrap[data-dyn]').forEach(el => el.remove());
+
+  const visao = _visaoProcessos();
+  window._listaFiltrada = lista;   // "Exportar" usa isto na visão de cartões
+  grid.classList.toggle('modo-tabela', visao === 'tabela');
+  document.querySelectorAll('.visao-toggle button').forEach(b => b.classList.toggle('ativo', b.dataset.visao === visao));
 
   const sub = document.getElementById('processos-sub-header');
   if (sub) sub.textContent = lista.length ? `${lista.length} processo(s) ativo(s)` : 'Nenhum processo cadastrado';
@@ -2265,6 +2302,11 @@ function renderizarListaProcessos(lista) {
     return;
   }
   if (empty) empty.style.display = 'none';
+
+  if (visao === 'tabela') {
+    _renderTabela(grid, empty, lista);
+    return;
+  }
 
   const fmtHora = iso => {
     if (!iso) return 'nunca verificado';
@@ -2404,6 +2446,438 @@ function renderizarListaProcessos(lista) {
     grid.insertBefore(mkSep('ti-list', 'Todos os processos'), empty);
   }
   outros.forEach(p => grid.insertBefore(criarCard(p), empty));
+}
+
+// ── TABELA (visão padrão de Meus Processos) ─────────────────────────────────
+// Uma linha por processo, ordenável pelo cabeçalho (padrão: movimentação mais
+// recente primeiro), seleção em lote (arquivar/exportar) e ações no "⋯".
+// A visão de cartões continua disponível no botão ao lado dos filtros.
+
+// Escolha do usuário entre Tabela e Cartões. Fica na conta (user_metadata),
+// então vale em qualquer computador/celular; o localStorage é só um atalho
+// pra não piscar a visão errada antes do login carregar.
+function _visaoProcessos() {
+  const daConta = window._user?.user_metadata?.visao_processos;
+  if (daConta === 'cards' || daConta === 'tabela') return daConta;
+  try { return localStorage.getItem('mp_visao_processos') === 'cards' ? 'cards' : 'tabela'; }
+  catch { return 'tabela'; }
+}
+
+function trocarVisaoProcessos(v) {
+  if (v !== 'cards' && v !== 'tabela') return;
+  if (_visaoProcessos() === v) return;
+  try { localStorage.setItem('mp_visao_processos', v); } catch {}
+  if (window._user) {
+    window._user.user_metadata = { ...window._user.user_metadata, visao_processos: v };
+    _supabase.auth.updateUser({ data: { visao_processos: v } }).then(() => {}, () => {});   // não trava a troca
+  }
+  filtrarProcessos();
+}
+
+let _tbOrdem = { col: 'data', dir: 'desc' };
+const _tbSel = new Set();
+let _tbLista = [];
+
+function _siglaTribunal(p) {
+  return p.datajud_index ? p.datajud_index.replace('api_publica_', '').toUpperCase() : null;
+}
+
+// Dias de calendário (local) até hoje — não "24h atrás": publicação do DJEN
+// vem com T00:00 e cairia no dia errado.
+function _diasCalendario(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d)) return null;
+  const a = new Date(); a.setHours(0, 0, 0, 0);
+  d.setHours(0, 0, 0, 0);
+  return Math.round((a - d) / 86400000);
+}
+
+// Link pro processo no site do tribunal. Testado em 15/10/2026 com processos
+// reais: STJ, TJSP (1º e 2º grau), TJAL 1º grau e TRTs abrem o processo direto.
+// PJe (TJDFT, TRF1, TJMG), Projudi (TJGO), TJRJ e 2º grau do TJAL não aceitam
+// link direto — abre a consulta pública e o número vai copiado pra colar.
+function _linkTribunal(p) {
+  const n = p?.numero || '';
+  const m = /^(\d{7})-(\d{2})\.(\d{4})\.\d\.\d{2}\.(\d{4})$/.exec(n);
+  if (!m) return null;
+  const [, seq, dv, ano, origem] = m;
+  const g2  = origem === '0000';
+  const idx = (p.datajud_index || '').replace('api_publica_', '');
+  const sigla = idx.toUpperCase();
+  const esaj = host => g2
+    ? `https://${host}/cposg/search.do?conversationId=&paginaConsulta=0&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=${seq}-${dv}.${ano}&foroNumeroUnificado=${origem}&dePesquisaNuUnificado=${n}&dePesquisaNuUnificado=UNIFICADO&dePesquisa=&tipoNuProcesso=UNIFICADO`
+    : `https://${host}/cpopg/search.do?conversationId=&cbPesquisa=NUMPROC&numeroDigitoAnoUnificado=${seq}-${dv}.${ano}&foroNumeroUnificado=${origem}&dadosConsulta.valorConsultaNuUnificado=${n}&dadosConsulta.valorConsultaNuUnificado=UNIFICADO&dadosConsulta.valorConsulta=&dadosConsulta.tipoNuProcesso=UNIFICADO`;
+  const direto   = url => ({ url, direto: true, sigla });
+  const consulta = url => ({ url, direto: false, sigla });
+
+  if (idx === 'stj')  return direto(`https://processo.stj.jus.br/processo/pesquisa/?termo=${n}&aplicacao=processos.ea&tipoPesquisa=tipoPesquisaGenerica&chkordem=DESC&chkMorto=MORTO`);
+  if (idx === 'tjsp') return direto(esaj('esaj.tjsp.jus.br'));
+  if (idx === 'tjal') return g2 ? consulta('https://www2.tjal.jus.br/cposg5/open.do') : direto(esaj('www2.tjal.jus.br'));
+  if (/^trt\d+$/.test(idx)) return direto(`https://pje.${idx}.jus.br/consultaprocessual/detalhe-processo/${n}`);
+  if (idx === 'tjdft') return consulta(`https://${g2 ? 'pje2i' : 'pje'}-consultapublica.tjdft.jus.br/consultapublica/ConsultaPublica/listView.seam`);
+  if (idx === 'trf1')  return consulta(`https://pje${g2 ? '2g' : '1g'}-consultapublica.trf1.jus.br/consultapublica/ConsultaPublica/listView.seam`);
+  if (idx === 'tjgo')  return consulta('https://projudi.tjgo.jus.br/BuscaProcesso');
+  if (idx === 'tjmg')  return consulta('https://pje-consulta-publica.tjmg.jus.br/');
+  if (idx === 'tjrj')  return consulta('https://www3.tjrj.jus.br/consultaprocessual/');
+  return null;
+}
+
+// Número do STJ guardado pela fila de conversão (ex: "AREsp 3254978") — o
+// processo é acompanhado pelo CNJ de origem, mas o advogado consulta no STJ.
+function _linkSTJRegistro(p) {
+  const r = p?.numero_registro_superior;
+  if (!r || !/^a?resp\s/i.test(r)) return null;
+  return `https://processo.stj.jus.br/processo/pesquisa/?termo=${encodeURIComponent(r)}&aplicacao=processos.ea&tipoPesquisa=tipoPesquisaGenerica&chkordem=DESC&chkMorto=MORTO`;
+}
+
+function _abrirNoTribunal(evt, id) {
+  evt.stopPropagation();
+  const p = (window._processosDB || []).find(x => x.id === id);
+  const l = _linkTribunal(p);
+  if (!l) return;
+  if (!l.direto) {
+    navigator.clipboard?.writeText(p.numero).catch(() => {});
+    showToast(`Número copiado — cole (Ctrl+V) na busca do ${l.sigla}.`);
+  }
+  if (evt.currentTarget?.tagName !== 'A') window.open(l.url, '_blank', 'noopener');
+}
+
+// Status com significado (o "Ativo" de antes era igual pra todo mundo)
+function _statusTabela(p) {
+  if (p.notificacao_pendente && p.novos_movimentos?.length) return { k: 'novo',   txt: 'Novo',          ordem: 0 };
+  if (!p.datajud_index)                                      return { k: 'semtrib', txt: 'Sem tribunal', ordem: 1 };
+  const d = _ultimaAtividadeDias(p);
+  if (d > 30)                                                return { k: 'parado', txt: d >= 9999 ? 'Sem movimentação' : 'Parado', ordem: 2 };
+  return                                                            { k: 'emdia',  txt: 'Em dia',        ordem: 3 };
+}
+
+function _tbOrdenar(col) {
+  _tbOrdem = _tbOrdem.col === col
+    ? { col, dir: _tbOrdem.dir === 'asc' ? 'desc' : 'asc' }
+    : { col, dir: col === 'data' ? 'desc' : 'asc' };   // prazo começa pelo mais próximo
+  filtrarProcessos();
+}
+
+function _tbTitulo(p) { return p.apelido || p.cliente || _nomeProc(p) || p.numero || '—'; }
+
+function _tbComparar(a, b) {
+  // Favorito fica sempre no topo, qualquer que seja a ordenação escolhida
+  const fav = p => (p.favorito && !window._sharedSet?.[p.id]) ? 1 : 0;
+  if (fav(a) !== fav(b)) return fav(b) - fav(a);
+
+  const { col, dir } = _tbOrdem;
+  const s = dir === 'asc' ? 1 : -1;
+  let r = 0;
+  if (col === 'data')     r = _ultimaAtividade(a).localeCompare(_ultimaAtividade(b));
+  if (col === 'cliente')  r = _tbTitulo(a).localeCompare(_tbTitulo(b), 'pt-BR', { sensitivity: 'base' });
+  if (col === 'tribunal') r = (_siglaTribunal(a) || '~').localeCompare(_siglaTribunal(b) || '~');
+  if (col === 'status')   r = _statusTabela(a).ordem - _statusTabela(b).ordem;
+  if (col === 'prazo') {
+    const pa = _tbPrazos.get(a.id)?.data, pb = _tbPrazos.get(b.id)?.data;
+    if (!pa || !pb) return (pa ? -1 : 0) + (pb ? 1 : 0) || _ultimaAtividade(b).localeCompare(_ultimaAtividade(a));   // sem prazo sempre no fim
+    r = pa.localeCompare(pb);
+  }
+  return r * s || _ultimaAtividade(b).localeCompare(_ultimaAtividade(a));
+}
+
+// Próximo prazo de cada processo = eventos (agenda, de hoje em diante) +
+// tarefas com prazo ainda abertas (inclusive vencidas) ligados a ele — o mesmo
+// que a aba "Prazos do Processo" mostra. Calculado 1x por render, em memória.
+let _tbPrazos = new Map();
+function _tbCalcularPrazos() {
+  const hoje = new Date().toLocaleDateString('sv');   // AAAA-MM-DD no fuso local
+  const m = new Map();
+  const add = (pid, item) => { if (!pid) return; const a = m.get(pid); if (!a || item.data < a.data) m.set(pid, item); };
+  for (const e of _eventosDB || []) if (e.processo_id && !e.concluido && e.data >= hoje) add(e.processo_id, { data: e.data, titulo: e.titulo });
+  for (const t of _tarefasPrazoDB || []) if (t.processo_id && t.prazo) add(t.processo_id, { data: t.prazo, titulo: t.titulo });
+  _tbPrazos = m;
+}
+function _tbDiasPrazo(p) {
+  const pz = _tbPrazos.get(p.id);
+  return pz ? -_diasCalendario(pz.data + 'T12:00:00') : null;   // positivo = futuro
+}
+
+let _tbFiltro = 'todos';
+const _TB_FILTROS = [
+  { k: 'todos',   txt: 'Todos',            teste: () => true },
+  { k: 'hoje',    txt: 'Movimentaram hoje', teste: p => _diasCalendario(p.movimentos_recentes?.[0]?.data) === 0 },
+  { k: 'semana',  txt: 'Movimentaram na semana', teste: p => { const d = _diasCalendario(p.movimentos_recentes?.[0]?.data); return d !== null && d <= 6; } },
+  { k: 'prazo',   txt: 'Prazos em 7 dias', teste: p => { const d = _tbDiasPrazo(p); return d !== null && d <= 7; } },
+  { k: 'novo',    txt: 'Não lidos',        teste: p => _statusTabela(p).k === 'novo' },
+  { k: 'semtrib', txt: 'Sem tribunal',     teste: p => _statusTabela(p).k === 'semtrib' },
+];
+
+function _tbFiltrar(k) { _tbFiltro = _tbFiltro === k ? 'todos' : k; filtrarProcessos(); }
+
+// Prazos (eventos/tarefas) chegam depois dos processos — redesenha a tabela
+// pra coluna "Próximo prazo" e o resumo não ficarem vazios na 1ª carga.
+function _tbRedesenharSeVisivel() {
+  if (_visaoProcessos() === 'tabela' && document.getElementById('page-processos')?.classList.contains('active')) filtrarProcessos();
+}
+
+// "Espiar": linhas expandidas sem sair da lista
+const _tbAbertos = new Set();
+function _tbEspiar(evt, id) {
+  evt.stopPropagation();
+  if (_tbAbertos.has(id)) _tbAbertos.delete(id); else _tbAbertos.add(id);
+  const tr = document.querySelector(`.tb tr[data-db="${id}"]`);
+  if (!tr) return;
+  tr.classList.toggle('tb-aberto', _tbAbertos.has(id));
+  const prox = tr.nextElementSibling;
+  if (prox?.classList.contains('tb-espiar')) prox.remove();
+  if (_tbAbertos.has(id)) tr.insertAdjacentHTML('afterend', _tbEspiarHtml((window._processosDB || []).find(p => p.id === id)));
+}
+
+function _tbEspiarHtml(p) {
+  if (!p) return '';
+  const fmt = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }); };
+  const movs = (p.movimentos_recentes || []).slice(0, 4).map(m => {
+    const mm = (m.nome || '').match(/^DJEN\s*[—-]\s*(.*)$/);
+    return `<li><span class="tb-esp-dt">${fmt(m.data)}</span><span class="tb-esp-tx">${mm ? '<span class="tb-fonte">DJEN</span>' + _esc(mm[1]) : _esc(m.nome)}${m._url ? `<a class="tb-esp-link" href="${_esc(m._url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Ler a publicação no DJEN"><i class="ti ti-external-link"></i></a>` : ''}</span></li>`;
+  }).join('');
+  const hoje = new Date().toLocaleDateString('sv');
+  const prazos = [
+    ...(_eventosDB || []).filter(e => e.processo_id === p.id && !e.concluido && e.data >= hoje).map(e => ({ data: e.data, titulo: e.titulo })),
+    ...(_tarefasPrazoDB || []).filter(t => t.processo_id === p.id && t.prazo).map(t => ({ data: t.prazo, titulo: t.titulo })),
+  ].sort((a, b) => a.data.localeCompare(b.data)).slice(0, 3);
+  const info = [
+    p.parte_contraria ? `<span><small>Parte contrária</small>${_esc(p.parte_contraria)}</span>` : '',
+    p.classe ? `<span><small>Classe</small>${_esc(p.classe)}</span>` : '',
+    p.orgao_julgador ? `<span><small>Órgão</small>${_esc(p.orgao_julgador)}</span>` : '',
+    p.numero_registro_superior ? `<span><small>Nº no tribunal superior</small>${_esc(p.numero_registro_superior)}</span>` : '',
+  ].join('');
+  const lt = _linkTribunal(p);
+  return `<tr class="tb-espiar"><td></td><td></td><td colspan="7">
+    <div class="tb-esp">
+      ${info ? `<div class="tb-esp-info">${info}</div>` : ''}
+      <div class="tb-esp-cols">
+        <div><h4>Últimas movimentações</h4>${movs ? `<ul>${movs}</ul>` : '<p class="tb-vazio">Nenhuma movimentação ainda.</p>'}</div>
+        <div><h4>Prazos</h4>${prazos.length ? `<ul>${prazos.map(z => `<li><span class="tb-esp-dt">${fmt(z.data + 'T12:00:00')}</span><span class="tb-esp-tx">${_esc(z.titulo)}</span></li>`).join('')}</ul>` : '<p class="tb-vazio">Nenhum prazo cadastrado.</p>'}</div>
+      </div>
+      <div class="tb-esp-acoes">
+        <button class="tb-lote-btn" onclick="abrirProcesso('${p.id}')">Abrir processo</button>
+        ${lt ? `<button class="tb-lote-btn" onclick="_abrirNoTribunal(event,'${p.id}')"><i class="ti ti-external-link"></i> Abrir no ${_esc(lt.sigla)}</button>` : ''}
+      </div>
+    </div></td></tr>`;
+}
+
+function _renderTabela(grid, empty, lista) {
+  _tbCalcularPrazos();
+  const cont = Object.fromEntries(_TB_FILTROS.map(f => [f.k, lista.filter(f.teste).length]));
+  if (_tbFiltro !== 'todos' && !cont[_tbFiltro]) _tbFiltro = 'todos';
+  const filtro = _TB_FILTROS.find(f => f.k === _tbFiltro);
+  const venceHoje = lista.some(p => { const d = _tbDiasPrazo(p); return d !== null && d <= 0; });
+
+  // Resumo do dia: cada número é também um filtro (clicar de novo desfaz)
+  const tile = (k, rotulo, extraCls = '', alerta = '') => {
+    const n = cont[k];
+    if (k === 'semtrib' && !n) return '';
+    return `<button class="tb-res${_tbFiltro === k ? ' on' : ''}${n ? '' : ' zero'}${extraCls}" onclick="_tbFiltrar('${k}')" ${n ? '' : 'disabled'}>
+      <b>${n}</b><span>${rotulo}</span>${alerta ? `<em>${alerta}</em>` : ""}</button>`;
+  };
+  const resumo = `<div class="tb-resumo">
+    ${tile('hoje', 'movimentaram hoje', ' tb-res-hoje')}
+    ${tile('semana', 'movimentaram na semana')}
+    ${tile('prazo', 'prazos nos próximos 7 dias', venceHoje ? ' tb-res-alerta' : '', venceHoje ? 'tem prazo vencendo ou vencido' : '')}
+    ${tile('novo', 'movimentações não lidas')}
+    ${tile('semtrib', 'sem tribunal identificado', ' tb-res-aviso')}
+  </div>`;
+
+  _tbLista = lista.filter(filtro.teste).sort(_tbComparar);
+  const ids = new Set(_tbLista.map(p => p.id));
+  for (const id of [..._tbSel]) if (!ids.has(id)) _tbSel.delete(id);   // some do filtro = sai da seleção
+
+  const seta = col => _tbOrdem.col !== col ? '<i class="ti ti-arrows-sort tb-seta"></i>'
+    : `<i class="ti ti-arrow-${_tbOrdem.dir === 'asc' ? 'up' : 'down'} tb-seta on"></i>`;
+  const th = (col, txt, cls = '') => `<th class="tb-ord ${cls}" onclick="_tbOrdenar('${col}')">${txt}${seta(col)}</th>`;
+
+  const wrap = document.createElement('div');
+  wrap.className = 'tb-wrap';
+  wrap.setAttribute('data-dyn', '1');
+  wrap.innerHTML = `
+    ${resumo}
+    ${_tbFiltro !== 'todos' ? `<div class="tb-filtro-ativo">Mostrando <b>${_tbLista.length}</b> · ${filtro.txt.toLowerCase()} <button onclick="_tbFiltrar('todos')">ver todos os ${lista.length}</button></div>` : ''}
+    <div class="tb-lote" id="tb-lote"></div>
+    <div class="tb-caixa">
+      <table class="tb">
+        <thead><tr>
+          <th class="tb-chk"><input type="checkbox" id="tb-todos" onclick="_tbSelecionarTodos(this.checked)" aria-label="Selecionar todos"></th>
+          <th class="tb-col-esp" aria-label="Espiar"></th>
+          ${th('cliente', 'Cliente')}
+          <th class="tb-col-mov">Última movimentação</th>
+          ${th('data', 'Data', 'tb-col-data')}
+          ${th('prazo', 'Próximo prazo', 'tb-col-prazo')}
+          ${th('tribunal', 'Tribunal', 'tb-col-trib')}
+          ${th('status', 'Status', 'tb-col-status')}
+          <th class="tb-col-menu"></th>
+        </tr></thead>
+        <tbody>${(() => {
+          const ehFav = p => p.favorito && !window._sharedSet?.[p.id];
+          const ultimoFav = _tbLista.findLastIndex(ehFav);
+          return _tbLista.map((p, i) => _tbLinha(p, i === ultimoFav && i < _tbLista.length - 1)
+            + (_tbAbertos.has(p.id) ? _tbEspiarHtml(p) : '')).join('');
+        })()}</tbody>
+      </table>
+    </div>`;
+  grid.insertBefore(wrap, empty);
+  _tbAtualizarLote();
+}
+
+function _tbLinha(p, fimFavoritos) {
+  const isShared = !!window._sharedSet?.[p.id];
+  const st       = _statusTabela(p);
+  const mov      = st.k === 'novo' ? p.novos_movimentos[0] : p.movimentos_recentes?.[0];
+  let texto = mov?.nome || '', fonte = '';
+  const m = texto.match(/^DJEN\s*[—-]\s*(.*)$/);
+  if (m) { fonte = 'DJEN'; texto = m[1]; }
+  const d = mov?.data ? new Date(mov.data) : null;
+  const ddmm = d && !isNaN(d)
+    ? d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', ...(d.getFullYear() !== new Date().getFullYear() ? { year: '2-digit' } : {}) })
+    : null;
+  const dias = _diasCalendario(mov?.data);
+  const SEMANA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+  const dataTxt = !ddmm ? '<span class="tb-vazio">—</span>'
+    : dias === 0 ? '<span class="tb-dt-hoje">Hoje</span>'
+    : dias === 1 ? `<span class="tb-dt-semana">Ontem</span><small>${ddmm}</small>`
+    : dias !== null && dias <= 6 ? `<span class="tb-dt-semana">${SEMANA[d.getDay()]}</span><small>${ddmm}</small>`
+    : ddmm;
+  const sigla = _siglaTribunal(p);
+  const link  = _linkTribunal(p);
+  const aguardando = !p.apelido && !p.cliente && _digitos(_nomeProc(p)) && _digitos(_nomeProc(p)) === _digitos(p.numero);
+  const sel = _tbSel.has(p.id);
+
+  const pz = _tbPrazos.get(p.id);
+  const dp = _tbDiasPrazo(p);
+  const prazoTxt = !pz ? '<span class="tb-vazio">—</span>'
+    : dp < 0   ? `<span class="tb-pz tb-pz-vencido">venceu há ${-dp}d</span>`
+    : dp === 0 ? '<span class="tb-pz tb-pz-hoje">vence hoje</span>'
+    : dp === 1 ? '<span class="tb-pz tb-pz-perto">amanhã</span>'
+    : dp <= 7  ? `<span class="tb-pz tb-pz-perto">em ${dp} dias</span>`
+    : `<span class="tb-pz">${new Date(pz.data + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}</span>`;
+  const aberto = _tbAbertos.has(p.id);
+
+  return `<tr data-db="${p.id}" class="${st.k === 'novo' ? 'tb-novo' : ''}${sel ? ' tb-sel' : ''}${fimFavoritos ? ' tb-fim-fav' : ''}${aberto ? ' tb-aberto' : ''}" onclick="abrirProcesso('${p.id}')">
+    <td class="tb-chk" onclick="event.stopPropagation()"><input type="checkbox" ${sel ? 'checked' : ''} ${isShared ? 'disabled title="Compartilhado com você — ações em lote só nos seus processos"' : ''} onclick="_tbSelecionar('${p.id}', this.checked)" aria-label="Selecionar"></td>
+    <td class="tb-col-esp" onclick="_tbEspiar(event,'${p.id}')" title="${aberto ? 'Fechar' : 'Espiar sem abrir o processo'}"><span class="tb-espiar-btn"><i class="ti ti-chevron-right"></i></span></td>
+    <td class="tb-cli">
+      <div class="tb-nome"><span class="pc-title" id="pc-title-${p.id}">${aguardando ? '<em class="tb-aguardando">Aguardando dados do tribunal…</em>' : _esc(_tbTitulo(p))}</span>${p.favorito && !isShared ? '<i class="ti ti-star-filled tb-fav" title="Favorito"></i>' : ''}</div>
+      <div class="tb-num">${_esc(p.numero) || '—'}${isShared ? ` · <span class="tb-shared">de ${_esc(window._sharedSet[p.id].owner_nome.split(' ')[0])}</span>` : ''}</div>
+    </td>
+    <td class="tb-mov" title="${_esc(mov?.nome || '')}">${mov ? `${fonte ? `<span class="tb-fonte">${fonte}</span>` : ''}${_esc(texto)}` : '<span class="tb-vazio">—</span>'}</td>
+    <td class="tb-col-data">${dataTxt}</td>
+    <td class="tb-col-prazo" title="${pz ? _esc(pz.titulo) : ''}">${prazoTxt}</td>
+    <td class="tb-col-trib">${!sigla ? '<span class="tb-vazio">—</span>'
+      : link ? `<a class="tb-trib-link" href="${_esc(link.url)}" target="_blank" rel="noopener" onclick="_abrirNoTribunal(event,'${p.id}')"
+          title="${link.direto ? `Abrir o processo no site do ${_esc(sigla)}` : `Abrir a consulta do ${_esc(sigla)} — o número vai copiado, é só colar`}">${_esc(sigla)}<i class="ti ti-arrow-up-right"></i></a>`
+      : _esc(sigla)}</td>
+    <td class="tb-col-status"><span class="tb-st tb-st-${st.k}">${st.txt}</span></td>
+    <td class="tb-col-menu" onclick="event.stopPropagation()">${isShared ? '' : `<button class="tb-menu-btn" title="Mais ações" onclick="_tbAbrirMenu(event,'${p.id}')"><i class="ti ti-dots-vertical"></i></button>`}</td>
+  </tr>`;
+}
+
+function _tbSelecionar(id, marcado) {
+  if (marcado) _tbSel.add(id); else _tbSel.delete(id);
+  document.querySelector(`.tb tr[data-db="${id}"]`)?.classList.toggle('tb-sel', marcado);
+  _tbAtualizarLote();
+}
+
+function _tbSelecionarTodos(marcado) {
+  for (const p of _tbLista) {
+    if (window._sharedSet?.[p.id]) continue;
+    if (marcado) _tbSel.add(p.id); else _tbSel.delete(p.id);
+  }
+  document.querySelectorAll('.tb tbody tr').forEach(tr => {
+    const cb = tr.querySelector('input[type=checkbox]');
+    if (cb && !cb.disabled) { cb.checked = marcado; tr.classList.toggle('tb-sel', marcado); }
+  });
+  _tbAtualizarLote();
+}
+
+function _tbAtualizarLote() {
+  const n = _tbSel.size, total = _tbLista.filter(p => !window._sharedSet?.[p.id]).length;
+  const todos = document.getElementById('tb-todos');
+  if (todos) { todos.checked = n > 0 && n === total; todos.indeterminate = n > 0 && n < total; }
+  const lote = document.getElementById('tb-lote');
+  if (!lote) return;
+  lote.classList.toggle('on', n > 0);
+  lote.innerHTML = n ? `
+    <span><b>${n}</b> selecionado${n > 1 ? 's' : ''}</span>
+    <button class="tb-lote-btn" onclick="_tbExportar(true)"><i class="ti ti-download"></i> Exportar</button>
+    <button class="tb-lote-btn" onclick="_tbArquivarSelecionados()"><i class="ti ti-archive"></i> Arquivar</button>
+    <button class="tb-lote-btn tb-lote-limpar" onclick="_tbSelecionarTodos(false)">Limpar seleção</button>` : '';
+}
+
+async function _tbArquivarSelecionados() {
+  const ids = [..._tbSel].filter(id => !window._sharedSet?.[id]);
+  if (!ids.length) return;
+  const ok = await _confirmar(
+    `${ids.length} processo${ids.length > 1 ? 's vão' : ' vai'} para "Arquivados & Encerrados". Dá para restaurar depois.`,
+    'Arquivar processos', { textoOk: 'Arquivar', icone: '🗂️' });
+  if (!ok) return;
+  const { error } = await _supabase.from('processos')
+    .update({ status: 'Arquivado', notificacao_pendente: false, email_pendente: false })
+    .in('id', ids);
+  if (error) { showToast('Erro ao arquivar: ' + error.message); return; }
+  _tbSel.clear();
+  showToast(`${ids.length} processo(s) arquivado(s). Acesse Arquivados & Encerrados para restaurar.`);
+  carregarProcessos();
+}
+
+// Planilha pro Excel em português: ";" como separador e BOM pra acentuação.
+function _tbExportar(soSelecionados) {
+  const lista = soSelecionados ? _tbLista.filter(p => _tbSel.has(p.id))
+    : _visaoProcessos() === 'tabela' ? _tbLista : [...(window._listaFiltrada || [])].sort(_sortRecente);
+  if (!lista.length) { showToast('Nada para exportar.'); return; }
+  const cel = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const linhas = [['Cliente', 'Apelido', 'Número', 'Classe', 'Tribunal', 'Status', 'Última movimentação', 'Data'].map(cel).join(';')];
+  for (const p of lista) {
+    const mov = p.movimentos_recentes?.[0];
+    linhas.push([
+      p.cliente, p.apelido, p.numero, p.classe || p.nome, _siglaTribunal(p) || '', _statusTabela(p).txt,
+      mov?.nome || '', mov?.data ? new Date(mov.data).toLocaleDateString('pt-BR') : '',
+    ].map(cel).join(';'));
+  }
+  const blob = new Blob(['﻿' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `processos-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+
+// Menu "⋯" — um só, reaproveitado, posicionado junto do botão clicado
+function _tbAbrirMenu(evt, id) {
+  evt.stopPropagation();
+  const p = (window._processosDB || []).find(x => x.id === id);
+  if (!p) return;
+  let menu = document.getElementById('tb-menu');
+  if (!menu) {
+    menu = document.createElement('div');
+    menu.id = 'tb-menu';
+    menu.className = 'tb-menu';
+    document.body.appendChild(menu);
+    document.addEventListener('click', () => menu.classList.remove('on'));
+    window.addEventListener('scroll', () => menu.classList.remove('on'), true);
+  }
+  const item = (icone, txt, acao, perigo) => `<button class="${perigo ? 'perigo' : ''}" onclick="${acao}"><i class="ti ${icone}"></i>${txt}</button>`;
+  const lt = _linkTribunal(p), ls = _linkSTJRegistro(p);
+  menu.innerHTML = [
+    lt ? item('ti-external-link', `Abrir no site do ${lt.sigla}`, `_abrirNoTribunal(event,'${id}')`) : '',
+    ls ? `<button onclick="window.open('${ls}','_blank','noopener')"><i class="ti ti-external-link"></i>Abrir no STJ (${_esc(p.numero_registro_superior)})</button>` : '',
+    lt || ls ? '<hr>' : '',
+    p.datajud_index ? item('ti-refresh', 'Atualizar agora', `verificarProcessoAgora(event,'${id}','${_jsArg(p.datajud_index)}','${_jsArg(p.numero)}')`) : '',
+    item('ti-pencil', 'Editar apelido', `editarApelidoCard(event,'${id}')`),
+    item('ti-user-plus', 'Compartilhar', `abrirModalCompartilhar(event,'${id}')`),
+    item(p.favorito ? 'ti-star-off' : 'ti-star', p.favorito ? 'Remover dos favoritos' : 'Favoritar', `favoritar(event,'${id}')`),
+    '<hr>',
+    item('ti-archive', 'Arquivar', `pedirArquivar(event,'${id}')`, true),
+  ].join('');
+  const r = evt.currentTarget.getBoundingClientRect();
+  const z = parseFloat(getComputedStyle(document.body).zoom) || 1;   // body tem zoom: 112%
+  menu.style.top  = `${(r.bottom + 4) / z}px`;
+  menu.style.left = `${(r.right - 220) / z}px`;
+  menu.classList.add('on');
 }
 
 function filtrarProcessos() {
@@ -3947,7 +4421,7 @@ window.addEventListener('DOMContentLoaded', () => {
 
   function _iniciarCarregamento() {
     if (!window._user) return;
-    if (window._oabPendente) showPage('configuracoes');
+    _mostrarFaixaOAB();
     carregarProcessos().then(() => {
       iniciarSyncAutomatico();
       sincronizarTodos();
@@ -3997,6 +4471,68 @@ function _tentarOnboardingOAB() {
   localStorage.setItem(chave, '1');
   _dispararEmailOnboarding();
   _abrirBuscaOABAutomatica(oabs);
+}
+
+// ── FAIXA "INFORME SUA OAB" ─────────────────────────────────────────────────
+// Quem entra sem OAB (sempre o caso de quem se cadastra pelo Google) usa o
+// sistema normalmente; a faixa lembra a cada visita até preencher. "Lembrar
+// depois" esconde só até a próxima vez que abrir o site (sessionStorage).
+const _UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SE','SP','TO'];
+
+function _mostrarFaixaOAB() {
+  const faixa = document.getElementById('faixa-oab');
+  if (!faixa) return;
+  let adiada = false;
+  try { adiada = sessionStorage.getItem('mp_oab_depois') === '1'; } catch {}
+  const mostrar = window._oabPendente && !adiada;
+  faixa.hidden = !mostrar;
+  if (!mostrar) return;
+  const sel = document.getElementById('faixa-oab-uf');
+  if (sel && sel.options.length <= 1) sel.insertAdjacentHTML('beforeend', _UFS.map(u => `<option>${u}</option>`).join(''));
+  const meta = window._user?.user_metadata?.oab || '';
+  document.getElementById('faixa-oab-texto').innerHTML = meta.trim()
+    ? `Sua OAB <b>"${_esc(meta)}"</b> está sem o estado — sem ele não encontramos suas intimações no Diário Eletrônico.`
+    : 'Informe sua OAB para encontrarmos <b>automaticamente</b> suas intimações e processos no Diário Eletrônico.';
+}
+
+function _adiarFaixaOAB() {
+  try { sessionStorage.setItem('mp_oab_depois', '1'); } catch {}
+  document.getElementById('faixa-oab').hidden = true;
+}
+
+async function _salvarFaixaOAB() {
+  const uf  = document.getElementById('faixa-oab-uf').value;
+  const num = document.getElementById('faixa-oab-num').value.replace(/\D/g, '').replace(/^0+/, '');
+  const err = document.getElementById('faixa-oab-erro');
+  const btn = document.getElementById('faixa-oab-btn');
+  err.textContent = '';
+  if (!uf)              { err.textContent = 'Selecione o estado.'; return; }
+  if (num.length < 3)   { err.textContent = 'Digite o número da OAB.'; return; }
+
+  btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    // Mesma trava anti-abuso do cadastro por e-mail (mesma OAB criando várias
+    // contas pra ganhar vários testes). Antes, quem entrava pelo Google
+    // preenchia a OAB no perfil sem passar por ela.
+    const r = await fetch('/api/verificar-oab?oab=' + encodeURIComponent(uf + num));
+    const { existe } = await r.json().catch(() => ({}));
+    if (existe) {
+      err.textContent = 'Essa OAB já tem uma conta no Meu Processo. Se for sua, entre por ela — ou fale com o suporte.';
+      return;
+    }
+    const oab = `${uf} ${num}`;
+    const { error } = await _supabase.auth.updateUser({ data: { oab } });
+    if (error) { err.textContent = 'Não deu pra salvar: ' + error.message; return; }
+
+    window._user.user_metadata = { ...window._user.user_metadata, oab };
+    window._oabPendente = false;
+    document.getElementById('faixa-oab').hidden = true;
+    showToast('OAB salva! Vamos buscar suas intimações no Diário Eletrônico.', 'success');
+    if (document.getElementById('page-configuracoes')?.classList.contains('active')) carregarConfiguracoes();
+    _tentarOnboardingOAB();
+  } finally {
+    btn.disabled = false; btn.textContent = 'Salvar';
+  }
 }
 
 async function _dispararEmailOnboarding() {
@@ -5250,7 +5786,8 @@ async function salvarEscritorio() {
   carregarConfiguracoes();
 
   if (estavaBloqueado && !window._oabPendente) {
-    showToast('OAB cadastrada! Sistema liberado.', 'success');
+    document.getElementById('faixa-oab')?.setAttribute('hidden', '');
+    showToast('OAB cadastrada! Vamos buscar suas intimações.', 'success');
     // Quem entra pelo Google nunca tem OAB no primeiro acesso (window._oabPendente
     // fica true) — _tentarOnboardingOAB() só roda no carregamento inicial da
     // página, e nesse momento ainda estava bloqueada, então sempre saía sem
@@ -5348,6 +5885,7 @@ async function carregarEventosDashboard() {
     .lte('data', em90.toISOString().slice(0, 10))
     .order('data', { ascending: true });
   if (data) _eventosDB = data;
+  _tbRedesenharSeVisivel();
   atualizarPrazosDash();
   buildMiniCal();
   atualizarBell();
@@ -6218,6 +6756,7 @@ async function carregarTarefasPrazo() {
   ]);
   _tarefasPrazoDB       = pendentes  || [];
   _tarefasConcluidasCal = concluidas || [];
+  _tbRedesenharSeVisivel();
   _renderAtividadeRecente();
   renderCompromissosDia();
 }
@@ -8751,6 +9290,10 @@ async function carregarHonorarios() {
   _popularSelectsProcessos();
   atualizarPrazosDash();
   _renderAtividadeRecente();
+  // Honorários chegam em paralelo com os eventos: sem redesenhar aqui, o "$"
+  // do calendário só aparecia quando os honorários ganhavam a corrida.
+  buildMiniCal();
+  if (document.getElementById('page-calendario')?.classList.contains('active')) buildFullCal();
 }
 
 function _atualizarVencidos() {

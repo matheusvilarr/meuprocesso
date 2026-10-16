@@ -1,5 +1,7 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html { overflow-x: hidden; }
+/* clip, não hidden: hidden em html+body transforma o body em caixa de rolagem
+   e quebra todo position: sticky (topbar, cabeçalhos da linha do tempo). */
+html { overflow-x: clip; }
 
 :root {
   /* --navy era #1a2e6b (a marca antiga), depois virou --primary-900 (o azul
@@ -59,7 +61,7 @@ body {
      ícones) sem precisar reescrever cada tamanho fixo em px do site. Ajustar
      esse número pra mais/menos conforme o gosto. */
   zoom: 112%;
-  overflow-x: hidden;
+  overflow-x: clip;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -76,29 +78,13 @@ body {
 
 body.sidebar-collapsed .sidebar { width: var(--sidebar-w-collapsed); }
 
-/* Só existe pra abrir de novo — flutua na borda direita, centralizado na
-   altura da tela, e some quando a barra já está expandida (o menu em si
-   não precisa de um botão permanente ocupando espaço). */
-.sidebar-collapse-btn {
-  display: none;
-  position: absolute;
-  top: 50%; right: -15px;
-  transform: translateY(-50%);
-  width: 30px; height: 30px;
-  border-radius: 50%;
-  align-items: center; justify-content: center;
-  background: var(--primary-700);
-  border: 2px solid var(--cream);
-  color: #fff;
-  cursor: pointer;
-  z-index: 101;
-  box-shadow: var(--shadow-md);
-  transition: background .15s;
+/* Clicar numa área vazia da barra abre/fecha (ver _sidebarCliqueVazio).
+   O cursor indica que a barra inteira é clicável; os itens têm o seu próprio. */
+@media (min-width: 769px) {
+  .sidebar { cursor: e-resize; transition: width .18s ease; }
+  body:not(.sidebar-collapsed) .sidebar { cursor: w-resize; }
+  .sidebar .nav-item, .sidebar a, .sidebar button, .sidebar .logo-mark, .sidebar .sidebar-user { cursor: pointer; }
 }
-.sidebar-collapse-btn:hover { background: var(--primary-600); }
-.sidebar-collapse-btn .ti { font-size: 15px; }
-
-body.sidebar-collapsed .sidebar-collapse-btn { display: flex; }
 
 .sidebar-logo {
   padding: 10px 20px 6px;
@@ -710,6 +696,209 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
    altura do mais alto — era isso que deixava um vão vazio embaixo dos cards
    com menos texto (cliente/título de uma linha só). */
 .process-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+
+/* ── Tabela (visão padrão de Meus Processos) ── */
+.process-grid.modo-tabela { display: block; }
+
+.visao-toggle {
+  display: inline-flex; background: var(--white); border: 1px solid var(--gray-200);
+  border-radius: var(--radius); padding: 2px; gap: 2px;
+}
+.visao-toggle button {
+  height: 30px; padding: 0 11px; border: none; background: none; border-radius: 6px;
+  color: var(--gray-400); cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  font: 500 12.5px 'Montserrat', sans-serif; transition: background .12s, color .12s, box-shadow .12s;
+}
+.visao-toggle button i { font-size: 15px; }
+.visao-toggle button:hover { color: var(--gray-800); }
+.visao-toggle button.ativo { background: var(--gray-800); color: var(--white); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); }
+@media (max-width: 768px) { .visao-toggle button span { display: none; } .visao-toggle button { padding: 0 9px; } }
+
+.tb-caixa {
+  background: var(--white); border: 1px solid var(--gray-200); border-radius: var(--radius-lg);
+  overflow: hidden; box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+}
+.tb { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13.5px; }
+.tb th {
+  text-align: left; font-size: 12px; font-weight: 500; color: var(--gray-600);
+  background: #fbfbfa; padding: 11px 16px; border-bottom: 1px solid var(--gray-200);
+  white-space: nowrap; user-select: none;
+}
+.tb th.tb-ord { cursor: pointer; }
+.tb th.tb-ord:hover { color: var(--gray-800); }
+.tb-seta { font-size: 13px; margin-left: 4px; vertical-align: -2px; color: var(--gray-200); }
+.tb-seta.on { color: var(--gray-800); }
+.tb th.tb-ord:hover .tb-seta { color: var(--gray-400); }
+.tb th.tb-ord:hover .tb-seta.on { color: var(--gray-800); }
+
+.tb td {
+  padding: 11px 16px; border-bottom: 1px solid var(--gray-100); color: var(--gray-600);
+  vertical-align: middle; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.tb tbody tr { cursor: pointer; transition: background .1s; }
+.tb tbody tr:last-child td { border-bottom: none; }
+.tb tbody tr:hover { background: #fafaf9; }
+.tb tbody tr.tb-sel { background: #f3f7fd; }
+
+/* larguras: cliente e movimentação dividem o resto */
+.tb .tb-chk         { width: 44px; padding-right: 0; }
+.tb .tb-col-data    { width: 126px; font-variant-numeric: tabular-nums; }
+.tb .tb-col-trib    { width: 100px; }
+.tb .tb-col-status  { width: 146px; }
+.tb .tb-col-menu    { width: 52px; padding-left: 0; text-align: right; }
+.tb th:nth-child(3) { width: 25%; }
+
+.tb input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--navy); cursor: pointer; vertical-align: middle; }
+.tb input[type=checkbox]:disabled { cursor: not-allowed; opacity: .35; }
+
+.tb-cli { padding-top: 9px !important; padding-bottom: 9px !important; }
+.tb-nome { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tb-nome .pc-title {
+  font-weight: 600; color: var(--gray-800); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.tb-fav { font-size: 12px; color: var(--gold); flex-shrink: 0; }
+.tb-num {
+  margin-top: 1px; font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 11px; color: var(--gray-400); overflow: hidden; text-overflow: ellipsis;
+}
+.tb-shared { font-family: 'Montserrat', sans-serif; color: var(--navy); }
+.tb-aguardando { font-weight: 400; color: var(--gray-400); }
+
+.tb-novo .tb-mov { color: var(--gray-800); font-weight: 500; }
+.tb-fonte {
+  display: inline-block; margin-right: 7px; padding: 0 5px; border-radius: 4px;
+  font-size: 9.5px; font-weight: 600; letter-spacing: .06em; line-height: 16px; vertical-align: 1px;
+  color: var(--gray-600); background: var(--gray-100);
+}
+.tb-vazio { color: var(--gray-200); }
+
+.tb-st {
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px 2px 8px; border-radius: 20px;
+  font-size: 11.5px; font-weight: 500; line-height: 18px;
+}
+.tb-st::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.tb-st-novo    { background: #eaf2fd; color: #1659b3; }
+.tb-st-emdia   { background: #ecf8f1; color: #1a7a4a; }
+.tb-st-parado  { background: var(--gray-100); color: var(--gray-600); }
+.tb-st-semtrib { background: #fef5e7; color: #a35d00; }
+
+.tb-menu-btn {
+  width: 30px; height: 30px; border: none; background: none; border-radius: 6px;
+  color: var(--gray-400); cursor: pointer; font-size: 17px; display: inline-grid; place-items: center;
+}
+.tb-menu-btn:hover { background: var(--gray-100); color: var(--gray-800); }
+
+.tb-menu {
+  position: fixed; z-index: 300; width: 220px; padding: 5px;
+  background: var(--white); border: 1px solid var(--gray-200); border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(16, 24, 40, .12);
+  opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity .12s, transform .12s;
+}
+.tb-menu.on { opacity: 1; transform: none; pointer-events: auto; }
+.tb-menu button {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; border: none; background: none;
+  border-radius: 6px; font: 500 13px 'Montserrat', sans-serif; color: var(--gray-800); cursor: pointer; text-align: left;
+}
+.tb-menu button i { font-size: 16px; color: var(--gray-400); }
+.tb-menu button:hover { background: var(--gray-50); }
+.tb-menu button.perigo, .tb-menu button.perigo i { color: var(--red); }
+.tb-menu hr { border: none; border-top: 1px solid var(--gray-100); margin: 4px 2px; }
+
+/* barra de ações em lote — aparece quando há seleção */
+.tb-lote {
+  display: flex; align-items: center; gap: 8px; height: 0; overflow: hidden; opacity: 0;
+  font-size: 13px; color: var(--gray-600); transition: height .16s, opacity .16s, margin .16s;
+}
+.tb-lote.on { height: 40px; opacity: 1; margin-bottom: 10px; }
+.tb-lote b { color: var(--gray-800); }
+.tb-lote > span { margin-right: 6px; }
+.tb-lote-btn {
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px;
+  border: 1px solid var(--gray-200); background: var(--white); color: var(--gray-800);
+  font: 500 12.5px 'Montserrat', sans-serif; cursor: pointer;
+}
+.tb-lote-btn:hover { border-color: var(--gray-400); }
+.tb-lote-btn i { font-size: 15px; }
+.tb-lote-limpar { border-color: transparent; background: none; color: var(--gray-600); }
+
+/* resumo do dia acima da tabela — cada número é um filtro */
+.tb-resumo { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.tb-res {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 16px; text-align: left;
+  background: var(--white); border: 1px solid var(--gray-200); border-radius: 10px; cursor: pointer;
+  font-family: 'Montserrat', sans-serif; transition: border-color .12s, box-shadow .12s;
+}
+.tb-res b { font-size: 24px; font-weight: 600; line-height: 1.1; color: var(--gray-800); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.tb-res span { font-size: 12px; color: var(--gray-600); }
+.tb-res em { font-style: normal; font-size: 11px; font-weight: 600; color: var(--red); }
+.tb-res:hover:not(:disabled) { border-color: var(--gray-400); }
+.tb-res.on { border-color: var(--gray-800); box-shadow: inset 0 0 0 1px var(--gray-800); }
+.tb-res.zero { cursor: default; }
+.tb-res.zero b { color: var(--gray-200); }
+.tb-res-hoje:not(.zero) b { color: var(--navy); }
+.tb-res-alerta:not(.zero) b { color: var(--red); }
+.tb-res-aviso:not(.zero) b { color: var(--amber); }
+
+.tb-filtro-ativo { font-size: 13px; color: var(--gray-600); margin: -2px 0 10px 2px; }
+.tb-filtro-ativo b { color: var(--gray-800); }
+.tb-filtro-ativo button { border: none; background: none; color: var(--navy); font: 500 13px 'Montserrat', sans-serif; cursor: pointer; margin-left: 6px; text-decoration: underline; text-underline-offset: 3px; }
+
+/* próximo prazo */
+.tb .tb-col-prazo { width: 136px; }
+.tb-pz { font-size: 12.5px; color: var(--gray-600); font-variant-numeric: tabular-nums; }
+.tb-pz-perto   { color: var(--amber); font-weight: 600; }
+.tb-pz-hoje    { color: var(--red); font-weight: 600; }
+.tb-pz-vencido { color: var(--white); background: var(--red); font-weight: 600; padding: 2px 8px; border-radius: 20px; font-size: 11.5px; }
+
+/* espiar sem abrir */
+/* coluna própria da seta: a célula inteira é a área de clique (antes era um
+   botão de 22px colado no nome — fácil errar e abrir o processo sem querer) */
+.tb .tb-col-esp { width: 44px; padding: 0 4px 0 0; text-align: center; cursor: pointer; }
+.tb-espiar-btn {
+  width: 30px; height: 30px; border-radius: 8px; margin: 0 auto;
+  color: var(--gray-400); display: grid; place-items: center; font-size: 17px;
+  transition: transform .15s, background .12s, color .12s;
+}
+.tb td.tb-col-esp:hover .tb-espiar-btn { background: var(--gray-100); color: var(--gray-800); }
+.tb tr.tb-aberto .tb-espiar-btn { transform: rotate(90deg); color: var(--gray-800); }
+.tb tr.tb-aberto td { border-bottom-color: transparent; }
+.tb tr.tb-espiar { cursor: default; background: #fbfbfa; }
+.tb tr.tb-espiar:hover { background: #fbfbfa; }
+.tb tr.tb-espiar td { white-space: normal; padding-top: 4px; padding-bottom: 16px; }
+.tb-esp { animation: tbEsp .18s ease both; }
+@keyframes tbEsp { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+.tb-esp-info { display: flex; flex-wrap: wrap; gap: 6px 28px; margin-bottom: 12px; font-size: 13px; color: var(--gray-800); }
+.tb-esp-info small { display: block; font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--gray-400); }
+.tb-esp-cols { display: grid; grid-template-columns: 1.6fr 1fr; gap: 28px; }
+.tb-esp h4 { font-size: 10.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--gray-400); margin-bottom: 6px; }
+.tb-esp ul { list-style: none; }
+.tb-esp li { display: flex; gap: 12px; align-items: baseline; padding: 4px 0; font-size: 13px; color: var(--gray-800); }
+.tb-esp-dt { flex-shrink: 0; width: 64px; font-size: 12px; color: var(--gray-400); font-variant-numeric: tabular-nums; }
+.tb-esp-tx { flex: 1; min-width: 0; }
+.tb-esp-link {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; margin-left: 6px; vertical-align: -5px;
+  border-radius: 6px; color: var(--navy); text-decoration: none; font-size: 15px; transition: background .12s;
+}
+.tb-esp-link:hover { background: #e8f0fb; }
+.tb-esp p { font-size: 13px; }
+.tb-esp-acoes { display: flex; gap: 8px; margin-top: 14px; }
+
+/* coluna Data: hoje em destaque, semana com dia da semana */
+.tb-dt-hoje { font-weight: 600; color: var(--navy); }
+.tb-dt-semana { font-weight: 500; color: var(--gray-800); text-transform: capitalize; margin-right: 5px; }
+.tb-col-data small { font-size: 11px; color: var(--gray-400); }
+
+/* coluna Tribunal: link pro site do tribunal */
+.tb-trib-link {
+  display: inline-flex; align-items: center; gap: 2px; color: var(--gray-600); text-decoration: none;
+  border-radius: 5px; padding: 2px 4px; margin-left: -4px; transition: background .12s, color .12s;
+}
+.tb-trib-link i { font-size: 13px; color: var(--gray-200); transition: color .12s; }
+.tb-trib-link:hover { background: var(--gray-100); color: var(--navy); }
+.tb-trib-link:hover i, tr:hover .tb-trib-link i { color: var(--navy); }
+
+/* separa os favoritos (sempre no topo) do resto da lista */
+.tb tbody tr.tb-fim-fav td { border-bottom: 1px solid var(--gray-200); box-shadow: 0 1px 0 var(--gray-200); }
 
 .process-card {
   background: var(--white); border: 1px solid var(--gray-200);
@@ -1947,14 +2136,59 @@ body.kanban-dragging .task-col-body {
 }
 .btn-danger-ghost:hover { background: var(--red); color: #fff; }
 
-/* Badge $ no calendário */
+/* Faixa "informe sua OAB" (quem entrou sem OAB — ex: cadastro pelo Google) */
+.faixa-oab[hidden] { display: none !important; }
+.faixa-oab {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin: 16px 28px 0; padding: 12px 16px;
+  background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius-lg);
+  font-size: 13px; color: #78350f;
+}
+.faixa-oab-ico { font-size: 22px; color: #d97706; flex-shrink: 0; }
+.faixa-oab-txt { flex: 1; min-width: 240px; line-height: 1.5; }
+.faixa-oab-erro { color: var(--red); font-size: 12px; font-weight: 500; }
+.faixa-oab-erro:empty { display: none; }
+.faixa-oab-form { display: flex; gap: 6px; }
+.faixa-oab-form select, .faixa-oab-form input {
+  height: 34px; border: 1px solid #fcd34d; border-radius: 8px; background: #fff; color: var(--gray-800);
+  font: 500 13px 'Montserrat', sans-serif; padding: 0 10px; outline: none;
+}
+.faixa-oab-form select { width: 72px; }
+.faixa-oab-form input  { width: 150px; }
+.faixa-oab-form select:focus, .faixa-oab-form input:focus { border-color: #d97706; box-shadow: 0 0 0 3px rgba(217, 119, 6, .12); }
+.faixa-oab-form button {
+  height: 34px; padding: 0 16px; border: none; border-radius: 8px; background: #92400e; color: #fff;
+  font: 600 13px 'Montserrat', sans-serif; cursor: pointer;
+}
+.faixa-oab-form button:disabled { opacity: .6; cursor: wait; }
+.faixa-oab-depois { border: none; background: none; color: #92400e; font: 500 12.5px 'Montserrat', sans-serif; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 768px) {
+  .faixa-oab { margin: 12px 12px 0; }
+  .faixa-oab-form { width: 100%; }
+  .faixa-oab-form input { flex: 1; width: auto; }
+}
+
+/* Badge $ no calendário — selinho no canto, não empurra o número do dia */
+.cal-day:has(.cal-day-money) { position: relative; }
 .cal-day-money {
-  display: inline-flex; width: 14px; height: 14px; border-radius: 50%;
-  background: var(--green); color: #fff; font-size: 8px; font-weight: 800;
+  position: absolute; top: 3px; right: 3px;
+  display: inline-flex; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--green); color: #fff; font-size: 6.5px; font-weight: 800;
   align-items: center; justify-content: center; line-height: 1;
-  vertical-align: middle; margin-left: 2px;
 }
 .cal-day-money.vencido { background: var(--red); }
+.cal-day.today .cal-day-money { box-shadow: 0 0 0 1.5px #fff; }
+
+/* Honorário na página Calendário */
+.event-honorario { background: var(--green-light); color: var(--green); }
+.event-honorario.vencido { background: var(--red-light); color: var(--red); }
+.fcal-money {
+  display: inline-flex; width: 10px; height: 10px; border-radius: 50%; margin-right: 3px; vertical-align: -1px;
+  background: currentColor; color: inherit; font-size: 6.5px; font-weight: 800; align-items: center; justify-content: center;
+}
+.fcal-money { color: #fff; }
+.event-honorario .fcal-money { background: var(--green); }
+.event-honorario.vencido .fcal-money { background: var(--red); }
 
 /* ── QUADROS (PASTAS DE TAREFAS) ── */
 .quadros-bar {
@@ -2313,8 +2547,6 @@ body.kanban-dragging .task-col-body {
      sempre abre completa, mesmo que o desktop tenha ficado recolhido.
      (mesma especificidade da regra "aparece quando colapsada" lá em cima —
      precisa repetir o prefixo body.sidebar-collapsed pra vencer por ordem.) */
-  .sidebar-collapse-btn,
-  body.sidebar-collapsed .sidebar-collapse-btn { display: none; }
   body.sidebar-collapsed .sidebar      { width: var(--sidebar-w); }
   body.sidebar-collapsed .main         { margin-left: 0; }
   body.sidebar-collapsed .nav-section,
@@ -2373,6 +2605,13 @@ body.kanban-dragging .task-col-body {
   /* Processos */
   .process-grid { grid-template-columns: 1fr; }
   .filter-bar   { gap: 8px; }
+  /* Celular: tabela vira lista — some data/tribunal/movimentação como colunas */
+  .tb { table-layout: auto; }
+  .tb thead { display: none; }
+  .tb .tb-col-trib, .tb .tb-col-data, .tb .tb-mov, .tb .tb-col-mov { display: none; }
+  .tb-esp-cols { grid-template-columns: 1fr; gap: 14px; }
+  .tb .tb-col-status { width: auto; padding-left: 0; }
+  .tb td { padding: 10px; }
   .filter-bar .btn-primary,
   .filter-bar .btn-secondary { font-size: 12px; padding: 7px 10px; }
 
