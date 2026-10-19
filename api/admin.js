@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
-import { repararDatajudIndex, sincronizarDatajudUm, comPool } from './cron/sincronizar.js';
+import { repararDatajudIndex, sincronizarDatajud } from './cron/sincronizar.js';
 import emailHandler from './cron/verificar-atualizacoes.js';
 import djenCadernosHandler from '../lib/djen-cadernos.js';
 import { ehMovDJEN, abrirExecucao, fecharExecucao, registrarEnvio } from '../lib/sync-comum.js';
@@ -740,10 +740,11 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
   const hoje = new Date().toISOString().slice(0, 10);
   let atualizados = 0, comNovidade = 0, semMudanca = 0, naoEncontrado = 0, erros = 0, parou = false;
 
-  // Mesmo pool contínuo do cron (api/cron/sincronizar.js): 20 em voo, novas
-  // consultas até 55s, cada uma esperando até 45s pela resposta do CNJ.
-  const resultados = await comPool(processos, 20, startAt + 55000,
-    proc => sincronizarDatajudUm(proc, admin, hoje));
+  // Mesmo caminho do cron: 1 consulta por tribunal (query "terms"), espaçadas.
+  // Até 19/10/2026 era 1 consulta por processo, 20 ao mesmo tempo — o DataJud
+  // recusava com 429 e a conta do Pedro ficou com 31 de 32 processos em
+  // "falha" num clique, enquanto os crons (já agrupados) passavam limpos.
+  const { resultados } = await sincronizarDatajud(processos, admin, hoje, startAt);
   parou = resultados.length < processos.length;
   for (const r of resultados) {
     if (r === 'novos')               { atualizados++; comNovidade++; }

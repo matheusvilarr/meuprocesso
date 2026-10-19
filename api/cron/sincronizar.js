@@ -283,7 +283,8 @@ async function buscarLoteDatajud(index, numeros) {
   return json.hits?.hits || [];
 }
 
-async function sincronizarDatajud(processos, admin, hoje, startAt = Date.now()) {
+// Também usada pelo botão "Sincronizar processos" do painel admin.
+export async function sincronizarDatajud(processos, admin, hoje, startAt = Date.now()) {
   const com_datajud = processos.filter(p => p.datajud_index);
 
   // Agrupa por tribunal e quebra em lotes — 1 requisição por lote, não por processo.
@@ -348,6 +349,7 @@ async function sincronizarDatajud(processos, admin, hoje, startAt = Date.now()) 
     verificados: resultados.filter(r => r === 'novos' || r === 'atualizado' || r === 'sem-mudanca' || r === 'nao-encontrado').length,
     falhas:     resultados.filter(r => r === 'erro').length,
     tentados:   resultados.length,
+    resultados,
   };
 }
 
