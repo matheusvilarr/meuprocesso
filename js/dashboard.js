@@ -5938,6 +5938,15 @@ async function restaurarProcesso(evt, id, nome) {
 
 // ── CALENDÁRIO: EVENTOS DO BANCO ──────────────────────────────────────────
 
+// Cada carga cobre só um período (dashboard: -7/+90 dias; Calendário: o mês
+// aberto). Substituir a lista inteira fazia o Calendário esconder do dashboard
+// e do sino os compromissos fora do mês que estava na tela — aqui só o
+// período recarregado é trocado, o resto do cache fica.
+function _mesclarEventos(novos, inicio, fim) {
+  const fora = (_eventosDB || []).filter(e => e.data < inicio || e.data > fim);
+  return [...fora, ...novos].sort((a, b) => String(a.data).localeCompare(String(b.data)));
+}
+
 async function carregarEventosDashboard() {
   if (!window._user) return;
   // Busca desde 7 dias atrás (não só "hoje em diante") — a Atividade Recente
@@ -5951,7 +5960,7 @@ async function carregarEventosDashboard() {
     .gte('data', ha7.toISOString().slice(0, 10))
     .lte('data', em90.toISOString().slice(0, 10))
     .order('data', { ascending: true });
-  if (data) _eventosDB = data;
+  if (data) _eventosDB = _mesclarEventos(data, ha7.toISOString().slice(0, 10), em90.toISOString().slice(0, 10));
   _tbRedesenharSeVisivel();
   atualizarPrazosDash();
   buildMiniCal();
@@ -5981,7 +5990,7 @@ async function carregarEventos() {
     .order('data', { ascending: true });
 
   if (!error && data) {
-    _eventosDB = data;
+    _eventosDB = _mesclarEventos(data, inicio, fim);
   }
 
   buildFullCal();
@@ -8186,6 +8195,15 @@ async function _scanHistoricoDjen() {
   };
   const dia = deltaDias => new Date(Date.now() - 3 * 3600e3 + deltaDias * 86400e3).toISOString().slice(0, 10);
   let novas = 0;
+  // Falha deixa rastro no user_metadata (consultável / futuro painel admin) e
+  // conta tentativas — antes o scan só parava, sem dizer por quê, pra sempre.
+  const falhou = async (chave, motivo) => {
+    const e = estado[chave];
+    e.falhas = (e.falhas || 0) + 1;
+    e.ultimo_erro = String(motivo).slice(0, 150);
+    e.ultimo_erro_em = new Date().toISOString();
+    await salvar().catch(() => {});
+  };
 
   try {
     for (const chave of faltam) {
@@ -8205,7 +8223,7 @@ async function _scanHistoricoDjen() {
             if (r.status !== 429 && r.status < 500) break;
           } catch (_) {}
         }
-        if (!json) return;   // DJEN fora/no limite: continua na próxima abertura
+        if (!json) { await falhou(chave, 'DJEN fora do ar ou no limite de consultas'); return; }   // continua na próxima abertura
 
         const paginas = Math.max(1, Math.ceil((json.count || 0) / 100));
         _progressoHistorico(`Buscando suas publicações do último ano no DJEN… ${Math.min(e.pagina, paginas)}/${paginas}`);
@@ -8217,7 +8235,7 @@ async function _scanHistoricoDjen() {
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
             body: JSON.stringify({ oab: chave, itens: itens.map(it => ({ ...it, texto: String(it.texto || '').slice(0, 5000), destinatarioadvogados: undefined })) }),
           });
-          if (!r.ok) return;
+          if (!r.ok) { await falhou(chave, `Servidor respondeu ${r.status} na página ${e.pagina}`); return; }
           novas += (await r.json()).sugestoesNovas || 0;
         }
         travar();
@@ -8227,9 +8245,12 @@ async function _scanHistoricoDjen() {
         await espera(6000);   // ~10/min: metade da cota, sobra pra uma busca dele
       }
       e.concluido = new Date().toISOString();
+      delete e.ultimo_erro; delete e.ultimo_erro_em;
       await salvar();
     }
-  } catch (_) {
+  } catch (err) {
+    const aberta = faltam.find(c => !estado[c]?.concluido);
+    if (aberta) await falhou(aberta, err?.message || err);
   } finally {
     _scanHistoricoRodando = false;
     _progressoHistorico(null);
@@ -8377,12 +8398,21 @@ async function importarTodosDescobertos(grupo) {
   if (!ok) return;
 
   let importados = 0, erros = 0;
-  for (const item of todos) {
-    const r = await _importarComMerge(item.dados);
-    if (r.status === 'erro') { erros++; continue; }
-    // Sem redesenhar a lista a cada item — com centenas (scan de 1 ano) travava
-    await decidirDescoberto(item.id, 'marcar-importado', { semRedesenhar: true });
-    importados++;
+  // Centenas de itens levam minutos: mostra o andamento e avisa antes de fechar a aba
+  const avisoSair = e => { e.preventDefault(); e.returnValue = ''; };
+  window.addEventListener('beforeunload', avisoSair);
+  try {
+    for (const [i, item] of todos.entries()) {
+      _progressoHistorico(`Importando processos… ${i + 1}/${todos.length}`);
+      const r = await _importarComMerge(item.dados);
+      if (r.status === 'erro') { erros++; continue; }
+      // Sem redesenhar a lista a cada item — com centenas (scan de 1 ano) travava
+      await decidirDescoberto(item.id, 'marcar-importado', { semRedesenhar: true });
+      importados++;
+    }
+  } finally {
+    window.removeEventListener('beforeunload', avisoSair);
+    _progressoHistorico(null);
   }
   await carregarDescobertos();
   renderizarDescobertos();
