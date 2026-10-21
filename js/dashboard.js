@@ -8148,7 +8148,7 @@ function _atualizarBannerDescobertos() {
   const novos = _descobertosCache.length - hist;
   if (!_descobertosCache.length) { banner.style.display = 'none'; return; }
   document.getElementById('descobertos-banner-texto').textContent = novos
-    ? `Encontramos ${novos} processo(s) novo(s) na sua OAB` + (hist ? ` · ${hist} com publicação no último ano` : '')
+    ? `Intimação recente em ${novos} processo(s) fora do seu painel` + (hist ? ` · ${hist} com publicação no último ano` : '')
     : `${hist} processo(s) com sua OAB no DJEN no último ano ainda não cadastrados`;
   banner.style.display = 'flex';
 }
@@ -8304,7 +8304,7 @@ function renderizarDescobertos() {
     mais6: hist.filter(d => meses(d) >= 6),
   };
   const titulos = {
-    novos: 'Novos',
+    novos: 'Intimação recente',
     ate3:  'Última publicação nos últimos 3 meses',
     ate6:  'Última publicação entre 3 e 6 meses atrás',
     mais6: 'Última publicação há mais de 6 meses',

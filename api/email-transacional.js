@@ -94,7 +94,7 @@ function templateCadastro(nome) {
     <table width="580" cellpadding="0" cellspacing="0" border="0" style="max-width:580px;width:100%">
 
       <!-- Header -->
-      <tr><td style="background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 55%,#1d4ed8 100%);border-radius:16px 16px 0 0;padding:36px 40px;text-align:center">
+      <tr><td style="background:linear-gradient(135deg,#053958 0%,#0d5a96 55%,#2196f3 100%);border-radius:16px 16px 0 0;padding:36px 40px;text-align:center">
         <div style="font-size:26px;font-weight:800;color:#ffffff;letter-spacing:-.5px">Meu Processo</div>
         <div style="font-size:13px;color:rgba(255,255,255,.6);margin-top:4px">Gestão jurídica inteligente</div>
       </td></tr>
@@ -108,8 +108,8 @@ function templateCadastro(nome) {
           Recebemos seu cadastro no <strong>Meu Processo</strong> com sucesso.
         </p>
 
-        <div style="background:#f0f4ff;border-left:4px solid #1d4ed8;border-radius:0 10px 10px 0;padding:18px 20px;margin:0 0 24px">
-          <p style="font-size:14px;color:#1e3a5f;line-height:1.75;margin:0">
+        <div style="background:#f0f4ff;border-left:4px solid #0c7fda;border-radius:0 10px 10px 0;padding:18px 20px;margin:0 0 24px">
+          <p style="font-size:14px;color:#053958;line-height:1.75;margin:0">
             O <strong>Meu Processo</strong> nasceu com uma ideia simples: <strong>facilitar o dia a dia do advogado</strong> —
             monitoramento automático de processos, alertas de novas movimentações, controle de prazos,
             kanban de tarefas e muito mais, tudo em um lugar só.
@@ -162,7 +162,7 @@ function templatePedidoInterno(d) {
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:'Helvetica Neue',Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;padding:36px 0"><tr><td align="center">
   <table width="560" cellpadding="0" cellspacing="0" border="0" style="max-width:560px;width:100%">
-    <tr><td style="background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 55%,#1d4ed8 100%);border-radius:14px 14px 0 0;padding:26px 32px">
+    <tr><td style="background:linear-gradient(135deg,#053958 0%,#0d5a96 55%,#2196f3 100%);border-radius:14px 14px 0 0;padding:26px 32px">
       <div style="font-size:12px;color:rgba(255,255,255,.65);letter-spacing:.08em;text-transform:uppercase">Pedido de licença</div>
       <div style="font-size:22px;font-weight:800;color:#fff;margin-top:5px">${esc(d.plano)} · R$ ${esc(d.valor)}</div>
     </td></tr>
@@ -177,7 +177,7 @@ function templatePedidoInterno(d) {
         ${zap.length >= 10
           ? `<a href="https://wa.me/55${zap}" style="display:inline-block;background:#16a34a;color:#fff;padding:12px 22px;border-radius:9px;font-size:14px;font-weight:700;text-decoration:none;margin-right:8px">Falar no WhatsApp</a>`
           : ''}
-        <a href="https://meuprocesso.app.br/admin" style="display:inline-block;background:#1e3a5f;color:#fff;padding:12px 22px;border-radius:9px;font-size:14px;font-weight:700;text-decoration:none">Abrir o painel</a>
+        <a href="https://meuprocesso.app.br/admin" style="display:inline-block;background:#0c7fda;color:#fff;padding:12px 22px;border-radius:9px;font-size:14px;font-weight:700;text-decoration:none">Abrir o painel</a>
       </div>
       <p style="font-size:12.5px;color:#6b7280;line-height:1.65;margin:22px 0 0">
         Combine o Pix e depois libere a licença no painel, em <strong>Licenças</strong>.
@@ -196,7 +196,7 @@ function templatePedidoCliente(nome, p) {
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:'Helvetica Neue',Arial,sans-serif">
 <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f3f4f6;padding:40px 0"><tr><td align="center">
   <table width="580" cellpadding="0" cellspacing="0" border="0" style="max-width:580px;width:100%">
-    <tr><td style="background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 55%,#1d4ed8 100%);border-radius:16px 16px 0 0;padding:36px 40px;text-align:center">
+    <tr><td style="background:linear-gradient(135deg,#053958 0%,#0d5a96 55%,#2196f3 100%);border-radius:16px 16px 0 0;padding:36px 40px;text-align:center">
       <div style="font-size:26px;font-weight:800;color:#fff;letter-spacing:-.5px">Meu Processo</div>
       <div style="font-size:13px;color:rgba(255,255,255,.6);margin-top:4px">Gestão jurídica inteligente</div>
     </td></tr>
@@ -206,7 +206,7 @@ function templatePedidoCliente(nome, p) {
         Recebemos seu pedido do plano <strong>${esc(p.nome)}</strong>, de R$ ${esc(p.valor)} por ${esc(p.periodo)}.
       </p>
       <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#eff6ff;border-radius:10px;margin:0 0 20px">
-        <tr><td style="padding:18px 20px;font-size:14px;color:#1e3a5f;line-height:1.7">
+        <tr><td style="padding:18px 20px;font-size:14px;color:#053958;line-height:1.7">
           <strong>O que acontece agora:</strong><br>
           Vamos te enviar os dados para pagamento por Pix neste e-mail ou pelo seu telefone.
           Assim que o pagamento for confirmado, sua licença é liberada e você continua de onde parou.
@@ -217,7 +217,7 @@ function templatePedidoCliente(nome, p) {
       </p>
       <p style="font-size:13px;color:#6b7280;line-height:1.7;margin:20px 0 0">
         Dúvidas? Responda este e-mail ou escreva para
-        <a href="mailto:contato@meuprocesso.app.br" style="color:#1d4ed8;font-weight:600;text-decoration:none">contato@meuprocesso.app.br</a>.
+        <a href="mailto:contato@meuprocesso.app.br" style="color:#0c7fda;font-weight:600;text-decoration:none">contato@meuprocesso.app.br</a>.
       </p>
     </td></tr>
   </table>

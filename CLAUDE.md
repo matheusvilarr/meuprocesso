@@ -277,6 +277,15 @@ const result = await _importarComMerge(d);
 - Erros de coluna no Supabase geralmente = migration não aplicada → rodar a migration específica em `supabase/`
 - **NUNCA rodar `schema.sql` em produção** — ele faz `DROP TABLE` em processos/tarefas e apaga dados de clientes reais
 - Migrations novas devem ser só aditivas (sem DROP TABLE / DELETE / UPDATE em massa de dados)
+- **Tabela nova precisa de GRANT na mesma migration** — desde 30/10/2026 o Supabase não dá mais
+  acesso automático da API a tabelas criadas no schema `public`; sem isso o site recebe
+  "permission denied". Tabelas que já existiam não mudam. Junto do `CREATE TABLE`:
+  ```sql
+  grant select, insert, update, delete on public.nova_tabela to authenticated;
+  grant select, insert, update, delete on public.nova_tabela to service_role;
+  -- anon só se a tela de login/landing precisar ler (raro)
+  ```
+  RLS continua obrigatório — o GRANT libera a API, a policy decide quais linhas cada um vê.
 - Erro "schema cache" → rodar `NOTIFY pgrst, 'reload schema';` no SQL Editor
 - **Todo `DELETE`/`UPDATE` em massa direto no banco (fora da UI) precisa filtrar por `user_id`**
   e mostrar um `SELECT` de prévia antes de rodar — em 08/10/2026 um delete sem esse filtro
