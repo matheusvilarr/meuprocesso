@@ -185,6 +185,13 @@ O Supabase é sempre remoto — localhost não afeta o banco.
   - `PYTHON_API` em `dashboard.js` aponta para `localhost:8000` (local) ou Railway (produção)
 
 ### 📋 TODOs conhecidos
+- **Anexos de documentos não funcionam em produção** (achado em 20/10/2026): `uploadDocumento()`
+  em `dashboard.js` envia pro bucket `documentos` do Supabase Storage, que **nunca foi criado** —
+  só existe `avatars`; tabela `documentos` tem 0 linhas. Fazer a lógica inteira, não só criar o bucket:
+  bucket privado + policies (só o escritório dono e colaboradores ativos), limite maior que os 2 MB
+  atuais (20–25 MB), coluna de "onde o arquivo está" (supabase/r2) pra poder migrar pro Cloudflare R2
+  depois sem mexer na tela, apagar os arquivos junto com o processo, cota por plano. Custos e
+  alternativas discutidos: Supabase Pro (100 GB inclusos) agora, R2 quando passar de ~100 GB.
 - Servidor Python para produção (Railway ou servidor próprio do cliente)
 - Notificação automática DJe: cron que busca OAB de cada usuário e push notification
 - Busca por OAB no DataJud retorna campos limitados por LGPD (partes podem vir vazias)
