@@ -164,16 +164,20 @@
     </div>
   </header>
 
-  <!-- Faixa "informe sua OAB" — só pra quem entrou sem OAB (ver _mostrarFaixaOAB) -->
-  <div id="faixa-oab" class="faixa-oab" hidden>
-    <i class="ti ti-id-badge-2 faixa-oab-ico"></i>
-    <div class="faixa-oab-txt"><span id="faixa-oab-texto"></span><div class="faixa-oab-erro" id="faixa-oab-erro"></div></div>
-    <form class="faixa-oab-form" onsubmit="event.preventDefault();_salvarFaixaOAB()">
-      <select id="faixa-oab-uf" aria-label="Estado da OAB"><option value="">UF</option></select>
-      <input id="faixa-oab-num" type="text" inputmode="numeric" placeholder="Número da OAB" autocomplete="off" aria-label="Número da OAB">
-      <button type="submit" id="faixa-oab-btn">Salvar</button>
+  <!-- Tela "falta só sua OAB" — obrigatória pra quem entrou sem OAB, ex: Google/LinkedIn (ver _mostrarTelaOAB) -->
+  <div id="tela-oab" class="tela-oab" hidden role="dialog" aria-modal="true" aria-labelledby="tela-oab-titulo">
+    <form class="tela-oab-card" onsubmit="event.preventDefault();_salvarTelaOAB()">
+      <div class="tela-oab-ico"><i class="ti ti-id-badge-2"></i></div>
+      <h2 id="tela-oab-titulo">Falta só sua OAB</h2>
+      <p id="tela-oab-texto">É por ela que encontramos suas intimações e processos no Diário Eletrônico, todos os dias.</p>
+      <div class="tela-oab-campos">
+        <select id="tela-oab-uf" aria-label="Estado da OAB"><option value="">UF</option></select>
+        <input id="tela-oab-num" type="text" inputmode="numeric" placeholder="Número da OAB" autocomplete="off" aria-label="Número da OAB">
+      </div>
+      <div class="tela-oab-erro" id="tela-oab-erro" role="alert"></div>
+      <button type="submit" class="tela-oab-btn" id="tela-oab-btn">Continuar</button>
+      <button type="button" class="tela-oab-sair" onclick="fazerLogout()">Entrou com a conta errada? Sair</button>
     </form>
-    <button type="button" class="faixa-oab-depois" onclick="_adiarFaixaOAB()">Lembrar depois</button>
   </div>
 
   <!-- ── DASHBOARD ── -->
@@ -217,6 +221,15 @@
 
     <div class="dash-grid">
       <div class="dash-left">
+
+        <!-- Tarefas com prazo vencido e ainda abertas (ver renderTarefasVencidas) -->
+        <div class="card tv-card" id="card-tarefas-vencidas" hidden>
+          <div class="tv-head">
+            <i class="ti ti-alarm"></i>
+            <div><b id="tv-titulo">Tarefas vencidas</b><span>Já fez? Marque como concluída. Senão, abra e ajuste o prazo.</span></div>
+          </div>
+          <div id="tv-lista"></div>
+        </div>
 
         <div class="card" id="card-compromissos-dia" style="display:none;margin-bottom:12px">
           <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 14px 4px">

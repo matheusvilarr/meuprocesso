@@ -77,10 +77,10 @@ window._oabsValidas = function (raw) {
   // que no bloqueado só tinha "fale com a gente" — tela sem saída.
   window._acessoRestrito = !window._isAdmin && !assinaturaValida;
 
-  // Quem entra pelo Google não traz OAB (o Google só devolve nome e e-mail),
-  // e sem OAB o monitoramento do DJEN não encontra nada dessa pessoa. Então o
-  // primeiro acesso vai direto para o perfil e só sai de lá depois de
-  // preencher. Colaborador não precisa: ele acompanha a OAB do titular.
+  // Quem entra pelo Google ou LinkedIn não traz OAB (só nome e e-mail), e sem
+  // OAB o monitoramento do DJEN não encontra nada dessa pessoa — o dashboard
+  // cobre o painel com a tela "Falta só sua OAB" até preencher (_mostrarTelaOAB).
+  // Colaborador não precisa: ele acompanha a OAB do titular.
   window._oabPendente = !window._isColaborador &&
     window._oabsValidas(session.user.user_metadata?.oab).length === 0;
 

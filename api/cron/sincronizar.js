@@ -23,6 +23,7 @@ import {
   normalizarNumeroCNJ, tituloProcesso, limparLogsAntigos,
   abrirExecucao, fecharExecucao, enviarEmail, cabecalho, rodape, btnDashboard,
   inferirTratamento, usuariosComAcesso, enviarAvisoReativacao, normalizarNumeroSuperior,
+  montarNovidadesDatajud, gravarComNovidades,
 } from '../../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
@@ -422,47 +423,15 @@ async function aplicarResultadoDatajud(proc, hitsOuErro, admin, hoje) {
       return 'sem-mudanca';
     }
 
-    // Novo = não estava na lista salva. Compara com a lista inteira (não só
-    // com o hash dos 6 últimos) e aceita até 30 dias de atraso: tribunais
-    // costumam enviar ao DataJud com dias/semanas de atraso, e a janela antiga
-    // de 5 dias fazia essas movimentações entrarem na timeline sem notificar.
-    const anteriores    = (proc.movimentos_recentes || []).filter(m => !ehMovDJEN(m));
-    const conhecidas    = new Set(anteriores.map(chaveMov));
-    const importadoEm   = (proc.created_at || '').slice(0, 10);
-    const limite30d     = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-    const detectadoEm   = new Date().toISOString().slice(0, 10);
-    // Primeira sincronização (processo sem nenhum movimento do DataJud salvo):
-    // só a mais recente conta como novidade, igual ao comportamento anterior.
-    const todosNovos    = anteriores.length
-      ? todosMovs.filter(m => !conhecidas.has(chaveMov(m)))
-      : todosMovs.slice(0, 1);
-    const novosRecentes = todosNovos
-      .filter(m => m.data && m.data.slice(0, 10) >= limite30d && (!importadoEm || m.data.slice(0, 10) >= importadoEm))
-      .map(m => ({ ...m, _detectadoEm: detectadoEm }));
-
-    // Preserva movimentos DJEN existentes — DataJud não deve apagá-los
-    const djenExistentes = (proc.movimentos_recentes || []).filter(ehMovDJEN);
-    const movimentosFinal = [...todosMovs, ...djenExistentes]
-      .sort((a, b) => (b.data || '') > (a.data || '') ? 1 : -1)
-      .slice(0, 100);
-
-    const update = {
-      movimentos_recentes: movimentosFinal,
-      movimentos_hash:     novoHash,
-      ...sucessoFila(),
-      ...enriquecerSeDescoberto(proc, hits),
-    };
-    if (novosRecentes.length) {
-      // Mantém novidades ainda não notificadas (ex: publicação DJEN pendente de e-mail)
-      const pendentes = proc.notificacao_pendente ? (proc.novos_movimentos || []) : [];
-      const chaves    = new Set(novosRecentes.map(chaveMov));
-      update.notificacao_pendente = true;
-      update.email_pendente       = true;
-      update.novos_movimentos     = [...novosRecentes, ...pendentes.filter(m => !chaves.has(chaveMov(m)))];
-    }
-    const { error: upErr } = await admin.from('processos').update(update).eq('id', proc.id);
-    if (upErr) throw new Error(`Falha ao gravar: ${upErr.message}`);
-    return novosRecentes.length ? 'novos' : 'atualizado';
+    // `proc` veio da leitura da fila, até ~2 min atrás: o que já foi lido e o
+    // que o DJEN gravou nesse meio tempo vêm do banco agora (gravarComNovidades).
+    const extra = { movimentos_hash: novoHash, ...sucessoFila(), ...enriquecerSeDescoberto(proc, hits) };
+    const r = await gravarComNovidades(admin, proc.id, fresco => {
+      const m = montarNovidadesDatajud({ ...proc, ...fresco }, todosMovs);
+      return { ...m, upd: { ...m.upd, ...extra } };
+    });
+    // 'novos' dispara o e-mail na hora — só quando tem andamento importante.
+    return r.importantes?.length ? 'novos' : 'atualizado';
   } catch (e) {
     const c = classificarErroDatajud(e);
     const falhas = (proc.sync_falhas || 0) + 1;

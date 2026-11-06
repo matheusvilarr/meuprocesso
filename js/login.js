@@ -44,8 +44,9 @@ if (new URLSearchParams(window.location.search).get('tab') === 'signup') {
 }
 
 // ── LinkedIn OAuth ────────────────────────────────────────────────────────────
-// Mesmo fluxo do Google: cria a conta na 1ª vez, sem OAB (a faixa do
-// dashboard pede depois, com a checagem anti-abuso). Provedor "linkedin_oidc"
+// Mesmo fluxo do Google: cria a conta na 1ª vez, sem OAB (a tela "Falta só
+// sua OAB" do dashboard exige antes de liberar o painel, com a checagem
+// anti-abuso). Provedor "linkedin_oidc"
 // — o "linkedin" antigo foi desligado pelo LinkedIn.
 document.getElementById('btnLinkedin').addEventListener('click', async function () {
   this.disabled = true;

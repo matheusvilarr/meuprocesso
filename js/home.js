@@ -25,9 +25,15 @@
     { img: 4, p: 'Quanto eu tenho a receber?',                r: 'R$ 8.640 a receber e R$ 1.500 vencidos, separados por cliente.', d: [6.8, 20.4, 91.6, 11.6] },
     { img: 5, p: 'Quem da equipe está com o quê?',            r: 'Cada tarefa no seu quadro, com prazo e prioridade.' },
   ];
-  const DIGITAR_MS = 38, PAUSA_PERGUNTA_MS = 700, TELA_MS = 4300;
+  const DIGITAR_MS = 38, PAUSA_PERGUNTA_MS = 900, SAIDA_MS = 450;
+  // Tempo pra ler a resposta E olhar a tela. Até 05/11/2026 eram 4,3s fixos e a
+  // cena trocava antes de terminar de ler; agora cresce com o tamanho do texto.
+  const tempoLeitura = c => Math.max(7000, 3500 + c.r.length * 55);
 
   let atual = 0, timers = [], rodando = false, naTela = true, liberado = false;
+  // Mouse em cima do notebook segura a cena (só no computador): ela termina o
+  // que estava fazendo e não avança até o mouse sair.
+  let segurando = false, esperandoSair = false;
 
   const depois = (ms, fn) => timers.push(setTimeout(fn, ms));
   const limpar = () => { timers.forEach(clearTimeout); timers = []; };
@@ -37,7 +43,30 @@
     img.src = img.dataset.src;
     delete img.dataset.src;
   };
-  const marcarPonto = n => pontos.forEach((b, k) => b.setAttribute('aria-current', k === n ? 'true' : 'false'));
+  const marcarPonto = n => pontos.forEach((b, k) => {
+    b.setAttribute('aria-current', k === n ? 'true' : 'false');
+    b.classList.remove('enchendo');
+  });
+
+  // A bolinha da cena atual vai enchendo durante a leitura — mostra quanto
+  // falta pra trocar, em vez de a troca pegar de surpresa.
+  function encherPonto(n, ms) {
+    const b = pontos[n];
+    if (!b) return;
+    b.style.setProperty('--leitura', ms + 'ms');
+    b.classList.remove('enchendo');
+    void b.offsetWidth;
+    b.classList.add('enchendo');
+  }
+
+  function avancar(n) {
+    if (!rodando) return;
+    if (segurando) { esperandoSair = true; return; }
+    // Primeiro some a resposta; só depois entra a próxima pergunta.
+    resposta.classList.remove('ativa');
+    destaque.classList.remove('ativa');
+    depois(SAIDA_MS, () => mostrar((n + 1) % CENAS.length));
+  }
 
   function mostrar(n) {
     limpar();
@@ -58,7 +87,7 @@
       if (letra < c.p.length) depois(DIGITAR_MS, digitar);
       else depois(PAUSA_PERGUNTA_MS, revelar);
     };
-    depois(300, digitar);
+    depois(350, digitar);
 
     function revelar() {
       imgs.forEach((im, j) => im.classList.toggle('ativa', j === c.img));
@@ -70,7 +99,9 @@
         Object.assign(destaque.style, { left: x + '%', top: y + '%', width: w + '%', height: h + '%' });
         depois(750, () => destaque.classList.add('ativa'));
       }
-      depois(TELA_MS, () => { if (rodando) mostrar((n + 1) % CENAS.length); });
+      const ms = tempoLeitura(c);
+      encherPonto(n, ms);
+      depois(ms, () => avancar(n));
     }
   }
 
@@ -95,7 +126,17 @@
     return;
   }
 
-  pontos.forEach((b, k) => b.addEventListener('click', () => { liberado = rodando = true; mostrar(k); }));
+  pontos.forEach((b, k) => b.addEventListener('click', () => { liberado = rodando = true; esperandoSair = false; mostrar(k); }));
+
+  if (matchMedia('(pointer: fine)').matches) {
+    const barra = pontos[0]?.parentElement;
+    palco.addEventListener('pointerenter', () => { segurando = true; barra?.classList.add('segurando'); });
+    palco.addEventListener('pointerleave', () => {
+      segurando = false;
+      barra?.classList.remove('segurando');
+      if (esperandoSair) { esperandoSair = false; depois(1200, () => avancar(atual)); }
+    });
+  }
 
   new IntersectionObserver(([e]) => {
     naTela = e.isIntersecting;
@@ -116,15 +157,23 @@
 
   // Entrada em cascata. O CSS só esconde quando .anima está no <html>, então sem
   // JS a página aparece inteira.
-  const alvos = document.querySelectorAll('.surgir, .cascata');
+  // Cada bloco (e cada item de uma .cascata) entra sozinho, assim que a borda de
+  // cima aparece. Até 05/11/2026 o grupo inteiro esperava 12% da própria altura
+  // aparecer — no celular, onde o grupo vira uma coluna enorme, a pessoa rolava
+  // por um bom pedaço de tela vazia antes de o conteúdo surgir.
+  const alvos = [...document.querySelectorAll('.surgir, .cascata > *')];
   if ('IntersectionObserver' in window && alvos.length) {
     document.documentElement.classList.add('anima');
-    document.querySelectorAll('.cascata').forEach(g => [...g.children].forEach((f, i) => f.style.setProperty('--i', i)));
-    const io = new IntersectionObserver(entradas => entradas.forEach(e => {
-      if (!e.isIntersecting) return;
-      e.target.classList.add('visivel');
-      io.unobserve(e.target);
-    }), { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+    const io = new IntersectionObserver(entradas => {
+      let k = 0;
+      for (const e of entradas) {
+        if (!e.isIntersecting) continue;
+        // Os que entram juntos (uma linha de cartões no computador) entram em sequência
+        e.target.style.setProperty('--i', Math.min(k++, 4));
+        e.target.classList.add('visivel');
+        io.unobserve(e.target);
+      }
+    }, { threshold: 0, rootMargin: '0px 0px -6% 0px' });
     alvos.forEach(a => io.observe(a));
   }
 

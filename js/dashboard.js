@@ -76,9 +76,8 @@ let _navStack           = ['dashboard'];
 let _navegandoPorHistorico = false; // true durante popstate, pra não empilhar de novo
 
 function showPage(id) {
-  // Sem OAB a pessoa entra normalmente (até 16/10/2026 ficava presa no
-  // perfil — afastava quem só queria conhecer). O lembrete é a faixa do topo
-  // (_mostrarFaixaOAB), já que sem OAB o DJEN não acha nada dela.
+  // Sem OAB a pessoa não fica presa no perfil (até 16/10/2026 ficava — afastava
+  // quem só queria conhecer): pede numa tela só, por cima do painel (_mostrarTelaOAB).
   // Assinatura vencida/cancelada/bloqueada: só "Minha Assinatura" (ver auth-guard).
   if (window._acessoRestrito && id !== 'assinatura') {
     showToast('Sua assinatura está inativa — escolha um plano para voltar a usar o sistema.', 'warning');
@@ -243,14 +242,18 @@ document.addEventListener('keydown', function (e) {
 });
 
 // ── RECÊNCIA E ORDENAÇÃO ────────────────────────────────────────────────────
+// Ordena pelo dia em que a última novidade CHEGOU (ver _ultimaChegada) — um
+// andamento de duas semanas atrás que o CNJ só publicou hoje sobe pro topo.
+// Empate no dia: o andamento mais recente primeiro.
 function _ultimaAtividade(proc) {
-  return proc.movimentos_recentes?.[0]?.data || proc.created_at || '2000-01-01';
+  const chegada = _ultimaChegada(proc);
+  if (!chegada) return proc.created_at || '2000-01-01';
+  return `${chegada}|${proc.movimentos_recentes?.[0]?.data || ''}`;
 }
 
 function _ultimaAtividadeDias(proc) {
-  const d = proc.movimentos_recentes?.[0]?.data;
-  if (!d) return 9999;
-  return Math.floor((Date.now() - new Date(d)) / 86400000);
+  const d = _ultimaChegada(proc);
+  return d ? _diasCalendario(d + 'T12:00:00') : 9999;
 }
 
 // Horário do último movimento pra exibir junto de "Nova movimentação".
@@ -1822,19 +1825,15 @@ async function carregarProcessos() {
     window._mySharesMap[s.processo_id].push({ nome: s.shared_with_nome, nivel: s.nivel_acesso });
   }
 
-  // Reordena pelo movimento mais recente (mais ativo primeiro)
-  data.sort((a, b) => {
-    const dA = a.movimentos_recentes?.[0]?.data || a.ultima_verificacao || a.created_at || '';
-    const dB = b.movimentos_recentes?.[0]?.data || b.ultima_verificacao || b.created_at || '';
-    return dB.localeCompare(dA);
-  });
+  // Reordena pela última novidade que chegou (mais ativo primeiro)
+  data.sort(_sortRecente);
 
   // "meus" segue sendo o total (usado no card do Dashboard e em outros
   // lugares) — só o badge da sidebar virou "novidade desde a última visita".
   const meus = data.filter(p => !window._sharedSet[p.id]);
   const lastSeenProcessos = localStorage.getItem('processos_badge_last_seen') || '1970-01-01';
   const novosDesdeVisita = meus.filter(p =>
-    p.notificacao_pendente && (p.ultima_verificacao || p.created_at || '') > lastSeenProcessos
+    _temNovidade(p) && (p.ultima_verificacao || p.created_at || '') > lastSeenProcessos
   );
   const badge = document.getElementById('badge-processos');
   if (badge) {
@@ -1973,13 +1972,23 @@ function _coletarAtividadeRecente() {
   const agora = new Date();
 
   for (const p of (window._processosDB || [])) {
-    const movs = p.novos_movimentos?.length ? p.novos_movimentos : (p.movimentos_recentes || []).slice(0, 2);
+    // Só o que importa: novidade importante não lida; senão, os 2 últimos
+    // andamentos que não são rotina de cartório. Repetidos contam uma vez.
+    const { importantes } = _novidades(p);
+    const ctx = p.movimentos_recentes || [];
+    const novo = importantes.length > 0;
+    const movs = novo ? _agruparRepetidos(importantes) : _agruparRepetidos(ctx.filter(m => !_movRotina(m, ctx)));
     for (const m of movs.slice(0, 2)) {
       if (!m.data || _atvParseData(m.data) > agora) continue;
+      // Chegou depois da data do andamento (atraso do CNJ): entra no dia em que chegou
+      const dia = String(m.data).slice(0, 10), chegou = _chegadaMov(m);
+      const atrasado = chegou > dia;
       itens.push({
-        tipo: 'processo', icone: p.novos_movimentos?.length ? 'ti-sparkles' : 'ti-gavel',
-        cor: p.novos_movimentos?.length ? 'gold' : 'navy',
-        titulo: _nomeProc(p), sub: m.nome, data: m.data, processoId: p.id, numero: p.numero,
+        tipo: 'processo', icone: novo ? 'ti-sparkles' : 'ti-gavel',
+        cor: novo ? 'gold' : 'navy',
+        titulo: _nomeProc(p),
+        sub: m.nome + (m._vezes > 1 ? ` (×${m._vezes})` : '') + (atrasado ? ` · andamento de ${new Date(dia + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}` : ''),
+        data: atrasado ? chegou : m.data, processoId: p.id, numero: p.numero,
         tribunal: p.tribunal, cliente: p.cliente,
       });
     }
@@ -2182,7 +2191,42 @@ function _editarProcessoRapido(id) {
   abrirEditarProcesso();
 }
 
+// ── TAREFAS VENCIDAS (dashboard) ─────────────────────────────────────────────
+// Tarefa com prazo vencido sumia do "Prazos Próximos" (só mostra de hoje pra
+// frente) e só lembrava por e-mail, todo dia. Desde 05/11/2026 o e-mail não
+// manda mais vencida (ver rodarPrazoFatal) e ela fica aqui, no topo do painel,
+// até ser concluída ou ganhar prazo novo.
+function renderTarefasVencidas() {
+  const card = document.getElementById('card-tarefas-vencidas');
+  const lista = document.getElementById('tv-lista');
+  if (!card || !lista) return;
+  const hoje = new Date().toLocaleDateString('sv');
+  const vencidas = (_tarefasPrazoDB || []).filter(t => t.prazo && t.prazo < hoje && t.coluna !== 'concluida')
+    .sort((a, b) => a.prazo.localeCompare(b.prazo));
+  card.hidden = !vencidas.length;
+  if (!vencidas.length) { lista.innerHTML = ''; return; }
+  document.getElementById('tv-titulo').textContent =
+    vencidas.length === 1 ? '1 tarefa vencida' : `${vencidas.length} tarefas vencidas`;
+  const procs = new Map((window._processosDB || []).map(p => [p.id, p]));
+  const MAX = 5;
+  lista.innerHTML = vencidas.slice(0, MAX).map(t => {
+    const dias = _diasCalendario(t.prazo + 'T12:00:00');
+    const proc = t.processo_id ? procs.get(t.processo_id) : null;
+    const ref = proc ? _nomeProc(proc) : (t.cliente_manual || t.numero_processo_manual || '');
+    return `<div class="prazo-item tv-item" onclick="abrirTarefaPorId('${t.id}','${t.quadro_id || ''}')">
+      <button type="button" class="prazo-check" title="Marcar como concluída" onclick="event.stopPropagation();_prazoCheck(this,'tarefa','${t.id}')"><i class="ti ti-check"></i></button>
+      <div class="prazo-info">
+        <div class="prazo-name">${escHtml(t.titulo)}</div>
+        <div class="prazo-type">${ref ? escHtml(ref) + ' · ' : ''}prazo era ${new Date(t.prazo + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}</div>
+      </div>
+      <span class="tv-atraso">venceu ${dias === 1 ? 'ontem' : `há ${dias} dias`}</span>
+    </div>`;
+  }).join('') + (vencidas.length > MAX
+    ? `<button type="button" class="tv-mais" onclick="showPage('tarefas')">Ver as outras ${vencidas.length - MAX} no quadro de tarefas</button>` : '');
+}
+
 function atualizarPrazosDash() {
+  renderTarefasVencidas();
   const hoje  = new Date(); hoje.setHours(0, 0, 0, 0);
   const em7   = new Date(hoje); em7.setDate(em7.getDate() + 7);
 
@@ -2350,7 +2394,8 @@ function renderizarListaProcessos(lista) {
 
   const criarCard = p => {
     const temSync    = !!p.datajud_index;
-    const temNotif   = !!p.notificacao_pendente;
+    const novImp     = _novidades(p).importantes;
+    const temNotif   = novImp.length > 0;
     const isShared   = !!window._sharedSet?.[p.id];
     const sharedInfo = isShared ? window._sharedSet[p.id] : null;
     const myShares   = window._mySharesMap?.[p.id] || [];
@@ -2438,10 +2483,11 @@ function renderizarListaProcessos(lista) {
       </div>
       ${(() => {
         const ultimoMov = p.movimentos_recentes?.[0];
-        if (temNotif && p.novos_movimentos?.length) {
+        if (temNotif) {
+          const mais = novImp.length - 1;
           return `<div class="pc-prazo" style="color:#1d4ed8;border-top-color:#dbeafe">
             <i class="ti ti-bell-ringing"></i>
-            <span style="font-weight:600">${_esc(p.novos_movimentos[0].nome)}</span>
+            <span style="font-weight:600">${_esc(novImp[0].nome)}</span>${mais > 0 ? `<span class="nov-mais">+${mais}</span>` : ''}
           </div>`;
         }
         if (ultimoMov) {
@@ -2574,7 +2620,7 @@ function _abrirNoTribunal(evt, id) {
 
 // Status com significado (o "Ativo" de antes era igual pra todo mundo)
 function _statusTabela(p) {
-  if (p.notificacao_pendente && p.novos_movimentos?.length) return { k: 'novo',   txt: 'Novo',          ordem: 0 };
+  if (_temNovidade(p))                                       return { k: 'novo',   txt: 'Novo',          ordem: 0 };
   if (!p.datajud_index)                                      return { k: 'semtrib', txt: 'Sem tribunal', ordem: 1 };
   const d = _ultimaAtividadeDias(p);
   if (d > 30)                                                return { k: 'parado', txt: d >= 9999 ? 'Sem movimentação' : 'Parado', ordem: 2 };
@@ -2630,10 +2676,12 @@ function _tbDiasPrazo(p) {
 let _tbFiltro = 'todos';
 const _TB_FILTROS = [
   { k: 'todos',   txt: 'Todos',            teste: () => true },
-  { k: 'hoje',    txt: 'Movimentaram hoje', teste: p => _diasCalendario(p.movimentos_recentes?.[0]?.data) === 0 },
-  { k: 'semana',  txt: 'Movimentaram na semana', teste: p => { const d = _diasCalendario(p.movimentos_recentes?.[0]?.data); return d !== null && d <= 6; } },
+  // Hoje/semana pelo dia em que a novidade CHEGOU (ver _ultimaChegada), não pela
+  // data do andamento — com o atraso do CNJ, o que chegou hoje ficava de fora.
+  { k: 'hoje',    txt: 'Atualizados hoje', teste: p => _ultimaAtividadeDias(p) === 0 },
+  { k: 'semana',  txt: 'Atualizados na semana', teste: p => _ultimaAtividadeDias(p) <= 6 },
   { k: 'prazo',   txt: 'Prazos em 7 dias', teste: p => { const d = _tbDiasPrazo(p); return d !== null && d <= 7; } },
-  { k: 'novo',    txt: 'Não lidos',        teste: p => _statusTabela(p).k === 'novo' },
+  { k: 'novo',    txt: 'Com novidade não lida', teste: p => _statusTabela(p).k === 'novo' },
   { k: 'semtrib', txt: 'Sem tribunal',     teste: p => _statusTabela(p).k === 'semtrib' },
 ];
 
@@ -2661,9 +2709,14 @@ function _tbEspiar(evt, id) {
 function _tbEspiarHtml(p) {
   if (!p) return '';
   const fmt = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }); };
-  const movs = (p.movimentos_recentes || []).slice(0, 4).map(m => {
+  // Mesma leitura do histórico do processo: novidade importante com NOVO,
+  // rotina em cinza, repetidos juntos. Espiar não marca como lido.
+  const ctx = [...(p.movimentos_recentes || []), ...(p.novos_movimentos || [])];
+  const novos = new Set(p.notificacao_pendente ? (p.novos_movimentos || []).map(_chaveMov) : []);
+  const movs = _agruparRepetidos(p.movimentos_recentes || []).slice(0, 5).map(m => {
     const mm = (m.nome || '').match(/^DJEN\s*[—-]\s*(.*)$/);
-    return `<li><span class="tb-esp-dt">${fmt(m.data)}</span><span class="tb-esp-tx">${mm ? '<span class="tb-fonte">DJEN</span>' + _esc(mm[1]) : _esc(m.nome)}${m._url ? `<a class="tb-esp-link" href="${_esc(m._url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Ler a publicação no DJEN"><i class="ti ti-external-link"></i></a>` : ''}</span></li>`;
+    const rotina = _movRotina(m, ctx), novo = novos.has(_chaveMov(m)) && !rotina;
+    return `<li class="${rotina ? 'tb-esp-rotina' : ''}${novo ? ' tb-esp-novo' : ''}"><span class="tb-esp-dt">${fmt(m.data)}</span><span class="tb-esp-tx">${mm ? '<span class="tb-fonte">DJEN</span>' + _esc(mm[1]) : _esc(m.nome)}${m._vezes > 1 ? ` <span class="nov-vezes">×${m._vezes}</span>` : ''}${novo ? ' <span class="cnj-tl-novo-badge">NOVO</span>' : ''}${m._url ? `<a class="tb-esp-link" href="${_esc(m._url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Ler a publicação no DJEN"><i class="ti ti-external-link"></i></a>` : ''}</span></li>`;
   }).join('');
   const hoje = new Date().toLocaleDateString('sv');
   const prazos = [
@@ -2686,6 +2739,7 @@ function _tbEspiarHtml(p) {
       </div>
       <div class="tb-esp-acoes">
         <button class="tb-lote-btn" onclick="abrirProcesso('${p.id}')">Abrir processo</button>
+        ${p.notificacao_pendente ? `<button class="tb-lote-btn" onclick="_marcarLidosUI(['${p.id}'])"><i class="ti ti-checks"></i> Marcar como lido</button>` : ''}
         ${lt ? `<button class="tb-lote-btn" onclick="_abrirNoTribunal(event,'${p.id}')"><i class="ti ti-external-link"></i> Abrir no ${_esc(lt.sigla)}</button>` : ''}
       </div>
     </div></td></tr>`;
@@ -2706,10 +2760,10 @@ function _renderTabela(grid, empty, lista) {
       <b>${n}</b><span>${rotulo}</span>${alerta ? `<em>${alerta}</em>` : ""}</button>`;
   };
   const resumo = `<div class="tb-resumo">
-    ${tile('hoje', 'movimentaram hoje', ' tb-res-hoje')}
-    ${tile('semana', 'movimentaram na semana')}
+    ${tile('hoje', 'atualizados hoje', ' tb-res-hoje')}
+    ${tile('semana', 'atualizados na semana')}
     ${tile('prazo', 'prazos nos próximos 7 dias', venceHoje ? ' tb-res-alerta' : '', venceHoje ? 'tem prazo vencendo ou vencido' : '')}
-    ${tile('novo', 'movimentações não lidas')}
+    ${tile('novo', 'com novidade não lida')}
     ${tile('semtrib', 'sem tribunal identificado', ' tb-res-aviso')}
   </div>`;
 
@@ -2726,7 +2780,7 @@ function _renderTabela(grid, empty, lista) {
   wrap.setAttribute('data-dyn', '1');
   wrap.innerHTML = `
     ${resumo}
-    ${_tbFiltro !== 'todos' ? `<div class="tb-filtro-ativo">Mostrando <b>${_tbLista.length}</b> · ${filtro.txt.toLowerCase()} <button onclick="_tbFiltrar('todos')">ver todos os ${lista.length}</button></div>` : ''}
+    ${_tbFiltro !== 'todos' ? `<div class="tb-filtro-ativo">Mostrando <b>${_tbLista.length}</b> · ${filtro.txt.toLowerCase()} <button onclick="_tbFiltrar('todos')">ver todos os ${lista.length}</button>${_tbFiltro === 'novo' ? `<button class="tb-lidos-btn" onclick="_tbMarcarTodosLidos()"><i class="ti ti-checks"></i> Marcar todos como lidos</button>` : ''}</div>` : ''}
     <div class="tb-lote" id="tb-lote"></div>
     <div class="tb-caixa">
       <table class="tb">
@@ -2756,21 +2810,33 @@ function _renderTabela(grid, empty, lista) {
 function _tbLinha(p, fimFavoritos) {
   const isShared = !!window._sharedSet?.[p.id];
   const st       = _statusTabela(p);
-  const mov      = st.k === 'novo' ? p.novos_movimentos[0] : p.movimentos_recentes?.[0];
+  // Novo: a primeira novidade IMPORTANTE (rotina não aparece aqui), com "+N"
+  // quando tem mais. Repetidas no mesmo dia contam uma vez.
+  const impGrup  = st.k === 'novo' ? _agruparRepetidos(_novidades(p).importantes) : [];
+  const ctx      = p.movimentos_recentes || [];
+  const mov      = st.k === 'novo' ? impGrup[0] : (ctx.find(x => !_movRotina(x, ctx)) || ctx[0]);
   let texto = mov?.nome || '', fonte = '';
   const m = texto.match(/^DJEN\s*[—-]\s*(.*)$/);
   if (m) { fonte = 'DJEN'; texto = m[1]; }
+  const extraMov = (mov?._vezes > 1 ? ` <span class="nov-vezes">×${mov._vezes}</span>` : '')
+    + (impGrup.length > 1 ? ` <span class="nov-mais" title="${impGrup.length} novidades não lidas">+${impGrup.length - 1}</span>` : '');
   const d = mov?.data ? new Date(mov.data) : null;
   const ddmm = d && !isNaN(d)
     ? d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', ...(d.getFullYear() !== new Date().getFullYear() ? { year: '2-digit' } : {}) })
     : null;
   const dias = _diasCalendario(mov?.data);
   const SEMANA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
-  const dataTxt = !ddmm ? '<span class="tb-vazio">—</span>'
+  // O CNJ publica com atraso: andamento de dias atrás que chegou agora ganha
+  // um "chegou hoje" embaixo da data, senão parecia coisa velha.
+  const chegou = mov ? _chegadaMov(mov) : '';
+  const diasChegou = chegou ? _diasCalendario(chegou + 'T12:00:00') : null;
+  const chegouTxt = chegou && chegou > String(mov.data || '').slice(0, 10) && diasChegou !== null && diasChegou <= 6
+    ? `<small class="tb-chegou">chegou ${diasChegou === 0 ? 'hoje' : diasChegou === 1 ? 'ontem' : 'há ' + diasChegou + 'd'}</small>` : '';
+  const dataTxt = (!ddmm ? '<span class="tb-vazio">—</span>'
     : dias === 0 ? '<span class="tb-dt-hoje">Hoje</span>'
     : dias === 1 ? `<span class="tb-dt-semana">Ontem</span><small>${ddmm}</small>`
     : dias !== null && dias <= 6 ? `<span class="tb-dt-semana">${SEMANA[d.getDay()]}</span><small>${ddmm}</small>`
-    : ddmm;
+    : ddmm) + chegouTxt;
   const sigla = _siglaTribunal(p);
   const link  = _linkTribunal(p);
   const aguardando = !p.apelido && !p.cliente && _digitos(_nomeProc(p)) && _digitos(_nomeProc(p)) === _digitos(p.numero);
@@ -2793,7 +2859,7 @@ function _tbLinha(p, fimFavoritos) {
       <div class="tb-nome"><span class="pc-title" id="pc-title-${p.id}">${aguardando ? '<em class="tb-aguardando">Aguardando dados do tribunal…</em>' : _esc(_tbTitulo(p))}</span>${p.favorito && !isShared ? '<i class="ti ti-star-filled tb-fav" title="Favorito"></i>' : ''}</div>
       <div class="tb-num">${_esc(p.numero) || '—'}${isShared ? ` · <span class="tb-shared">de ${_esc(window._sharedSet[p.id].owner_nome.split(' ')[0])}</span>` : ''}</div>
     </td>
-    <td class="tb-mov" title="${_esc(mov?.nome || '')}">${mov ? `${fonte ? `<span class="tb-fonte">${fonte}</span>` : ''}${_esc(texto)}` : '<span class="tb-vazio">—</span>'}</td>
+    <td class="tb-mov" title="${_esc(mov?.nome || '')}">${mov ? `<div class="tb-mov-in"><span class="tb-mov-tx">${fonte ? `<span class="tb-fonte">${fonte}</span>` : ''}${_esc(texto)}</span>${extraMov}</div>` : '<span class="tb-vazio">—</span>'}</td>
     <td class="tb-col-data">${dataTxt}</td>
     <td class="tb-col-prazo" title="${pz ? _esc(pz.titulo) : ''}">${prazoTxt}</td>
     <td class="tb-col-trib">${!sigla ? '<span class="tb-vazio">—</span>'
@@ -2830,8 +2896,10 @@ function _tbAtualizarLote() {
   const lote = document.getElementById('tb-lote');
   if (!lote) return;
   lote.classList.toggle('on', n > 0);
+  const naoLidos = [..._tbSel].filter(id => (window._processosDB || []).find(p => p.id === id)?.notificacao_pendente).length;
   lote.innerHTML = n ? `
     <span><b>${n}</b> selecionado${n > 1 ? 's' : ''}</span>
+    ${naoLidos ? `<button class="tb-lote-btn" onclick="_marcarLidosUI([..._tbSel])"><i class="ti ti-checks"></i> Marcar como lido</button>` : ''}
     <button class="tb-lote-btn" onclick="_tbExportar(true)"><i class="ti ti-download"></i> Exportar</button>
     <button class="tb-lote-btn" onclick="_tbArquivarSelecionados()"><i class="ti ti-archive"></i> Arquivar</button>
     <button class="tb-lote-btn tb-lote-limpar" onclick="_tbSelecionarTodos(false)">Limpar seleção</button>` : '';
@@ -2850,6 +2918,25 @@ async function _tbArquivarSelecionados() {
   if (error) { showToast('Erro ao arquivar: ' + error.message); return; }
   _tbSel.clear();
   showToast(`${ids.length} processo(s) arquivado(s). Acesse Arquivados & Encerrados para restaurar.`);
+  carregarProcessos();
+}
+
+// "Marcar todos como lidos": leva junto os que só têm rotina pendente (não
+// aparecem como "Novo", mas continuavam marcados no banco).
+async function _tbMarcarTodosLidos() {
+  const lista = window._processosDB || [];
+  const visiveis = lista.filter(_temNovidade).length;
+  const ids = lista.filter(p => p.notificacao_pendente).map(p => p.id);
+  if (!ids.length) { showToast('Já está tudo lido.'); return; }
+  const ok = await _confirmar(
+    `${visiveis || ids.length} processo${(visiveis || ids.length) > 1 ? 's deixam' : ' deixa'} de aparecer como "Novo". O histórico de cada um continua igual.`,
+    'Marcar todos como lidos', { textoOk: 'Marcar como lidos', icone: '✓' });
+  if (!ok) return;
+  const erro = await _marcarLidos(ids);
+  if (erro) { showToast('Não deu pra marcar como lido: ' + erro.message, 'error'); return; }
+  _tbFiltro = 'todos';
+  showToast('Tudo marcado como lido.', 'success');
+  atualizarBell();
   carregarProcessos();
 }
 
@@ -3102,27 +3189,31 @@ async function abrirProcesso(id) {
     proc = data;
   }
 
+  // O cache pode ser de quando a página abriu: relê o histórico e as novidades
+  // pra marcar como lido exatamente o que vai aparecer na tela.
+  if (proc.notificacao_pendente) {
+    const fresco = await _processoFresco(id);
+    if (fresco) Object.assign(proc, fresco);
+  }
+
   // Enriquece processo com metadados de compartilhamento (se for shared)
   _processoAtual              = { ...proc };
   _processoAtual._isShared    = !!window._sharedSet?.[id];
   _processoAtual._sharedNivel = window._sharedSet?.[id]?.nivel_acesso || null;
   _processoAtual._sharedOwner = window._sharedSet?.[id]?.owner_nome   || null;
 
-  // Marca notificação como lida
-  if (proc.notificacao_pendente) {
-    proc.notificacao_pendente = false;
-    proc.novos_movimentos     = null;
-    atualizarBell(); // atualiza o badge imediatamente
-    // Já viu no site — não precisa mais de e-mail sobre isso
-    _supabase.from('processos')
-      .update({ notificacao_pendente: false, email_pendente: false, novos_movimentos: null })
-      .eq('id', id)
-      .then(() => carregarProcessos());
-  }
-
   showPage('processo-detalhe');
-  popularDetalhe(proc);
+  // Desenha COM as novidades (selo NOVO) e só depois marca como lido. Até
+  // 05/11/2026 a marcação apagava a lista antes de desenhar e o NOVO nunca aparecia.
+  popularDetalhe(_processoAtual);
   carregarPrazosProcesso(proc.id);
+
+  if (proc.notificacao_pendente) {
+    const erro = await _marcarLidos([id]);
+    if (erro) showToast('Não deu pra marcar como lido: ' + erro.message, 'error');
+    atualizarBell();
+    carregarProcessos();
+  }
 }
 
 function popularDetalhe(proc) {
@@ -3268,12 +3359,16 @@ function renderizarTimelineCNJ(proc) {
   if (!wrap) return;
 
   const linkTribunal = _urlTribunalPublico(proc.datajud_index);
-  const movsCNJ   = (proc.movimentos_recentes || []).map(m => ({ ...m, _tipo: 'cnj' }));
+  const ctxRotina = [...(proc.movimentos_recentes || []), ...(proc.novos_movimentos || [])];
+  const movsCNJ   = (proc.movimentos_recentes || []).map(m => ({ ...m, _tipo: 'cnj', _rotina: _movRotina(m, ctxRotina) }));
   const notas     = (proc.notas_manuais || []).map(n => ({ nome: n.texto, data: n.created_at, _tipo: 'nota', _id: n.id }));
-  const novosSet  = new Set((proc.novos_movimentos || []).map(m => m.data + m.nome));
+  const novosSet  = new Set((proc.novos_movimentos || []).map(_chaveMov));
 
   // LOG (historico) removido da timeline principal — contabilizado nos badges das abas
-  const todos = [...movsCNJ, ...notas].sort((a, b) => new Date(b.data) - new Date(a.data));
+  // Repetidos (mesmo dia e nome, ex: a mesma intimação para 4 partes) viram uma linha "×4".
+  const todos = _agruparRepetidos([...movsCNJ, ...notas].sort((a, b) => new Date(b.data) - new Date(a.data)));
+  const hojeStr = new Date().toLocaleDateString('sv');
+  const fmtCurta = dia => new Date(dia + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 
   const fmt = iso => {
     if (!iso) return '—';
@@ -3322,15 +3417,20 @@ function renderizarTimelineCNJ(proc) {
     </div>
     <div class="cnj-timeline">
       ${todos.map(m => {
-        const isNovo      = m._tipo === 'cnj' && novosSet.has(m.data + m.nome);
+        const recente     = m._tipo === 'cnj' && novosSet.has(_chaveMov(m));
+        const isNovo      = recente && !m._rotina;
         const isNota      = m._tipo === 'nota';
         const isHistorico = m._tipo === 'historico';
+        const isRotina    = m._tipo === 'cnj' && m._rotina;
+        const chegou      = m._tipo === 'cnj' ? _chegadaMov(m) : '';
+        const chegouTxt   = chegou && chegou !== String(m.data || '').slice(0, 10)
+          ? `<span class="cnj-tl-chegou" title="O tribunal registrou em ${fmt(m.data)}, mas o CNJ só publicou depois">chegou ${chegou === hojeStr ? 'hoje' : 'em ' + fmtCurta(chegou)}</span>` : '';
         return `
-        <div class="cnj-tl-item ${isNovo ? 'cnj-tl-item--novo' : ''} ${isHistorico ? 'cnj-tl-item--historico' : ''}">
+        <div class="cnj-tl-item ${isNovo ? 'cnj-tl-item--novo' : ''} ${isHistorico ? 'cnj-tl-item--historico' : ''} ${isRotina ? 'cnj-tl-item--rotina' : ''}">
           <div class="cnj-tl-dot ${isNovo ? 'cnj-tl-dot--novo' : isNota ? 'cnj-tl-dot--nota' : isHistorico ? 'cnj-tl-dot--historico' : ''}"></div>
           <div class="cnj-tl-body">
             <div class="cnj-tl-data">
-              ${fmt(m.data)}
+              ${fmt(m.data)}${chegouTxt}
               ${isNota
                 ? `<span style="margin-left:6px;background:var(--amber-light);color:var(--amber);font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px">NOTA</span>`
                 : isHistorico
@@ -3348,9 +3448,9 @@ function renderizarTimelineCNJ(proc) {
             <div class="cnj-tl-nome">
               ${isNota      ? `<i class="ti ti-pencil" style="font-size:11px;color:var(--amber);margin-right:4px"></i>` : ''}
               ${isHistorico ? `<i class="ti ti-history" style="font-size:11px;color:var(--gray-400);margin-right:4px"></i>` : ''}
-              ${_esc(m.nome)}
+              ${_esc(m.nome)}${m._vezes > 1 ? ` <span class="cnj-tl-vezes" title="${m._vezes} registros iguais no mesmo dia">×${m._vezes}</span>` : ''}
               ${isHistorico && m._autor ? `<span style="color:var(--gray-300);font-size:11px;font-style:normal;margin-left:4px">— ${_esc(m._autor)}</span>` : ''}
-              ${isNovo ? '<span class="cnj-tl-novo-badge">NOVO</span>' : ''}
+              ${isNovo ? '<span class="cnj-tl-novo-badge">NOVO</span>' : recente ? '<span class="cnj-tl-rotina-badge" title="Andamento de rotina do cartório — não pede nada de você">novo · rotina</span>' : ''}
             </div>
             ${isNota ? `
               <button onclick="excluirNota('${m._id}')"
@@ -3858,18 +3958,20 @@ async function sincronizarDetalhe() {
 
     const d = data.resultados[0];
 
-    // Quem está com o processo aberto já está vendo as novidades — não
-    // acende a notificação de novo (abrirProcesso já a marcou como lida).
-    const fresco = await _processoFresco(_processoAtual.id);
-    if (!fresco) throw new Error();
-    const { upd, novos } = _atualizacaoDatajud({ ...fresco, notificacao_pendente: false }, d);
-    delete upd.notificacao_pendente;
-    delete upd.email_pendente;
-    if (novos.length) upd.novos_movimentos = novos; // só pra destacar "NOVO" na timeline
-
-    const { error: upErr } = await _supabase.from('processos').update(upd).eq('id', _processoAtual.id);
-    if (upErr) throw upErr;
-    Object.assign(_processoAtual, upd);
+    // Quem está com o processo aberto já está vendo as novidades — grava o
+    // histórico sem acender notificação (abrirProcesso já marcou como lido) e
+    // destaca o que chegou agora só na tela.
+    const atual = _processoAtual;
+    const r = await _gravarComNovidades(atual.id, fresco => {
+      const m = _atualizacaoDatajud({ ...atual, ...fresco, notificacao_pendente: false }, d);
+      delete m.upd.notificacao_pendente;
+      delete m.upd.email_pendente;
+      delete m.upd.novos_movimentos;
+      return m;
+    });
+    if (r.erro || !r.gravado) throw r.erro || new Error();
+    const { upd, novos } = r;
+    Object.assign(_processoAtual, upd, novos.length ? { novos_movimentos: novos } : {});
 
     // popularDetalhe (não só a timeline) — pra quando o processo veio sem
     // nome/classe/tribunal (descoberto pelo DJEN), o título deixar de mostrar
@@ -4107,7 +4209,7 @@ function atualizarBell() {
 
   let total = 0;
   if (_notifPrefs.processos)
-    total += (window._processosDB || []).filter(p => p.notificacao_pendente).length;
+    total += (window._processosDB || []).filter(_temNovidade).length;
   if (_notifPrefs.calendario)
     total += (_eventosDB || []).filter(e => { const d = new Date(e.data + 'T12:00:00'); return !e.concluido && d >= hoje && d <= em7; }).length;
   if (_notifPrefs.tarefas)
@@ -4198,14 +4300,19 @@ function _renderNotifPanel() {
     {
       cat: 'processos', icon: 'ti-briefcase', label: 'Processos',
       cor: '#3b82f6',
-      items: (window._processosDB || []).filter(p => p.notificacao_pendente),
-      html: p => `<div onclick="abrirProcesso('${p.id}');toggleNotifPanel()" style="padding:6px 16px 6px 36px;cursor:pointer;display:flex;align-items:center;gap:8px;border-radius:6px;margin:0 8px 2px;transition:background .12s" onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background='transparent'">
+      items: (window._processosDB || []).filter(_temNovidade),
+      acao: `<button onclick="event.stopPropagation();toggleNotifPanel();_tbMarcarTodosLidos()" style="border:none;background:none;color:#1d4ed8;font-size:11px;font-weight:500;font-family:inherit;cursor:pointer;padding:0;margin-left:auto;margin-right:8px">Marcar todos como lidos</button>`,
+      html: p => {
+        const imp = _novidades(p).importantes;
+        const txt = String(imp[0]?.nome || 'Nova movimentação').replace(/^DJEN\s*[—-]\s*/, 'DJEN · ');
+        return `<div onclick="abrirProcesso('${p.id}');toggleNotifPanel()" style="padding:6px 16px 6px 36px;cursor:pointer;display:flex;align-items:center;gap:8px;border-radius:6px;margin:0 8px 2px;transition:background .12s" onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background='transparent'">
         <i class="ti ti-point-filled" style="font-size:8px;color:#3b82f6;flex-shrink:0"></i>
         <div style="min-width:0">
           <div style="font-size:12.5px;color:var(--gray-900);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(_nomeProc(p))}</div>
-          <div style="font-size:11px;color:var(--gray-400)">Nova movimentação</div>
+          <div style="font-size:11px;color:var(--gray-400);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(txt)}${imp.length > 1 ? ` · +${imp.length - 1}` : ''}</div>
         </div>
-      </div>`,
+      </div>`;
+      },
     },
     {
       cat: 'calendario', icon: 'ti-calendar', label: 'Calendário',
@@ -4255,6 +4362,7 @@ function _renderNotifPanel() {
           <span style="font-size:13px;font-weight:600;color:var(--gray-900)">${s.label}</span>
           ${on && count ? `<span style="font-size:10px;font-weight:700;background:#dbeafe;color:#1d4ed8;padding:0 6px;border-radius:10px;line-height:17px">${count}</span>` : ''}
         </div>
+        ${on && count && s.acao ? s.acao : ''}
         ${_notifToggleBtn(s.cat)}
       </div>
       ${itens}
@@ -4313,6 +4421,130 @@ function _chaveMov(m) {
   return `${dia}|${(m?.nome || '').trim()}`;
 }
 
+// ── NOVIDADES: IMPORTANTE × ROTINA ───────────────────────────────────────────
+// Mesma lista do servidor (lib/sync-comum.js → movRotina) — mudar nos dois.
+// Rotina de cartório (petição juntada, remessa, conclusão...) fica no histórico
+// em cinza e não acende "Novo". Lista fechada: nome desconhecido é importante.
+const _ROTINA_RE = [
+  /^peticao\b/, /^protocolo de peticao/, /^juntada de (peticao|documento)/, /^documento$/,
+  /^remessa\b/, /^remetidos? os autos/, /^recebimento\b/, /^recebidos? os autos/,
+  /^conclusao\b/, /^conclusos?\b/, /^expedicao de documento/, /^expedida\/certificada/,
+  /^processo devolvido/, /^distribui(do|da|cao)\b/,
+];
+const _semAcento = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+const _diaMs = m => Date.parse(String(m?.data || '').slice(0, 10));
+
+function _movRotina(m, contexto = []) {
+  if (!m || _ehMovDJEN(m)) return false;
+  const n = _semAcento(m.nome);
+  if (_ROTINA_RE.some(r => r.test(n))) return true;
+  // "Publicação" do DataJud repete a intimação que o DJEN já trouxe com o texto
+  if (/^(publicacao|disponibilizacao no diario)/.test(n)) {
+    const d = _diaMs(m);
+    return contexto.some(o => _ehMovDJEN(o) && Math.abs(_diaMs(o) - d) <= 3 * 86400000);
+  }
+  return false;
+}
+
+// Novidades ainda não lidas de um processo, separadas. "Novo" só acende com
+// importante — processo com só rotina pendente (comum nos dados de antes de
+// 05/11/2026) aparece como lido.
+function _novidades(p) {
+  if (!p?.notificacao_pendente) return { importantes: [], rotina: [], todas: [] };
+  const todas = p.novos_movimentos || [];
+  const ctx = [...todas, ...(p.movimentos_recentes || [])];
+  const importantes = todas.filter(m => !_movRotina(m, ctx));
+  return { importantes, rotina: todas.filter(m => _movRotina(m, ctx)), todas };
+}
+function _temNovidade(p) { return _novidades(p).importantes.length > 0; }
+
+// Dia em que o andamento CHEGOU aqui (AAAA-MM-DD). O CNJ publica com ~10 dias de
+// atraso (mediana medida na conta do Lucas em 05/11/2026): andamento de 08/10
+// que só apareceu em 23/10 "chegou" em 23/10. DJEN e andamentos antigos não
+// têm _detectadoEm — aí vale a própria data.
+function _chegadaMov(m) {
+  const d = String(m?.data || '').slice(0, 10);
+  if (!m?._detectadoEm || m._detectadoEm <= d) return d;
+  // Gravações antigas usavam o dia em UTC (à noite já era "amanhã"): nunca no futuro.
+  const hoje = new Date().toLocaleDateString('sv');
+  return m._detectadoEm > hoje ? hoje : m._detectadoEm;
+}
+// Última vez que chegou alguma coisa nesse processo — é o que ordena a lista e
+// conta como "atualizado hoje/na semana".
+function _ultimaChegada(p) {
+  let max = '';
+  for (const m of p?.movimentos_recentes || []) { const c = _chegadaMov(m); if (c > max) max = c; }
+  for (const m of p?.novos_movimentos || []) { const c = _chegadaMov(m); if (c > max) max = c; }
+  return max;
+}
+
+// Junta andamentos repetidos (mesmo dia, mesmo nome) num só, com a contagem.
+function _agruparRepetidos(lista) {
+  const out = [];
+  for (const m of lista) {
+    const ult = out[out.length - 1];
+    if (ult && String(ult.data || '').slice(0, 10) === String(m.data || '').slice(0, 10) && (ult.nome || '').trim() === (m.nome || '').trim() && ult._tipo === m._tipo) {
+      ult._vezes = (ult._vezes || 1) + 1;
+      continue;
+    }
+    out.push({ ...m });
+  }
+  return out;
+}
+
+// Grava uma novidade sem desfazer um "lido" — mesma ideia de gravarComNovidades
+// no servidor: relê, monta e só grava se o lido/não lido não mudou desde a
+// leitura (se mudou, relê e monta de novo). montar(fresco) → { upd, ... } | null.
+async function _gravarComNovidades(id, montar) {
+  for (let tentativa = 0; tentativa < 3; tentativa++) {
+    const fresco = await _processoFresco(id);
+    if (!fresco) return { erro: { message: 'Processo não encontrado.' } };
+    const r = montar(fresco);
+    if (!r?.upd) return { ...r, gravado: false };
+    let q = _supabase.from('processos').update(r.upd).eq('id', id);
+    q = fresco.notificacao_pendente == null ? q.is('notificacao_pendente', null) : q.eq('notificacao_pendente', fresco.notificacao_pendente);
+    const { data, error } = await q.select('id');
+    if (error) return { ...r, erro: error };
+    if (data?.length) return { ...r, gravado: true };
+  }
+  return { erro: { message: 'O processo mudou enquanto salvava. Tente de novo.' } };
+}
+
+// Marca como lido (some o "Novo", o sino e o e-mail pendente). Processo
+// compartilhado com você só pode mexer nos campos de novidade (trigger
+// proteger_processo) — email_pendente fica de fora, senão o banco recusava e o
+// "lido" nunca ficava gravado.
+async function _marcarLidos(ids) {
+  const meus = ids.filter(id => !window._sharedSet?.[id]);
+  const comp = ids.filter(id => window._sharedSet?.[id]);
+  const lotes = [];
+  for (let i = 0; i < meus.length; i += 100) lotes.push({ ids: meus.slice(i, i + 100), upd: { notificacao_pendente: false, email_pendente: false, novos_movimentos: null } });
+  for (let i = 0; i < comp.length; i += 100) lotes.push({ ids: comp.slice(i, i + 100), upd: { notificacao_pendente: false, novos_movimentos: null } });
+  for (const l of lotes) {
+    const { error } = await _supabase.from('processos').update(l.upd).in('id', l.ids);
+    if (error) return error;
+  }
+  const set = new Set(ids);
+  for (const p of window._processosDB || []) if (set.has(p.id)) { p.notificacao_pendente = false; p.novos_movimentos = null; }
+  return null;
+}
+
+async function _marcarLidosUI(ids, { confirmar = false } = {}) {
+  const alvo = ids.filter(id => (window._processosDB || []).find(p => p.id === id)?.notificacao_pendente);
+  if (!alvo.length) { showToast('Nada para marcar — já está tudo lido.'); return; }
+  if (confirmar) {
+    const ok = await _confirmar(
+      `${alvo.length} processo${alvo.length > 1 ? 's deixam' : ' deixa'} de aparecer como "Novo". O histórico de cada um continua igual.`,
+      'Marcar como lido', { textoOk: 'Marcar como lido', icone: '✓' });
+    if (!ok) return;
+  }
+  const erro = await _marcarLidos(alvo);
+  if (erro) { showToast('Não deu pra marcar como lido: ' + erro.message, 'error'); return; }
+  _tbSel.clear();
+  showToast(`${alvo.length} processo${alvo.length > 1 ? 's marcados' : ' marcado'} como lido.`, 'success');
+  carregarProcessos();
+}
+
 // Monta o update de um processo com os movimentos vindos do DataJud, sem
 // perder nada: publicações DJEN já salvas continuam na timeline e uma
 // notificação pendente nunca é apagada aqui (só abrir o processo ou o e-mail
@@ -4340,16 +4572,19 @@ function _atualizacaoDatajud(proc, resultado) {
   const salvos      = proc.movimentos_recentes || [];
   const anteriores  = salvos.filter(m => !_ehMovDJEN(m));
   const conhecidas  = new Set(anteriores.map(_chaveMov));
+  const chegada     = new Map(anteriores.filter(m => m._detectadoEm).map(m => [_chaveMov(m), m._detectadoEm]));
   const importadoEm = (proc.created_at || '').slice(0, 10);
   const limite30d   = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+  const hoje        = new Date().toLocaleDateString('sv');
   const novos = anteriores.length
     ? movs.filter(m => {
         const dia = String(m.data || '').slice(0, 10);
         return !conhecidas.has(_chaveMov(m)) && dia && dia >= limite30d && (!importadoEm || dia >= importadoEm);
-      })
+      }).map(m => ({ ...m, _detectadoEm: hoje }))
     : [];
+  for (const m of novos) chegada.set(_chaveMov(m), hoje);
 
-  const final = [...movs, ...salvos.filter(_ehMovDJEN)]
+  const final = [...movs.map(m => chegada.has(_chaveMov(m)) ? { ...m, _detectadoEm: chegada.get(_chaveMov(m)) } : m), ...salvos.filter(_ehMovDJEN)]
     .sort((a, b) => (b.data || '') > (a.data || '') ? 1 : -1)
     .slice(0, 100);
 
@@ -4362,12 +4597,14 @@ function _atualizacaoDatajud(proc, resultado) {
     sync_falhas:           0,
     sync_ultimo_erro:      null,
   };
-  if (novos.length) {
+  // Mesma regra do servidor (montarNovidadesDatajud): só importante acende o
+  // "Novo" e o e-mail; rotina entra em silêncio ou se junta ao que já estava pendente.
+  const importantes = novos.filter(m => !_movRotina(m, final));
+  if (importantes.length || (proc.notificacao_pendente && novos.length)) {
     const pendentes = proc.notificacao_pendente ? (proc.novos_movimentos || []) : [];
     const chaves    = new Set(novos.map(_chaveMov));
-    upd.notificacao_pendente = true;
-    upd.email_pendente       = true;
-    upd.novos_movimentos     = [...novos, ...pendentes.filter(m => !chaves.has(_chaveMov(m)))];
+    upd.novos_movimentos = [...novos, ...pendentes.filter(m => !chaves.has(_chaveMov(m)))];
+    if (importantes.length) { upd.notificacao_pendente = true; upd.email_pendente = true; }
   }
 
   // Espelha o mesmo "if" do cron no servidor (api/cron/sincronizar.js). Só
@@ -4383,7 +4620,7 @@ function _atualizacaoDatajud(proc, resultado) {
     if (resultado.tribunal)      upd.tribunal       = _corrigirMojibake(resultado.tribunal);
   }
 
-  return { upd, novos };
+  return { upd, novos, importantes };
 }
 
 async function sincronizarTodos() {
@@ -4410,11 +4647,10 @@ async function sincronizarTodos() {
       // _atualizacaoDatajud(). Sem este "e", ele ficava preso pra sempre.
       if (hash === p.movimentos_hash && p.nome !== p.numero) continue;
 
-      const fresco = await _processoFresco(p.id);
-      if (!fresco) continue;
-      const { upd, novos } = _atualizacaoDatajud(fresco, d);
-      const { error } = await _supabase.from('processos').update(upd).eq('id', p.id);
-      if (!error && novos.length) atualizados++;
+      // { ...p, ...fresco }: o fresco só traz os campos de novidade; nome e
+      // número vêm do cache (sem eles o processo descoberto nunca ganhava nome).
+      const r = await _gravarComNovidades(p.id, fresco => _atualizacaoDatajud({ ...p, ...fresco }, d));
+      if (r.gravado && r.importantes?.length) atualizados++;
     } catch (_) {}
   }
 
@@ -4459,7 +4695,7 @@ window.addEventListener('DOMContentLoaded', () => {
       return;
     }
     _liberarTela();
-    _mostrarFaixaOAB();
+    _mostrarTelaOAB();
     carregarProcessos().then(() => {
       iniciarSyncAutomatico();
       sincronizarTodos();
@@ -4519,41 +4755,43 @@ function _tentarOnboardingOAB() {
   _abrirBuscaOABAutomatica(oabs);
 }
 
-// ── FAIXA "INFORME SUA OAB" ─────────────────────────────────────────────────
-// Quem entra sem OAB (sempre o caso de quem se cadastra pelo Google) usa o
-// sistema normalmente; a faixa lembra a cada visita até preencher. "Lembrar
-// depois" esconde só até a próxima vez que abrir o site (sessionStorage).
+// ── TELA "FALTA SÓ SUA OAB" ─────────────────────────────────────────────────
+// Quem entra pelo Google ou LinkedIn não traz OAB, e sem ela o DJEN não acha
+// nada dessa pessoa. Até 05/11/2026 era uma faixa no topo com "Lembrar depois"
+// — gente entrou pelo Google, adiou e foi embora sem OAB. Agora a tela cobre o
+// painel e só some depois de salvar (ou de sair da conta). Colaborador nunca
+// vê: ele acompanha a OAB do titular (window._oabPendente já exclui).
 const _UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SE','SP','TO'];
 
-function _mostrarFaixaOAB() {
-  const faixa = document.getElementById('faixa-oab');
-  if (!faixa) return;
-  let adiada = false;
-  try { adiada = sessionStorage.getItem('mp_oab_depois') === '1'; } catch {}
-  const mostrar = window._oabPendente && !adiada;
-  faixa.hidden = !mostrar;
+function _mostrarTelaOAB() {
+  const tela = document.getElementById('tela-oab');
+  if (!tela) return;
+  const mostrar = !!window._oabPendente;
+  tela.hidden = !mostrar;
+  document.body.classList.toggle('oab-pendente', mostrar);
   if (!mostrar) return;
-  const sel = document.getElementById('faixa-oab-uf');
+  const sel = document.getElementById('tela-oab-uf');
   if (sel && sel.options.length <= 1) sel.insertAdjacentHTML('beforeend', _UFS.map(u => `<option>${u}</option>`).join(''));
-  const meta = window._user?.user_metadata?.oab || '';
-  document.getElementById('faixa-oab-texto').innerHTML = meta.trim()
-    ? `Sua OAB <b>"${_esc(meta)}"</b> está sem o estado — sem ele não encontramos suas intimações no Diário Eletrônico.`
-    : 'Informe sua OAB para encontrarmos <b>automaticamente</b> suas intimações e processos no Diário Eletrônico.';
+  // OAB antiga gravada só com o número ("59360"): já deixa o número preenchido,
+  // falta só escolher o estado.
+  const meta = (window._user?.user_metadata?.oab || '').trim();
+  if (meta) {
+    document.getElementById('tela-oab-texto').innerHTML =
+      `Sua OAB <b>"${_esc(meta)}"</b> está sem o estado — sem ele não encontramos suas intimações no Diário Eletrônico.`;
+    const num = document.getElementById('tela-oab-num');
+    if (num && !num.value && /^\d+$/.test(meta)) num.value = meta;
+  }
+  setTimeout(() => sel?.focus(), 50);
 }
 
-function _adiarFaixaOAB() {
-  try { sessionStorage.setItem('mp_oab_depois', '1'); } catch {}
-  document.getElementById('faixa-oab').hidden = true;
-}
-
-async function _salvarFaixaOAB() {
-  const uf  = document.getElementById('faixa-oab-uf').value;
-  const num = document.getElementById('faixa-oab-num').value.replace(/\D/g, '').replace(/^0+/, '');
-  const err = document.getElementById('faixa-oab-erro');
-  const btn = document.getElementById('faixa-oab-btn');
+async function _salvarTelaOAB() {
+  const uf  = document.getElementById('tela-oab-uf').value;
+  const num = document.getElementById('tela-oab-num').value.replace(/\D/g, '').replace(/^0+/, '');
+  const err = document.getElementById('tela-oab-erro');
+  const btn = document.getElementById('tela-oab-btn');
   err.textContent = '';
-  if (!uf)              { err.textContent = 'Selecione o estado.'; return; }
-  if (num.length < 3)   { err.textContent = 'Digite o número da OAB.'; return; }
+  if (!uf)              { err.textContent = 'Selecione o estado da sua OAB.'; return; }
+  if (num.length < 3)   { err.textContent = 'Digite o número da OAB (só os números).'; return; }
 
   btn.disabled = true; btn.textContent = 'Salvando…';
   try {
@@ -4572,13 +4810,15 @@ async function _salvarFaixaOAB() {
 
     window._user.user_metadata = { ...window._user.user_metadata, oab };
     window._oabPendente = false;
-    document.getElementById('faixa-oab').hidden = true;
+    _mostrarTelaOAB();
     showToast('OAB salva! Vamos buscar suas intimações no Diário Eletrônico.', 'success');
     if (document.getElementById('page-configuracoes')?.classList.contains('active')) carregarConfiguracoes();
     _tentarOnboardingOAB();
     _scanHistoricoDjen();
+  } catch {
+    err.textContent = 'Não deu pra salvar agora. Confira sua internet e tente de novo.';
   } finally {
-    btn.disabled = false; btn.textContent = 'Salvar';
+    btn.disabled = false; btn.textContent = 'Continuar';
   }
 }
 
@@ -5853,7 +6093,7 @@ async function salvarEscritorio() {
   carregarConfiguracoes();
 
   if (estavaBloqueado && !window._oabPendente) {
-    document.getElementById('faixa-oab')?.setAttribute('hidden', '');
+    _mostrarTelaOAB();
     showToast('OAB cadastrada! Vamos buscar suas intimações.', 'success');
     // Quem entra pelo Google nunca tem OAB no primeiro acesso (window._oabPendente
     // fica true) — _tentarOnboardingOAB() só roda no carregamento inicial da
@@ -8793,28 +9033,22 @@ async function _salvarMovimentoDJe(doc, proc) {
     _url:   doc.link || null,
   };
 
-  const fresco = await _processoFresco(proc.id);
-  if (!fresco) return { status: 'erro', error: { message: 'Processo não encontrado.' } };
+  let duplicado = false;
+  const r = await _gravarComNovidades(proc.id, fresco => {
+    const existentes = fresco.movimentos_recentes || [];
+    if (existentes.some(m => _ehMovDJEN(m) && _mesmoMovDJEN(m, novoMov))) { duplicado = true; return null; }
+    const pendentes = fresco.notificacao_pendente ? (fresco.novos_movimentos || []) : [];
+    return { upd: {
+      movimentos_recentes:  [novoMov, ...existentes].slice(0, 100),
+      notificacao_pendente: true,
+      email_pendente:       true,
+      novos_movimentos:     [novoMov, ...pendentes],
+    } };
+  });
+  if (duplicado) return { status: 'duplicado' };
+  if (r.erro || !r.gravado) return { status: 'erro', error: r.erro || { message: 'Não gravou.' } };
 
-  const existentes = fresco.movimentos_recentes || [];
-  const jaSalvo = existentes.some(m => _ehMovDJEN(m) && _mesmoMovDJEN(m, novoMov));
-  if (jaSalvo) return { status: 'duplicado' };
-
-  const novosMovs = [novoMov, ...existentes];
-
-  const pendentes = fresco.notificacao_pendente ? (fresco.novos_movimentos || []) : [];
-  const { error } = await _supabase.from('processos').update({
-    movimentos_recentes:  novosMovs,
-    notificacao_pendente: true,
-    email_pendente:       true,
-    novos_movimentos:     [novoMov, ...pendentes],
-  }).eq('id', proc.id);
-
-  if (error) return { status: 'erro', error };
-
-  proc.movimentos_recentes  = novosMovs;
-  proc.notificacao_pendente = true;
-
+  Object.assign(proc, r.upd);
   return { status: 'salvo' };
 }
 
@@ -8874,22 +9108,25 @@ async function importarProcessoDJe(docIndex) {
     .maybeSingle();
 
   if (existente) {
-    const movsAtuais = existente.movimentos_recentes || [];
-    if (movsAtuais.some(m => _ehMovDJEN(m) && _mesmoMovDJEN(m, novoMov))) {
+    let jaSalvo = false;
+    // movimentos_hash e ultima_verificacao ficam como estão: representam só o DataJud
+    const r = await _gravarComNovidades(existente.id, fresco => {
+      const movsAtuais = fresco.movimentos_recentes || [];
+      if (movsAtuais.some(m => _ehMovDJEN(m) && _mesmoMovDJEN(m, novoMov))) { jaSalvo = true; return null; }
+      const pendentes = fresco.notificacao_pendente ? (fresco.novos_movimentos || []) : [];
+      return { upd: {
+        movimentos_recentes:  [novoMov, ...movsAtuais].slice(0, 100),
+        notificacao_pendente: true,
+        email_pendente:       true,
+        novos_movimentos:     [novoMov, ...pendentes],
+      } };
+    });
+    if (jaSalvo) {
       if (btn) btn.innerHTML = '<i class="ti ti-check"></i> Já estava salvo';
       showToast(`Processo ${numero} já cadastrado e com esta publicação na timeline.`);
       return;
     }
-    const novasMovs = [novoMov, ...movsAtuais].slice(0, 100);
-    const pendentes = existente.notificacao_pendente ? (existente.novos_movimentos || []) : [];
-    // movimentos_hash e ultima_verificacao ficam como estão: representam só o DataJud
-    const { error } = await _supabase.from('processos').update({
-      movimentos_recentes:  novasMovs,
-      notificacao_pendente: true,
-      email_pendente:       true,
-      novos_movimentos:     [novoMov, ...pendentes],
-    }).eq('id', existente.id);
-
+    const error = r.erro || (r.gravado ? null : { message: 'Não gravou.' });
     if (error) {
       showToast('Erro ao atualizar: ' + error.message);
       if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-plus"></i> Importar processo'; }
@@ -8944,19 +9181,19 @@ async function _enriquecerComDatajud(numero) {
     // Relê do banco: o processo pode ter acabado de ser importado e ainda não
     // estar no cache; precisa dos movimentos salvos pra não apagar os do DJEN.
     const { data: atual } = await _supabase.from('processos')
-      .select('id, created_at, movimentos_recentes, notificacao_pendente, novos_movimentos')
-      .eq('numero', numero).eq('user_id', userId).maybeSingle();
+      .select('id').eq('numero', numero).eq('user_id', userId).maybeSingle();
     if (!atual) return;
 
-    const { upd: update } = _atualizacaoDatajud(atual, p.movimentos);
-    // Aproveita dados extras do DataJud se não vieram do DJEN
-    if (p.tribunal)       update.tribunal       = p.tribunal;
-    if (p.orgaoJulgador)  update.orgao_julgador = p.orgaoJulgador;
-    if (p.classe)         update.classe         = p.classe;
-    // datajud_index é essencial para o cron de monitoramento detectar este processo
-    if (p._datajudIndex)  update.datajud_index  = p._datajudIndex;
-
-    await _supabase.from('processos').update(update).eq('id', atual.id);
+    await _gravarComNovidades(atual.id, fresco => {
+      const m = _atualizacaoDatajud(fresco, p.movimentos);
+      // Aproveita dados extras do DataJud se não vieram do DJEN
+      if (p.tribunal)       m.upd.tribunal       = p.tribunal;
+      if (p.orgaoJulgador)  m.upd.orgao_julgador = p.orgaoJulgador;
+      if (p.classe)         m.upd.classe         = p.classe;
+      // datajud_index é essencial para o cron de monitoramento detectar este processo
+      if (p._datajudIndex)  m.upd.datajud_index  = p._datajudIndex;
+      return m;
+    });
     await carregarProcessos();
 
     // Se o detalhe deste processo estiver aberto, re-renderiza a timeline

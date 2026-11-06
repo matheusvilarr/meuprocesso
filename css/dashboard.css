@@ -784,6 +784,10 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
 .tb-aguardando { font-weight: 400; color: var(--gray-400); }
 
 .tb-novo .tb-mov { color: var(--gray-800); font-weight: 500; }
+/* o texto corta com "…", o ×3 / +2 fica sempre visível */
+.tb-mov-in { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.tb-mov-tx { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tb-mov-in .nov-mais, .tb-mov-in .nov-vezes { flex-shrink: 0; margin-left: 2px; }
 .tb-fonte {
   display: inline-block; margin-right: 7px; padding: 0 5px; border-radius: 4px;
   font-size: 9.5px; font-weight: 600; letter-spacing: .06em; line-height: 16px; vertical-align: 1px;
@@ -2173,37 +2177,46 @@ body.acesso-restrito .nav-item:not([data-livre]) { opacity: .4; }
 }
 .restrito-aviso i { font-size: 22px; color: var(--red); flex-shrink: 0; }
 
-/* Faixa "informe sua OAB" (quem entrou sem OAB — ex: cadastro pelo Google) */
-.faixa-oab[hidden] { display: none !important; }
-.faixa-oab {
-  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-  margin: 16px 28px 0; padding: 12px 16px;
-  background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius-lg);
-  font-size: 13px; color: #78350f;
+/* Tela "falta só sua OAB" — cobre o painel de quem entrou sem OAB (ex: Google/LinkedIn) */
+.tela-oab[hidden] { display: none !important; }
+.tela-oab {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+  background: rgba(5, 57, 88, .55); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
 }
-.faixa-oab-ico { font-size: 22px; color: #d97706; flex-shrink: 0; }
-.faixa-oab-txt { flex: 1; min-width: 240px; line-height: 1.5; }
-.faixa-oab-erro { color: var(--red); font-size: 12px; font-weight: 500; }
-.faixa-oab-erro:empty { display: none; }
-.faixa-oab-form { display: flex; gap: 6px; }
-.faixa-oab-form select, .faixa-oab-form input {
-  height: 34px; border: 1px solid #fcd34d; border-radius: 8px; background: #fff; color: var(--gray-800);
-  font: 500 13px 'Montserrat', sans-serif; padding: 0 10px; outline: none;
+body.oab-pendente { overflow: hidden; }
+.tela-oab-card {
+  width: 400px; max-width: 100%; padding: 32px 28px 22px; text-align: center;
+  background: var(--white); border-radius: 16px; box-shadow: 0 24px 64px rgba(5, 57, 88, .3);
+  animation: slideUp .25s ease;
 }
-.faixa-oab-form select { width: 72px; }
-.faixa-oab-form input  { width: 150px; }
-.faixa-oab-form select:focus, .faixa-oab-form input:focus { border-color: #d97706; box-shadow: 0 0 0 3px rgba(217, 119, 6, .12); }
-.faixa-oab-form button {
-  height: 34px; padding: 0 16px; border: none; border-radius: 8px; background: #92400e; color: #fff;
-  font: 600 13px 'Montserrat', sans-serif; cursor: pointer;
+.tela-oab-ico {
+  width: 56px; height: 56px; margin: 0 auto 16px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, #053958 0%, #0d5a96 55%, #2196f3 100%); color: #fff; font-size: 28px;
 }
-.faixa-oab-form button:disabled { opacity: .6; cursor: wait; }
-.faixa-oab-depois { border: none; background: none; color: #92400e; font: 500 12.5px 'Montserrat', sans-serif; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
-@media (max-width: 768px) {
-  .faixa-oab { margin: 12px 12px 0; }
-  .faixa-oab-form { width: 100%; }
-  .faixa-oab-form input { flex: 1; width: auto; }
+.tela-oab-card h2 { margin: 0 0 8px; font-size: 20px; font-weight: 600; color: var(--navy); }
+.tela-oab-card p  { margin: 0 0 20px; font-size: 13.5px; line-height: 1.6; color: var(--gray-600); }
+.tela-oab-campos { display: flex; gap: 8px; }
+.tela-oab-campos select, .tela-oab-campos input {
+  height: 44px; border: 1.5px solid var(--gray-200); border-radius: 10px; background: #fff; color: var(--gray-800);
+  font: 500 15px 'Montserrat', sans-serif; padding: 0 12px; outline: none;
 }
+.tela-oab-campos select { width: 84px; flex-shrink: 0; }
+.tela-oab-campos input  { flex: 1; min-width: 0; }
+.tela-oab-campos select:focus, .tela-oab-campos input:focus { border-color: #0d5a96; box-shadow: 0 0 0 3px rgba(13, 90, 150, .14); }
+.tela-oab-erro { margin-top: 10px; color: var(--red); font-size: 12.5px; font-weight: 500; line-height: 1.5; text-align: left; }
+.tela-oab-erro:empty { display: none; }
+.tela-oab-btn {
+  width: 100%; height: 46px; margin-top: 16px; border: none; border-radius: 10px; cursor: pointer;
+  background: linear-gradient(135deg, #053958 0%, #0d5a96 100%); color: #fff; font: 600 15px 'Montserrat', sans-serif;
+}
+.tela-oab-btn:disabled { opacity: .6; cursor: wait; }
+.tela-oab-sair {
+  margin-top: 14px; border: none; background: none; cursor: pointer;
+  color: var(--gray-400); font: 500 12.5px 'Montserrat', sans-serif; text-decoration: underline; text-underline-offset: 3px;
+}
+.tela-oab-sair:hover { color: var(--gray-600); }
 
 /* Badge $ no calendário — selinho no canto, não empurra o número do dia */
 .cal-day:has(.cal-day-money) { position: relative; }
@@ -2718,3 +2731,44 @@ body.acesso-restrito .nav-item:not([data-livre]) { opacity: .4; }
   .user-avatar      { width: 32px; height: 32px; font-size: 12px; }
   .sidebar-user     { padding: 8px 16px; }
 }
+
+/* ── Novidades: importante × rotina, chegada e repetidos (05/11/2026) ── */
+.cnj-tl-item--rotina .cnj-tl-nome { color: var(--gray-400); font-weight: 400; font-size: 12.5px; }
+.cnj-tl-item--rotina .cnj-tl-dot { background: var(--gray-100); box-shadow: 0 0 0 2px var(--gray-100); }
+.cnj-tl-chegou { margin-left: 6px; font-size: 10.5px; font-weight: 600; color: #1659b3; }
+.cnj-tl-vezes, .nov-vezes { font-size: 11px; font-weight: 600; color: var(--gray-400); }
+.cnj-tl-rotina-badge {
+  display: inline-block; margin-left: 4px; padding: 1px 6px; border-radius: 8px; vertical-align: middle;
+  background: var(--gray-100); color: var(--gray-400); font-size: 9.5px; font-weight: 600;
+}
+.nov-mais {
+  display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 9px; line-height: 17px; vertical-align: 1px;
+  background: #dbeafe; color: #1d4ed8; font-size: 10.5px; font-weight: 700;
+}
+.tb-col-data .tb-chegou { display: block; font-size: 10.5px; font-weight: 600; color: #1659b3; }
+.tb-filtro-ativo .tb-lidos-btn {
+  margin-left: 12px; padding: 3px 10px; border: 1px solid #bfd3f2; border-radius: 7px; background: #f3f8ff;
+  color: #1659b3; text-decoration: none; font-size: 12px;
+}
+.tb-filtro-ativo .tb-lidos-btn:hover { background: #e6f0ff; }
+.tb-esp li.tb-esp-rotina { color: var(--gray-400); }
+.tb-esp li.tb-esp-novo { font-weight: 500; }
+
+/* ── Tarefas vencidas (dashboard) ── */
+.tv-card[hidden] { display: none !important; }
+.tv-card { margin-bottom: 12px; border: 1px solid #fecaca; overflow: hidden; }
+.tv-head {
+  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  background: #fef2f2; border-bottom: 1px solid #fee2e2; color: #991b1b;
+}
+.tv-head > i { font-size: 22px; color: #dc2626; flex-shrink: 0; }
+.tv-head b { display: block; font-size: 14px; font-weight: 600; }
+.tv-head span { font-size: 12px; color: #b91c1c; opacity: .85; }
+.tv-item { gap: 12px; }
+.tv-item .prazo-check { border-color: #fca5a5; }
+.tv-atraso { flex-shrink: 0; font-size: 11.5px; font-weight: 600; color: #dc2626; white-space: nowrap; }
+.tv-mais {
+  display: block; width: 100%; padding: 10px 16px; border: none; border-top: 1px solid var(--gray-100);
+  background: none; color: #b91c1c; font: 500 12.5px 'Montserrat', sans-serif; cursor: pointer; text-align: left;
+}
+.tv-mais:hover { background: #fef2f2; }

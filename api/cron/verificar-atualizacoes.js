@@ -6,7 +6,7 @@ import { createClient } from '@supabase/supabase-js';
 import { timingSafeEqual } from 'node:crypto';
 // Títulos antigos vieram gravados como 'APELAçãO CíVEL' (importação de jun/2026);
 // o painel normaliza na tela e o e-mail precisa normalizar igual.
-import { usuariosComAcesso, enviarAvisoReativacao, enviarEmail, tituloProcesso,
+import { usuariosComAcesso, enviarAvisoReativacao, enviarEmail, tituloProcesso, novidadesParaEmail,
          tokenDescadastro, linkDescadastro, definirDescadastro } from '../../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
@@ -123,7 +123,7 @@ async function rodarInstant(admin, res, hoje) {
   const porUsuario = {};
   for (const p of pendentes) {
     if (!porUsuario[p.user_id]) porUsuario[p.user_id] = { atualizacoes: [], novosProcessos: [] };
-    const novos         = (p.novos_movimentos || []).slice(0, 3);
+    const novos         = novidadesParaEmail(p.novos_movimentos);
     const autoImportado = novos.some(m => m._auto_importado);
     const item = {
       processoId: p.id, numero: p.numero,
@@ -190,7 +190,7 @@ async function rodarMorning(admin, res, hoje) {
   const porUsuario = {};
   for (const p of pendentes) {
     if (!porUsuario[p.user_id]) porUsuario[p.user_id] = { atualizacoes: [], novosProcessos: [] };
-    const novos        = (p.novos_movimentos || []).slice(0, 3);
+    const novos        = novidadesParaEmail(p.novos_movimentos);
     const autoImportado = novos.some(m => m._auto_importado);
     const item = {
       processoId:        p.id,
@@ -270,7 +270,7 @@ async function rodarAfternoon(admin, res, hoje) {
   const porUsuario = {};
   for (const p of pendentes || []) {
     if (!porUsuario[p.user_id]) porUsuario[p.user_id] = { atualizacoes: [], novosProcessos: [], prazos: [] };
-    const novos        = (p.novos_movimentos || []).slice(0, 3);
+    const novos        = novidadesParaEmail(p.novos_movimentos);
     const autoImportado = novos.some(m => m._auto_importado);
     const item = {
       processoId:        p.id,
@@ -380,7 +380,10 @@ async function rodarEvening(admin, res, hoje) {
 // Roda todo dia às 9h BRT (12h UTC), independente de notificacao_pendente —
 // diferente de morning/afternoon/evening, que só disparam a partir de
 // movimentação de processo. Mesmo critério de "fatal" do _prazoStatus
-// client-side (dashboard.js): prazo <= hoje+3d (inclui vencidas), coluna != concluida.
+// client-side (dashboard.js): prazo entre hoje e hoje+3d, coluna != concluida.
+// Tarefa já VENCIDA não entra mais: até 05/11/2026 ela voltava todo dia no
+// e-mail (84 e-mails em um mês, pra 3 contas, por 8 tarefas esquecidas). Agora
+// ela fica em destaque no painel ("Tarefas vencidas"), com o botão de concluir.
 
 async function rodarPrazoFatal(admin, res, hoje) {
   const em3d = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
@@ -388,6 +391,7 @@ async function rodarPrazoFatal(admin, res, hoje) {
   const { data: tarefas } = await admin
     .from('tarefas')
     .select('id, user_id, titulo, prazo, processo_id, numero_processo_manual, cliente_manual')
+    .gte('prazo', hoje)
     .lte('prazo', em3d)
     .not('prazo', 'is', null)
     .neq('coluna', 'concluida')
@@ -599,7 +603,7 @@ export function emailCadastroIncompleto(u, tipo, envio) {
     subtitulo = 'Falta um passo';
     corpo = `<p style="margin:0 0 14px">${ola}</p>
       <p style="margin:0 0 14px">Sua conta está ativa, mas ainda <b>sem a OAB cadastrada</b>. É por ela que encontramos automaticamente suas intimações e processos no Diário Eletrônico — sem ela, não temos como avisar você.</p>
-      <p style="margin:0 0 14px">Leva 10 segundos: entre no sistema e informe estado e número na faixa amarela do topo.</p>`;
+      <p style="margin:0 0 14px">Leva 10 segundos: entre no sistema e informe estado e número na tela que aparece logo ao entrar.</p>`;
     cta = botao('Informar minha OAB →', 'https://www.meuprocesso.app.br/dashboard') + '</div>';
   }
 

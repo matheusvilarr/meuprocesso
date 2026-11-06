@@ -29,7 +29,10 @@ export default async function handler(req, res) {
       const { data, error } = await admin.auth.admin.listUsers({ perPage: 1000, page });
       if (error) return res.status(500).json({ erro: error.message });
       const lote = data?.users || [];
-      existe = lote.some(u => oabsDoUsuario(u.user_metadata?.oab).includes(oab));
+      // Conta sem e-mail confirmado não segura a OAB: senão um cadastro falso
+      // (ou o próprio advogado que digitou o e-mail errado e tenta de novo)
+      // trava o número pra sempre.
+      existe = lote.some(u => u.email_confirmed_at && oabsDoUsuario(u.user_metadata?.oab).includes(oab));
       if (lote.length < 1000) break;
     }
 
