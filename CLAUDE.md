@@ -101,6 +101,17 @@ Números no formato STJ/STF ("AREsp 3254978") colados na busca ou no cadastro ma
 - `processo_id` — FK pro processo criado/mesclado, preenchido na importação
 - `unique(user_id, termo_busca)`
 
+### `honorarios` e `honorario_pagamentos`
+O honorário é o ACORDO; as cobranças não são gravadas, saem dele. Pagamentos ficam em
+`honorario_pagamentos` (`migration_honorario_pagamentos.sql`) e são abatidos da cobrança mais
+antiga em aberto — parcial e adiantado de vários meses são o mesmo gesto.
+- `recorrente` = true → `valor` é o de CADA cobrança (`periodicidade`, `parcelas_total` = nº de
+  cobranças ou null = sem fim); `parcelas_total` > 1 sem recorrente → parcelado, `valor` = total
+- `data_vencimento` = 1ª cobrança; `status` só `pendente` (ativo) | `cancelado` — pago/vencido
+  saem da conta. Legado: `status='pago'` e `valor_entrada` valem como pagamento sem mexer no banco
+- A conta mora em **`js/honorarios-calc.js`** (`globalThis.HonCalc`), carregado pela tela E
+  importado pelo cron de e-mail — nunca duplicar a regra em outro lugar
+
 ### `tarefas`
 - `titulo` (not null) — descrição da tarefa
 - `coluna` — `a_fazer` | `em_andamento` | `revisao` | `concluida`

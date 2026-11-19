@@ -12,6 +12,10 @@ const _WIN1252_ALTOS = {
 let _clientesDB   = [];
 let _clienteAtual = null; // cliente aberto no modal de perfil/edição
 let _honorariosDB = [];
+// false = tabela honorario_pagamentos ainda não existe (migration não rodada):
+// a tela segue funcionando só com o que está no próprio honorário.
+let _honPagamentosOk = true;
+let _honCacheParcelas = {};   // _honParcelasAte: cobranças por data-limite, zerado a cada carga
 // Tarefas com prazo, de QUALQUER quadro/pasta — _tarefasDB só tem as do
 // quadro aberto no Kanban, mas sino/calendário/prazos do processo/dashboard
 // precisam enxergar tudo, não só a pasta ativa.
@@ -49,25 +53,10 @@ function closeSidebar() {
   document.body.style.overflow = '';
 }
 
-// Colapsa a sidebar pra só ícones (desktop). SEMPRE começa recolhida a cada
-// carregamento/F5 — não guarda a escolha de uma visita pra outra (pedido
-// explícito do Matheus). O <script> inline no <body> já aplica isso antes
-// da sidebar renderizar (evita flash do menu largo). Expandir vale só pra
-// sessão atual; recarregar a página volta a recolher.
-function toggleSidebarCollapse() {
-  document.body.classList.toggle('sidebar-collapsed');
-}
-
-// Abre/fecha clicando em qualquer área vazia da barra (no lugar do botão
-// flutuante, que só abria — depois de aberta não havia como recolher).
-// Item de menu, logo, usuário e botões continuam fazendo só a ação deles.
-document.addEventListener('DOMContentLoaded', () => {
-  document.querySelector('.sidebar')?.addEventListener('click', e => {
-    if (window.innerWidth <= 768) return;   // celular usa a gaveta (hamburger)
-    if (e.target.closest('.nav-item, a, button, input, select, .logo-mark, .sidebar-user, [onclick]')) return;
-    toggleSidebarCollapse();
-  });
-});
+// A barra lateral fica sempre inteira no computador. De out a 05/11/2026 ela
+// começava recolhida (só ícones) e abria/fechava clicando no espaço vazio — o
+// Matheus achou com cara de amador e pediu de volta o tamanho normal.
+// No celular continua sendo a gaveta do botão de menu (toggleSidebar).
 
 // Pilha de navegação do SPA — fonte da verdade pro botão voltar, em vez de
 // inspecionar o DOM (que pode não refletir a página certa se algo atrasar).
@@ -198,6 +187,10 @@ function openModal(id) {
   }
   if (id === 'modal-tarefa') {
     preencherProcessosModal('tar-processo');
+  }
+  if (id === 'modal-novo-honorario') {
+    const d = document.getElementById('hon-entrada-data');
+    if (d && !d.value) d.value = HonCalc.hojeISO();
   }
   if (id === 'modal-busca-tribunal') {
     _loteResultados = [];
@@ -396,14 +389,13 @@ function buildMiniCal() {
       .map(t => new Date(t.prazo + 'T12:00:00').getDate())
   );
 
-  // honorários com vencimento neste mês
+  // Cobranças de honorário em aberto neste mês (mensalidade aparece todo mês)
   const honorDias = {};
-  (_honorariosDB || []).forEach(h => {
-    if (!h.data_vencimento || h.status === 'pago' || h.status === 'cancelado') return;
-    const d = new Date(h.data_vencimento + 'T12:00:00');
-    if (d.getFullYear() === miniCalDate.getFullYear() && d.getMonth() === miniCalDate.getMonth()) {
-      honorDias[d.getDate()] = honorDias[d.getDate()] || h.status;
-    }
+  const mesMiniK = `${miniCalDate.getFullYear()}-${String(miniCalDate.getMonth() + 1).padStart(2, '0')}`;
+  _honParcelasAte(HonCalc.fimDoMes(mesMiniK + '-01')).forEach(({ p }) => {
+    if (p.falta <= 0 || !p.venc.startsWith(mesMiniK)) return;
+    const dia = Number(p.venc.slice(8, 10));
+    if (honorDias[dia] !== 'vencido') honorDias[dia] = p.situacao === 'vencida' ? 'vencido' : 'pendente';
   });
 
   for (let i = 0; i < first.getDay(); i++) {
@@ -437,10 +429,12 @@ let _eventoEditando  = null; // id do evento em edição no modal-lembrete; null
 
 function _eventoPorId(id) { return (_eventosDB || []).find(e => e.id === id); }
 
-// Honorários em aberto (a vencer ou vencidos) com vencimento no dia — os 3
+// Cobranças de honorário em aberto (a vencer ou vencidas) no dia — os 3
 // calendários (mini, expandido e a página Calendário) usam esta mesma regra.
+// Devolve { h, p }: h = honorário, p = a cobrança daquele dia (valor que falta,
+// situação). Num mensal, cada mês tem a sua.
 function _honorariosDoDia(iso) {
-  return (_honorariosDB || []).filter(h => h.data_vencimento === iso && h.status !== 'pago' && h.status !== 'cancelado');
+  return _honParcelasAte(HonCalc.fimDoMes(iso)).filter(({ p }) => p.venc === iso && p.falta > 0);
 }
 const _fmtBRL = v => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
@@ -509,15 +503,16 @@ function abrirDiaPopover(ano, mes, dia, celEl) {
   // Honorário marcava o dia com "$" mas não aparecia aqui — clicar no dia
   // mostrava "Nenhum compromisso". Agora lista e abre o honorário.
   const honorarios = _honorariosDoDia(isoDate);
-  const htmlHonorarios = honorarios.map(h => {
-    const vencido = h.status === 'vencido';
+  const htmlHonorarios = honorarios.map(({ h, p }) => {
+    const vencido = p.situacao === 'vencida';
+    const qual = p.rotulo && p.rotulo !== 'À vista' ? ` (${_esc(p.rotulo)})` : '';
     return `
     <div onclick="fecharDiaPopover();abrirEditarHonorario('${h.id}')" style="display:flex;align-items:flex-start;gap:9px;padding:8px 10px;border-radius:8px;background:var(--gray-50);cursor:pointer">
-      <span class="prazo-slot" title="Honorário — abra para marcar como pago" style="margin-top:4px"><i class="ti ti-currency-dollar"></i></span>
+      <span class="prazo-slot" title="Honorário — abra para registrar o pagamento" style="margin-top:4px"><i class="ti ti-currency-dollar"></i></span>
       <div style="width:3px;min-height:34px;border-radius:4px;background:${vencido ? 'var(--red)' : 'var(--green)'};flex-shrink:0;margin-top:2px"></div>
       <div style="flex:1;min-width:0">
-        <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(h.cliente_nome || h.descricao || 'Honorário')} — ${_fmtBRL(h.valor)}</div>
-        <div style="font-size:11px;color:${vencido ? 'var(--red)' : 'var(--green)'};margin-top:1px">${vencido ? 'Honorário vencido' : 'Honorário a vencer'}${h.cliente_nome && h.descricao ? ' · ' + _esc(h.descricao) : ''}</div>
+        <div style="font-size:12.5px;font-weight:600;color:var(--gray-900);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(h.cliente_nome || h.descricao || 'Honorário')} — ${_fmtBRL(p.falta)}${p.pago > 0 ? ' (restante)' : ''}</div>
+        <div style="font-size:11px;color:${vencido ? 'var(--red)' : 'var(--green)'};margin-top:1px">${vencido ? 'Honorário vencido' : 'Honorário a vencer'}${qual}${h.cliente_nome && h.descricao ? ' · ' + _esc(h.descricao) : ''}</div>
       </div>
     </div>`;
   }).join('');
@@ -786,10 +781,10 @@ function _buildCalExpMes() {
     const isToday = a===today.getFullYear() && m===today.getMonth() && d===today.getDate();
     const evs = _calExpEventos.filter(e => e.data === iso);
     const visiveis = evs.slice(0, 3), extra = evs.length - 3;
-    const hons = (_honorariosDB||[]).filter(h => h.data_vencimento === iso && h.status !== 'pago' && h.status !== 'cancelado');
-    const honHtml = hons.map(h => `<div class="cal-exp-ev" style="background:${h.status==='vencido'?'var(--red-light)':'var(--green-light)'};color:${h.status==='vencido'?'var(--red)':'var(--green)'};border-left:3px solid ${h.status==='vencido'?'var(--red)':'var(--green)'}" onclick="event.stopPropagation();abrirEditarHonorario('${h.id}')">
+    const hons = _honorariosDoDia(iso);
+    const honHtml = hons.map(({ h, p }) => { const v = p.situacao === 'vencida'; return `<div class="cal-exp-ev" style="background:${v?'var(--red-light)':'var(--green-light)'};color:${v?'var(--red)':'var(--green)'};border-left:3px solid ${v?'var(--red)':'var(--green)'}" onclick="event.stopPropagation();abrirEditarHonorario('${h.id}')">
       <i class="ti ti-cash" style="font-size:10px"></i> ${_esc(h.descricao.substring(0,22))}
-    </div>`).join('');
+    </div>`; }).join('');
     html += `<div class="cal-exp-day${isToday?' today':''}" onclick="calExpClickDia('${iso}')">
       <div class="cal-exp-day-num">
         <span>${d}</span>
@@ -952,7 +947,7 @@ function buildFullCal() {
         const tituloEstilo = concluida ? 'text-decoration:line-through' : '';
         return `<div class="fcal-event event-tarefa event-tarefa-${nivelCls}"><i class="ti ${icone}" style="font-size:9px;margin-right:2px"></i><span style="${tituloEstilo}">${_esc(t.titulo)}</span></div>`;
       }),
-      ...honsDia.map(h => `<div class="fcal-event event-honorario${h.status === 'vencido' ? ' vencido' : ''}"><span class="fcal-money">$</span><span>${_esc(h.cliente_nome || h.descricao || 'Honorário')} · ${_fmtBRL(h.valor)}</span></div>`),
+      ...honsDia.map(({ h, p }) => `<div class="fcal-event event-honorario${p.situacao === 'vencida' ? ' vencido' : ''}"><span class="fcal-money">$</span><span>${_esc(h.cliente_nome || h.descricao || 'Honorário')} · ${_fmtBRL(p.falta)}</span></div>`),
     ].slice(0, LIMITE_DIA).join('');
     const maisHtml = total > LIMITE_DIA ? `<div class="fcal-event fcal-mais">+${total - LIMITE_DIA} mais</div>` : '';
 
@@ -2000,10 +1995,15 @@ function _coletarAtividadeRecente() {
 
   if (window._atvFiltro !== 'processos') {
     for (const h of (_honorariosDB || [])) {
-      if (h.status === 'pago' && h.data_pagamento) {
-        itens.push({ tipo: 'honorario', icone: 'ti-cash', cor: 'green', titulo: h.cliente_nome || h.descricao, sub: 'Honorário recebido · ' + h.descricao, data: h.data_pagamento });
-      } else if (h.status === 'pendente' && h.data_vencimento && _atvParseData(h.data_vencimento) < agora) {
-        itens.push({ tipo: 'honorario', icone: 'ti-cash-banknote', cor: 'red', titulo: h.cliente_nome || h.descricao, sub: 'Honorário venceu · ' + h.descricao, data: h.data_vencimento });
+      const c = h._calc;
+      if (!c) continue;
+      for (const p of c.pagamentos.slice(-3)) {
+        if (!p.data_pagamento) continue;
+        itens.push({ tipo: 'honorario', icone: 'ti-cash', cor: 'green', titulo: h.cliente_nome || h.descricao, sub: `Honorário recebido · ${_fmtBRL(p.valor)} · ${h.descricao}`, data: p.data_pagamento });
+      }
+      const atrasada = h.status !== 'cancelado' && c.vencidas[0];
+      if (atrasada) {
+        itens.push({ tipo: 'honorario', icone: 'ti-cash-banknote', cor: 'red', titulo: h.cliente_nome || h.descricao, sub: `Honorário venceu · ${_fmtBRL(c.emAtraso)} em atraso · ${h.descricao}`, data: atrasada.venc });
       }
     }
 
@@ -2234,10 +2234,10 @@ function atualizarPrazosDash() {
     .filter(e => { const d = new Date(e.data + 'T12:00:00'); return d >= hoje && d <= em7; })
     .map(e => ({ tipoItem: 'evento', data: e.data, ordem: e.data, raw: e }));
 
-  const honorariosSemana = (_honorariosDB || [])
-    .filter(h => h.data_vencimento && (h.status === 'pendente' || h.status === 'vencido'))
-    .filter(h => { const d = new Date(h.data_vencimento + 'T12:00:00'); return d >= hoje && d <= em7; })
-    .map(h => ({ tipoItem: 'honorario', data: h.data_vencimento, ordem: h.data_vencimento, raw: h }));
+  const hojeIso = HonCalc.hojeISO(hoje), em7Iso = HonCalc.hojeISO(em7);
+  const honorariosSemana = _honParcelasAte(em7Iso)
+    .filter(({ p }) => p.falta > 0 && p.venc >= hojeIso && p.venc <= em7Iso)
+    .map(x => ({ tipoItem: 'honorario', data: x.p.venc, ordem: x.p.venc, raw: x }));
 
   const tarefasSemana = (_tarefasPrazoDB || [])
     .filter(t => { const d = new Date(t.prazo + 'T12:00:00'); return d >= hoje && d <= em7; })
@@ -2286,17 +2286,18 @@ function atualizarPrazosDash() {
     const diasTxt  = dias <= 0 ? 'Hoje' : dias === 1 ? 'Amanhã' : dias + 'd';
 
     if (item.tipoItem === 'honorario') {
-      const h = item.raw;
-      const valorFmt = (h.valor || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-      const urgencia = h.status === 'vencido' ? 'urgency-alta' : 'urgency-media';
+      const { h, p } = item.raw;
+      const valorFmt = _fmtBRL(p.falta);
+      const urgencia = p.situacao === 'vencida' ? 'urgency-alta' : 'urgency-media';
+      const qual = p.rotulo && p.rotulo !== 'À vista' ? ` · ${escHtml(p.rotulo)}` : '';
       return `
         <div class="prazo-item" onclick="showPage('honorarios')">
-          <span class="prazo-slot" title="Honorário — abra para marcar como pago"><i class="ti ti-currency-dollar"></i></span>
+          <span class="prazo-slot" title="Honorário — abra para registrar o pagamento"><i class="ti ti-currency-dollar"></i></span>
           <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
           <div class="prazo-urgency ${urgencia}"></div>
           <div class="prazo-info">
             <div class="prazo-name">${escHtml(h.cliente_nome || h.descricao)} — ${valorFmt}</div>
-            <div class="prazo-type">${h.status === 'vencido' ? 'Honorário vencido' : 'Honorário a vencer'}</div>
+            <div class="prazo-type">${p.situacao === 'vencida' ? 'Honorário vencido' : 'Honorário a vencer'}${qual}</div>
           </div>
           <span class="dias-badge ${badgeCls}">${diasTxt}</span>
         </div>`;
@@ -2866,7 +2867,8 @@ function _tbLinha(p, fimFavoritos) {
       : link ? `<a class="tb-trib-link" href="${_esc(link.url)}" target="_blank" rel="noopener" onclick="_abrirNoTribunal(event,'${p.id}')"
           title="${link.direto ? `Abrir o processo no site do ${_esc(sigla)}` : `Abrir a consulta do ${_esc(sigla)} — o número vai copiado, é só colar`}">${_esc(sigla)}<i class="ti ti-arrow-up-right"></i></a>`
       : _esc(sigla)}</td>
-    <td class="tb-col-status"><span class="tb-st tb-st-${st.k}">${st.txt}</span></td>
+    <td class="tb-col-status"><span class="tb-st tb-st-${st.k}">${st.txt}</span>${sigla
+      ? `<span class="tb-trib-inline">${link ? `<a class="tb-trib-link" href="${_esc(link.url)}" target="_blank" rel="noopener" onclick="_abrirNoTribunal(event,'${p.id}')">${_esc(sigla)}<i class="ti ti-arrow-up-right"></i></a>` : _esc(sigla)}</span>` : ''}</td>
     <td class="tb-col-menu" onclick="event.stopPropagation()">${isShared ? '' : `<button class="tb-menu-btn" title="Mais ações" onclick="_tbAbrirMenu(event,'${p.id}')"><i class="ti ti-dots-vertical"></i></button>`}</td>
   </tr>`;
 }
@@ -3287,12 +3289,14 @@ function popularDetalhe(proc) {
        </span>`
     : '';
 
+  // Mostra o que falta receber (mensalidade: até o fim do mês), não a soma dos
+  // valores cadastrados — um mensal somava só uma parcela e um quitado contava cheio.
   const honsProc = (_honorariosDB || []).filter(h => h.processo_id === proc.id && h.status !== 'cancelado');
-  const honTotal = honsProc.reduce((s, h) => s + Number(h.valor), 0);
-  const honVenc  = honsProc.filter(h => h.status === 'vencido').length;
+  const honTotal = honsProc.reduce((s, h) => s + Math.round((h._calc?.aReceber || 0) * 100), 0) / 100;
+  const honVenc  = honsProc.filter(h => _statusGrupo(h) === 'vencido').length;
   const honHtml  = honsProc.length
-    ? `<span style="color:var(--navy);font-weight:600">R$ ${_fmtValor(honTotal)}</span>
-       ${honVenc ? `<span style="color:var(--red);font-size:11px;margin-left:6px">(${honVenc} vencido${honVenc>1?'s':''})</span>` : ''}
+    ? `<span style="color:var(--navy);font-weight:600">R$ ${_fmtValor(honTotal)}</span><span style="font-size:11px;color:var(--gray-400);margin-left:4px">a receber</span>
+       ${honVenc ? `<span style="color:var(--red);font-size:11px;margin-left:6px">(${honVenc} com atraso)</span>` : ''}
        <span style="font-size:11px;color:var(--blue);cursor:pointer;margin-left:6px" onclick="showPage('honorarios')">
          <i class="ti ti-arrow-right"></i>ver honorários
        </span>`
@@ -9450,7 +9454,7 @@ function _renderClientes(lista) {
     const iniciais = cli.nome.split(' ').slice(0,2).map(w => w[0]).join('').toUpperCase();
     const honorsCli = _honorariosDB.filter(h => h.cliente_id === cli.id);
     const procsCli  = [...new Set(honorsCli.map(h => h.processo_id).filter(Boolean))];
-    const vencidos  = honorsCli.filter(h => h.status === 'vencido').length;
+    const vencidos  = honorsCli.filter(h => _statusGrupo(h) === 'vencido').length;
 
     const card = document.createElement('div');
     card.className = 'cliente-card';
@@ -9777,15 +9781,20 @@ function toggleHonVisibilidade() {
 async function carregarHonorarios() {
   const uid = window._escritorioId || window._user?.id;
   if (!uid) return;
-  const { data } = await _supabase
-    .from('honorarios')
-    .select('*, clientes(nome)')
-    .order('data_vencimento', { ascending: true });
-  _honorariosDB = (data || []).map(h => ({
-    ...h,
-    cliente_nome: h.clientes?.nome || null,
-  }));
-  _atualizarVencidos();
+  const [{ data }, pags] = await Promise.all([
+    _supabase.from('honorarios').select('*, clientes(nome)').order('data_vencimento', { ascending: true }),
+    _supabase.from('honorario_pagamentos').select('id, honorario_id, valor, data_pagamento, observacao, created_at')
+      .order('data_pagamento', { ascending: true }),
+  ]);
+  _honPagamentosOk = !pags.error;
+  const porHonorario = {};
+  for (const p of (pags.data || [])) (porHonorario[p.honorario_id] ||= []).push(p);
+  _honorariosDB = (data || []).map(h => {
+    const item = { ...h, cliente_nome: h.clientes?.nome || null, _pags: porHonorario[h.id] || [] };
+    item._calc = HonCalc.calcular(item, item._pags);
+    return item;
+  });
+  _honCacheParcelas = {};
   _renderHonorarios(_honorariosDB);
   _atualizarKpisHon();
   _atualizarBadgeHon();
@@ -9799,26 +9808,32 @@ async function carregarHonorarios() {
   if (document.getElementById('page-calendario')?.classList.contains('active')) buildFullCal();
 }
 
-function _atualizarVencidos() {
-  const hoje = new Date(); hoje.setHours(0,0,0,0);
-  _honorariosDB.forEach(h => {
-    if (h.status === 'pendente' && h.data_vencimento) {
-      const d = new Date(h.data_vencimento + 'T00:00:00');
-      if (d < hoje) h.status = 'vencido';
-    }
-  });
+// Pago / vencido / em dia sai da conta (HonCalc), nunca do campo status: até
+// 11/2026 a tela trocava o status pra 'vencido' só na memória e, se o advogado
+// abrisse e salvasse, gravava 'vencido' no banco — o e-mail diário procura
+// 'pendente' e o lembrete parava de sair.
+function _statusGrupo(h) {
+  return h._calc?.grupo || 'pendente';
 }
 
-function _statusGrupo(h) {
-  if (h.status === 'pago')     return 'pago';
-  if (h.status === 'cancelado') return 'cancelado';
-  if (h.status === 'vencido')  return 'vencido';
-  if (!h.data_vencimento)      return 'pendente';
-  const hoje = new Date(); hoje.setHours(0,0,0,0);
-  const d    = new Date(h.data_vencimento + 'T00:00:00');
-  const diff = Math.floor((d - hoje) / 86400000);
-  if (diff <= 7 && diff >= 0) return 'semana';
-  return 'pendente';
+// Cobranças (de todos os honorários) até a data `ate` — o calendário navega
+// meses à frente e a mensalidade precisa aparecer lá também.
+function _honParcelasAte(ate) {
+  if (_honCacheParcelas[ate]) return _honCacheParcelas[ate];
+  const lista = [];
+  for (const h of (_honorariosDB || [])) {
+    if (h.status === 'cancelado') continue;
+    const calc = ate <= HonCalc.fimDoMes(HonCalc.hojeISO(), 1) ? h._calc : HonCalc.calcular(h, h._pags, { ate });
+    for (const p of (calc?.parcelas || [])) if (p.venc && p.venc <= ate) lista.push({ h, p });
+  }
+  return (_honCacheParcelas[ate] = lista);
+}
+
+const _honBRL = v => 'R$ ' + _fmtValor(v);
+function _honMesAno(iso) {
+  if (!iso) return '';
+  const [a, m] = iso.split('-');
+  return `${HonCalc.MESES[Number(m) - 1]}/${a}`;
 }
 
 function _renderHonorarios(lista) {
@@ -9863,7 +9878,11 @@ function _buildHonCard(h, grupo) {
   const tipoIcone = { fixo:'ti-file-dollar', exito:'ti-trophy', hora:'ti-clock-hour-4', recorrente:'ti-refresh' };
   const tipoLabel = { fixo:'Fixo', exito:'Êxito', hora:'Hora', recorrente:'Recorrente' };
 
-  const vencStr  = h.data_vencimento ? _fmtData(h.data_vencimento) : '—';
+  const c = h._calc;
+  // Data que importa: a da cobrança em aberto mais antiga (num mensal, a
+  // data_vencimento é só a 1ª cobrança e fica pra trás em um mês).
+  const vencRef  = c?.vencidas[0]?.venc || c?.proxima?.venc || h.data_vencimento;
+  const vencStr  = vencRef ? _fmtData(vencRef) : '—';
   const procLabel = h.processo_id
     ? (window._processosDB||[]).find(p => p.id === h.processo_id)?.apelido
       || (window._processosDB||[]).find(p => p.id === h.processo_id)?.nome
@@ -9871,18 +9890,23 @@ function _buildHonCard(h, grupo) {
     : null;
 
   const pagar = (grupo === 'vencido' || grupo === 'semana' || grupo === 'pendente')
-    ? `<button class="hon-pagar-btn" onclick="event.stopPropagation();marcarPago('${h.id}')">
-        <i class="ti ti-check"></i> Marcar como pago
+    ? `<button class="hon-pagar-btn" onclick="event.stopPropagation();abrirPagamentoHon('${h.id}')">
+        <i class="ti ti-cash"></i> Registrar pagamento
        </button>`
     : '';
 
   // Badge de status só para pago/cancelado — pendentes já estão identificados pelo grupo
   const statusBadge = (grupo === 'pago' || grupo === 'cancelado')
-    ? `<span class="hon-status-badge ${grupo}">${_statusLabel(h.status)}</span>`
+    ? `<span class="hon-status-badge ${grupo}">${grupo === 'pago' ? 'Quitado' : 'Cancelado'}</span>`
     : '';
 
+  let valorHtml = _honBRL(h.valor);
+  if (c?.forma === 'recorrente') valorHtml += `<span class="hon-valor-sufixo">${HonCalc.sufixoPeriodo(c.periodicidade)}</span>`;
+  const sub = c?.forma === 'parcelado' ? `${c.n}× de ${_honBRL(c.valorParcela)}`
+    : c?.forma === 'recorrente' && c.n ? `${c.n} cobranças` : '';
+
   card.innerHTML = `
-    <div class="hon-card-icon"><i class="ti ${tipoIcone[h.tipo] || 'ti-cash'}"></i></div>
+    <div class="hon-card-icon"><i class="ti ${c?.forma === 'recorrente' ? 'ti-refresh' : (tipoIcone[h.tipo] || 'ti-cash')}"></i></div>
     <div class="hon-card-body">
       <div class="hon-card-desc">${_esc(h.descricao)}</div>
       <div class="hon-card-meta">
@@ -9893,8 +9917,9 @@ function _buildHonCard(h, grupo) {
       </div>
     </div>
     <div class="hon-card-right">
-      <div class="hon-valor">R$ ${_fmtValor(h.valor)}</div>
-      ${h.valor_entrada > 0 ? `<div style="font-size:11px;color:#059669;margin-top:2px">Entrada: R$ ${_fmtValor(h.valor_entrada)}</div><div style="font-size:11px;color:var(--gray-500)">Saldo: R$ ${_fmtValor((h.valor||0) - (h.valor_entrada||0))}</div>` : ''}
+      <div class="hon-valor">${valorHtml}</div>
+      ${sub ? `<div class="hon-card-sub">${sub}</div>` : ''}
+      ${_honSituacaoHtml(h)}
       ${statusBadge}
       ${pagar}
     </div>`;
@@ -9902,8 +9927,25 @@ function _buildHonCard(h, grupo) {
   return card;
 }
 
-function _statusLabel(s) {
-  return { pendente:'Pendente', pago:'Pago', vencido:'Vencido', cancelado:'Cancelado' }[s] || s;
+// Uma linha dizendo onde o cliente está: atraso, quanto falta do mês, até
+// quando está pago.
+function _honSituacaoHtml(h) {
+  const c = h._calc;
+  if (!c || c.grupo === 'cancelado') return '';
+  const linha = (cls, txt) => `<div class="hon-sit ${cls}">${txt}</div>`;
+  const credito = c.credito > 0 ? linha('ok', `Crédito de ${_honBRL(c.credito)}`) : '';
+  if (c.grupo === 'pago') return linha('ok', c.ultimoPagamento ? `Pago em ${_fmtData(c.ultimoPagamento)}` : 'Quitado') + credito;
+  if (c.vencidas.length) {
+    const qtd = c.vencidas.length > 1 ? ` · ${c.vencidas.length} cobranças` : '';
+    return linha('atraso', `${_honBRL(c.emAtraso)} em atraso${qtd}`);
+  }
+  if (c.proxima && c.proxima.pago > 0) {
+    const de = c.forma === 'avista' ? '' : ` de ${c.forma === 'parcelado' ? 'parcela ' + c.proxima.n : c.proxima.rotulo}`;
+    return linha('parcial', `Falta ${_honBRL(c.proxima.falta)}${de}`);
+  }
+  if (c.forma === 'recorrente' && c.pagoAte) return linha('ok', `Pago até ${c.pagoAte.rotulo}`);
+  if (c.forma === 'parcelado' && c.totalPago > 0) return linha('ok', `Pago ${_honBRL(c.totalPago)} de ${_honBRL(c.totalContrato)}`);
+  return '';
 }
 
 function _fmtValor(v) {
@@ -9929,23 +9971,27 @@ function _atualizarKpisHon() {
   let mesAnt = mesAtual - 1, anoAnt = anoAtual;
   if (mesAnt < 0) { mesAnt = 11; anoAnt--; }
 
+  // Somas em centavos — somar reais em ponto flutuante erra o centavo.
+  const cent = v => Math.round(Number(v || 0) * 100);
+  const chaveMes  = (a, m) => `${a}-${String(m + 1).padStart(2, '0')}`;
+  const mesAtualK = chaveMes(anoAtual, mesAtual), mesAntK = chaveMes(anoAnt, mesAnt);
   let receber = 0, mesPago = 0, vencidos = 0, faturado = 0, mesPagoAnterior = 0;
   _honorariosDB.forEach(h => {
-    if (h.status === 'pago') {
-      const d = h.data_pagamento ? new Date(h.data_pagamento + 'T00:00:00') : null;
-      if (d && d.getMonth() === mesAtual && d.getFullYear() === anoAtual) mesPago += Number(h.valor);
-      if (d && d.getMonth() === mesAnt  && d.getFullYear() === anoAnt)   mesPagoAnterior += Number(h.valor);
-    } else if (h.status === 'vencido') {
-      vencidos += Number(h.valor);
-      receber  += Number(h.valor);
-    } else if (h.status === 'pendente') {
-      receber += Number(h.valor);
+    const c = h._calc;
+    if (!c) return;
+    // Recebido = dinheiro que entrou no mês (pela data do pagamento), inclusive
+    // entrada e adiantamento — mesmo que o honorário tenha sido cancelado depois.
+    for (const p of c.pagamentos) {
+      const k = String(p.data_pagamento || '').slice(0, 7);
+      if (k === mesAtualK) mesPago += cent(p.valor);
+      if (k === mesAntK)   mesPagoAnterior += cent(p.valor);
     }
-    if (h.status !== 'cancelado' && h.data_vencimento) {
-      const dv = new Date(h.data_vencimento + 'T00:00:00');
-      if (dv.getMonth() === mesAtual && dv.getFullYear() === anoAtual) faturado += Number(h.valor);
-    }
+    if (h.status === 'cancelado') return;
+    receber  += cent(c.aReceber);
+    vencidos += cent(c.emAtraso);
+    for (const p of c.parcelas) if (String(p.venc || '').slice(0, 7) === mesAtualK) faturado += cent(p.valor);
   });
+  [receber, mesPago, vencidos, faturado, mesPagoAnterior] = [receber, mesPago, vencidos, faturado, mesPagoAnterior].map(v => v / 100);
 
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = 'R$ ' + _fmtValor(v); };
   set('hon-val-receber',  receber);
@@ -9995,10 +10041,12 @@ function _renderGraficoHon() {
     meses.push({ mes: d.getMonth(), ano: d.getFullYear(), valor: 0 });
   }
   _honorariosDB.forEach(h => {
-    if (h.status !== 'pago' || !h.data_pagamento) return;
-    const d = new Date(h.data_pagamento + 'T00:00:00');
-    const item = meses.find(m => m.mes === d.getMonth() && m.ano === d.getFullYear());
-    if (item) item.valor += Number(h.valor);
+    for (const p of (h._calc?.pagamentos || [])) {
+      if (!p.data_pagamento) continue;
+      const [a, m] = p.data_pagamento.split('-').map(Number);
+      const item = meses.find(x => x.mes === m - 1 && x.ano === a);
+      if (item) item.valor += Number(p.valor);
+    }
   });
   const max = Math.max(...meses.map(m => m.valor), 1);
   const nomes = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
@@ -10097,7 +10145,7 @@ function salvarPersonalizarHon() {
 }
 
 function _atualizarBadgeHon() {
-  const venc = _honorariosDB.filter(h => h.status === 'vencido').length;
+  const venc = _honorariosDB.filter(h => _statusGrupo(h) === 'vencido').length;
   const badge = document.getElementById('badge-honorarios-venc');
   if (badge) { badge.textContent = venc; badge.style.display = venc ? '' : 'none'; }
 }
@@ -10109,7 +10157,8 @@ function filtrarHonorarios() {
   const cliId = window._honFiltroCliente || '';
 
   const lista = _honorariosDB.filter(h => {
-    if (st   && h.status !== st)   return false;
+    const g = _statusGrupo(h);
+    if (st && !(g === st || (st === 'pendente' && g === 'semana'))) return false;
     if (tipo && h.tipo   !== tipo) return false;
     if (cliId && h.cliente_id !== cliId) return false;
     if (q) {
@@ -10126,14 +10175,178 @@ function filtrarHonorarios() {
   _renderHonorarios(lista);
 }
 
-async function marcarPago(id) {
-  const hoje = new Date().toISOString().split('T')[0];
-  const { error } = await _supabase.from('honorarios').update({
-    status: 'pago', data_pagamento: hoje
-  }).eq('id', id);
-  if (error) { showToast('Erro: ' + error.message, 'error'); return; }
-  showToast('Honorário marcado como pago!', 'success');
+// ── Pagamentos ───────────────────────────────────────────────────────────────
+// Cada valor recebido vira uma linha em honorario_pagamentos e é abatido da
+// cobrança mais antiga em aberto (HonCalc). Pagamento parcial e adiantamento
+// de vários meses são o mesmo gesto: o advogado só diz quanto recebeu.
+
+function abrirPagamentoHon(id) {
+  const h = _honorariosDB.find(x => x.id === id);
+  if (!h) return;
+  if (!_honPagamentosOk) {
+    showToast('O registro de pagamentos ainda não foi ativado no banco (migration_honorario_pagamentos.sql).', 'error');
+    return;
+  }
+  const c = h._calc;
+  document.getElementById('hon-pag-hid').value = id;
+  const sugestao = c.emAtraso || c.proxima?.falta || 0;
+  document.getElementById('hon-pag-valor').value = sugestao ? _fmtValor(sugestao) : '';
+  document.getElementById('hon-pag-data').value  = HonCalc.hojeISO();
+  document.getElementById('hon-pag-obs').value   = '';
+
+  const valorAcordo = c.forma === 'recorrente' ? `${_honBRL(c.valorParcela)}${HonCalc.sufixoPeriodo(c.periodicidade)}`
+    : c.forma === 'parcelado' ? `${_honBRL(c.totalContrato)} em ${c.n}×` : _honBRL(c.totalContrato);
+  document.getElementById('hon-pag-resumo').innerHTML = `
+    <div class="hon-pag-resumo-desc">${_esc(h.descricao)}</div>
+    <div class="hon-pag-resumo-meta">${h.cliente_nome ? _esc(h.cliente_nome) + ' · ' : ''}${valorAcordo}${c.totalPago ? ` · já recebido ${_honBRL(c.totalPago)}` : ''}</div>
+    ${_honSituacaoHtml(h)}`;
+
+  const atalhos = [];
+  if (c.emAtraso > 0) atalhos.push(['Atrasado', c.emAtraso]);
+  if (c.proxima && !(c.emAtraso > 0 && c.proxima.situacao === 'vencida')) {
+    atalhos.push([c.forma === 'avista' ? 'Restante' : (c.forma === 'parcelado' ? `Parcela ${c.proxima.n}` : c.proxima.rotulo), c.proxima.falta]);
+  }
+  if (c.finito) {
+    const restante = c.parcelas.reduce((s, p) => s + p._faltaC, 0) / 100;
+    if (restante > 0 && !atalhos.some(([, v]) => v === restante)) atalhos.push(['Quitar tudo', restante]);
+  } else if (c.proxima) {
+    // Mensal: atalho pra adiantar o que falta desta cobrança + as 2 seguintes
+    const tres = c.proxima.falta + c.valorParcela * 2;
+    atalhos.push(['Esta + 2 seguintes', Math.round(tres * 100) / 100]);
+  }
+  document.getElementById('hon-pag-atalhos').innerHTML = atalhos.map(([rot, v]) =>
+    `<button type="button" class="hon-pag-atalho" onclick="document.getElementById('hon-pag-valor').value='${_fmtValor(v)}';_honPreviaPagamento()">${_esc(rot)}: <strong>${_honBRL(v)}</strong></button>`).join('');
+
+  _honPreviaPagamento();
+  openModal('modal-pagamento-hon');
+  setTimeout(() => document.getElementById('hon-pag-valor')?.select(), 50);
+}
+
+function _honPreviaPagamento() {
+  const box = document.getElementById('hon-pag-previa');
+  const h   = _honorariosDB.find(x => x.id === document.getElementById('hon-pag-hid').value);
+  const valor = _parseValorMoeda(document.getElementById('hon-pag-valor').value);
+  const data  = document.getElementById('hon-pag-data').value || HonCalc.hojeISO();
+  if (!box) return;
+  if (!h || !valor || valor <= 0) { box.innerHTML = ''; return; }
+  const s = HonCalc.simularPagamento(h, h._pags, valor, data);
+  const MAX = 6;
+  const linhas = s.efeitos.slice(0, MAX).map(e => `
+    <li class="${e.quitou ? 'quita' : 'abate'}">
+      <span>${_esc(e.rotulo)}${e.venc && e.rotulo !== _honMesAno(e.venc) ? ` <em>vence ${_fmtData(e.venc)}</em>` : ''}</span>
+      <span>${e.quitou ? 'quita' : 'abate'} <strong>${_honBRL(e.aplicado)}</strong>${e.quitou ? '' : ` · falta ${_honBRL(e.falta)}`}</span>
+    </li>`).join('');
+  const mais = s.efeitos.length > MAX ? `<li class="mais">+ ${s.efeitos.length - MAX} cobranças adiantadas</li>` : '';
+  const credito = s.credito > 0
+    ? `<div class="hon-previa-credito">Sobram ${_honBRL(s.credito)} de crédito — o acordo não tem mais cobranças pra abater.</div>` : '';
+  box.innerHTML = `<div class="hon-previa-titulo">Este pagamento</div><ul>${linhas}${mais}</ul>${credito}`;
+}
+
+async function salvarPagamentoHon() {
+  const id = document.getElementById('hon-pag-hid').value;
+  const h  = _honorariosDB.find(x => x.id === id);
+  const valor = _parseValorMoeda(document.getElementById('hon-pag-valor').value);
+  const data  = document.getElementById('hon-pag-data').value;
+  if (!h) return;
+  if (!valor || valor <= 0) { showToast('Informe o valor recebido.', 'error'); return; }
+  if (!data) { showToast('Informe a data em que recebeu.', 'error'); return; }
+  const btn = document.getElementById('hon-pag-salvar');
+  btn.disabled = true;
+  const { error } = await _supabase.from('honorario_pagamentos').insert({
+    honorario_id:   id,
+    user_id:        h.user_id,
+    valor,
+    data_pagamento: data,
+    observacao:     document.getElementById('hon-pag-obs').value.trim() || null,
+  });
+  btn.disabled = false;
+  if (error) { showToast('Erro ao registrar: ' + error.message, 'error'); return; }
+  closeModal('modal-pagamento-hon');
+  showToast(`Pagamento de ${_honBRL(valor)} registrado!`, 'success');
   await carregarHonorarios();
+  _reabrirFinanceiroSeAberto(id);
+}
+
+async function excluirPagamentoHon(hid, pid) {
+  const h = _honorariosDB.find(x => x.id === hid);
+  const p = h?._calc?.pagamentos.find(x => x.id === pid);
+  if (!h || !p) return;
+  const ok = await _confirmar(
+    `${_honBRL(p.valor)} de ${_fmtData(p.data_pagamento)} deixa de contar como recebido, e as cobranças que ele quitava voltam a ficar em aberto.`,
+    'Apagar este pagamento?', { textoOk: 'Apagar', perigo: true, icone: '🗑️' });
+  if (!ok) return;
+  // Pagamentos do jeito antigo moram no próprio honorário: desfazer é limpar o campo.
+  const r = pid === 'legado-entrada' ? await _supabase.from('honorarios').update({ valor_entrada: null }).eq('id', hid)
+    : pid === 'legado-pago'          ? await _supabase.from('honorarios').update({ status: 'pendente', data_pagamento: null }).eq('id', hid)
+    : await _supabase.from('honorario_pagamentos').delete().eq('id', pid);
+  if (r.error) { showToast('Erro ao apagar: ' + r.error.message, 'error'); return; }
+  showToast('Pagamento apagado.', 'success');
+  await carregarHonorarios();
+  _reabrirFinanceiroSeAberto(hid);
+}
+
+function _reabrirFinanceiroSeAberto(id) {
+  const aberto = document.getElementById('modal-editar-honorario')?.classList.contains('open');
+  if (!aberto || document.getElementById('hon-edit-id').value !== id) return;
+  const h = _honorariosDB.find(x => x.id === id);
+  if (h) _renderFinanceiroHon(h);
+}
+
+// Quadro de cobranças e pagamentos dentro do "Editar honorário".
+function _renderFinanceiroHon(h) {
+  const box = document.getElementById('hon-edit-financeiro');
+  if (!box) return;
+  const c = h._calc;
+  if (!c) { box.innerHTML = ''; return; }
+
+  const chip = { quitada: ['ok', 'Paga'], parcial: ['parcial', 'Parcial'], vencida: ['atraso', 'Em atraso'], aberta: ['aberta', 'A vencer'] };
+  // Mostra o que já aconteceu + as 2 próximas em aberto; num mensal antigo,
+  // as quitadas mais velhas viram uma linha só.
+  let abertasMostradas = 0;
+  let linhas = c.parcelas.filter(p => p.situacao !== 'aberta' || abertasMostradas++ < 2);
+  let ocultas = 0;
+  if (linhas.length > 12) { ocultas = linhas.length - 12; linhas = linhas.slice(-12); }
+  // 3 colunas (a data vai embaixo do nome da cobrança): com 5, a tabela
+  // passava da largura da janela no notebook e no celular.
+  const situacaoTxt = { quitada: 'Paga', aberta: 'A vencer', vencida: 'Em atraso', parcial: 'Parcial' };
+  const faltaLinha  = p => p.pago && p.falta ? `<div class="hon-parc-venc">falta ${_honBRL(p.falta)}</div>` : '';
+  const tabela = `
+    <table class="hon-parc-tab">
+      <thead><tr><th>Cobrança</th><th class="num">Valor</th><th>Situação</th></tr></thead>
+      <tbody>
+        ${ocultas ? `<tr class="hon-parc-ocultas"><td colspan="3">${ocultas} cobrança${ocultas > 1 ? 's' : ''} anterior${ocultas > 1 ? 'es' : ''} paga${ocultas > 1 ? 's' : ''}</td></tr>` : ''}
+        ${linhas.map(p => `<tr>
+          <td>${_esc(p.rotulo)}${p.venc ? `<div class="hon-parc-venc">vence ${_fmtData(p.venc)}</div>` : ''}</td>
+          <td class="num">${_honBRL(p.valor)}</td>
+          <td><span class="hon-parc-chip ${chip[p.situacao][0]}">${situacaoTxt[p.situacao]}</span>${faltaLinha(p)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+
+  const pags = c.pagamentos.slice().reverse();
+  const listaPags = pags.length ? pags.map(p => `
+    <div class="hon-pag-item">
+      <div><strong class="hon-valor-sec">${_honBRL(p.valor)}</strong> <span>em ${_fmtData(p.data_pagamento)}</span>
+        ${p.observacao ? `<div class="hon-pag-obs">${_esc(p.observacao)}</div>` : ''}</div>
+      <button type="button" class="hon-pag-del" title="Apagar este pagamento" onclick="excluirPagamentoHon('${h.id}','${p.id}')"><i class="ti ti-trash"></i></button>
+    </div>`).join('')
+    : `<div class="hon-pag-vazio">Nenhum pagamento registrado ainda.</div>`;
+
+  const resumo = [`Recebido <strong>${_honBRL(c.totalPago)}</strong>`];
+  if (c.finito) resumo.push(`de <strong>${_honBRL(c.totalContrato)}</strong>`);
+  if (c.emAtraso) resumo.push(`· <span class="atraso">em atraso ${_honBRL(c.emAtraso)}</span>`);
+  if (c.credito)  resumo.push(`· crédito ${_honBRL(c.credito)}`);
+
+  box.innerHTML = `
+    <div class="hon-fin-topo">
+      <div class="hon-fin-titulo">Cobranças e pagamentos</div>
+      ${h.status !== 'cancelado' && c.grupo !== 'pago' ? `<button type="button" class="hon-pagar-btn" onclick="abrirPagamentoHon('${h.id}')"><i class="ti ti-cash"></i> Registrar pagamento</button>` : ''}
+    </div>
+    ${_honPagamentosOk ? '' : `<div class="hon-fin-aviso">O registro de pagamentos ainda não foi ativado no banco. Por enquanto só aparecem a entrada e o "pago" antigos.</div>`}
+    <div class="hon-fin-resumo">${resumo.join(' ')}</div>
+    ${tabela}
+    <div class="hon-fin-subtitulo">Pagamentos recebidos</div>
+    <div class="hon-pag-lista">${listaPags}</div>`;
 }
 
 function honSetCobranca(tipo) {
@@ -10146,6 +10359,9 @@ function honSetCobranca(tipo) {
   if (pb) pb.style.display  = tipo === 'parcelado'  ? 'flex' : 'none';
   const rb = document.getElementById('hon-recorr-box');
   if (rb) rb.style.display  = tipo === 'recorrente' ? 'flex' : 'none';
+  // No recorrente o valor é o de CADA cobrança (é assim que HonCalc lê)
+  const lbl = document.getElementById('hon-valor-label');
+  if (lbl) lbl.textContent = tipo === 'recorrente' ? 'Valor de cada cobrança (R$) *' : 'Valor total (R$) *';
   honCalcParcela();
 }
 
@@ -10166,6 +10382,8 @@ function honSetCobrancaEdit(tipo) {
   if (pb) pb.style.display  = tipo === 'parcelado'  ? 'flex' : 'none';
   const rb = document.getElementById('hon-edit-recorr-box');
   if (rb) rb.style.display  = tipo === 'recorrente' ? 'flex' : 'none';
+  const lbl = document.getElementById('hon-edit-valor-label');
+  if (lbl) lbl.textContent = tipo === 'recorrente' ? 'Valor de cada cobrança (R$) *' : 'Valor total (R$) *';
   honEditCalcParcela();
 }
 
@@ -10196,7 +10414,9 @@ function _popularSelectsProcessos() {
     const sel = document.getElementById(id);
     if (!sel) return;
     const cur = sel.value;
-    const todos = (window._processosDB || []).filter(p => !p.arquivado);
+    // Arquivado é status 'Arquivado' — a coluna `arquivado` não existe, e o
+    // filtro antigo deixava processo arquivado aparecer pra vincular.
+    const todos = (window._processosDB || []).filter(p => p.status !== 'Arquivado');
     const favs  = todos.filter(p =>  p.favorito);
     const resto = todos.filter(p => !p.favorito);
     const mkOpt = p => { const o = document.createElement('option'); o.value = p.id; o.textContent = _labelProcesso(p).substring(0, 80); return o; };
@@ -10229,6 +10449,14 @@ async function salvarHonorario() {
     : isRecorr
       ? (document.getElementById('hon-recorr-inicio')?.value || null)
       : (document.getElementById('hon-venc')?.value || null);
+  // Sem a 1ª data não dá pra saber quando cada parcela/mensalidade vence
+  if ((isParc || isRecorr) && !dataVenc) {
+    btn.disabled = false;
+    showToast(isParc ? 'Informe a data da 1ª parcela.' : 'Informe a data da 1ª cobrança.', 'error');
+    return;
+  }
+  const entrada     = _parseValorMoeda(document.getElementById('hon-entrada')?.value);
+  const entradaData = document.getElementById('hon-entrada-data')?.value || HonCalc.hojeISO();
 
   const payload = {
     user_id:        uid,
@@ -10244,35 +10472,40 @@ async function salvarHonorario() {
     parcelas_total: isParc ? parcelasQtd : numCobr,
     parcela_atual:  isParc ? 1 : null,
     notas:          document.getElementById('hon-notas').value.trim() || null,
-    valor_entrada:  _parseValorMoeda(document.getElementById('hon-entrada')?.value),
+    // Sem a tabela de pagamentos (migration não rodada) a entrada fica no
+    // campo antigo, que a conta também lê — nada se perde.
+    valor_entrada:  _honPagamentosOk ? null : entrada,
   };
 
-  const { error } = await _supabase.from('honorarios').insert(payload);
+  const { data: criado, error } = await _supabase.from('honorarios').insert(payload).select('id').single();
+  if (error) { btn.disabled = false; showToast('Erro: ' + error.message, 'error'); return; }
+  let avisoEntrada = '';
+  if (_honPagamentosOk && entrada > 0 && criado?.id) {
+    const { error: errPag } = await _supabase.from('honorario_pagamentos').insert({
+      honorario_id: criado.id, user_id: uid, valor: entrada, data_pagamento: entradaData, observacao: 'Entrada',
+    });
+    if (errPag) avisoEntrada = ' A entrada não foi registrada — registre pelo botão "Registrar pagamento".';
+  }
   btn.disabled = false;
-  if (error) { showToast('Erro: ' + error.message, 'error'); return; }
-  showToast('Honorário salvo!', 'success');
+  showToast('Honorário salvo!' + avisoEntrada, avisoEntrada ? 'error' : 'success');
   closeModal('modal-novo-honorario');
-  ['hon-desc','hon-valor','hon-entrada','hon-notas'].forEach(id => {
+  ['hon-desc','hon-valor','hon-entrada','hon-entrada-data','hon-notas'].forEach(id => {
     const el = document.getElementById(id); if (el) el.value = '';
   });
   honSetCobranca('avista');
   await carregarHonorarios();
 }
 
+// Só Ativo ou Cancelado: pago/vencido saem dos pagamentos. "Ativo" mantém o
+// status gravado quando era o 'pago' antigo — trocar pra 'pendente' apagaria
+// o pagamento que ele representa (pra isso existe a lixeira do pagamento).
+let _honEditStatusOriginal = 'pendente';
 function honEditSetStatus(status) {
-  document.getElementById('hon-edit-status').value = status;
-  const cls = { pendente:'active', vencido:'active-vencido', pago:'active-pago', cancelado:'active-cancelado' };
-  ['pendente','vencido','pago','cancelado'].forEach(s => {
-    const pill = document.getElementById('hon-epill-' + s);
-    if (!pill) return;
-    pill.className = 'hon-pill' + (s === status ? ' ' + cls[s] : '');
-  });
-  const wrap = document.getElementById('hon-pgto-wrap');
-  const pgto = document.getElementById('hon-edit-pgto');
-  if (wrap) wrap.style.display = status === 'pago' ? '' : 'none';
-  if (status === 'pago' && pgto && !pgto.value) {
-    pgto.value = new Date().toISOString().slice(0, 10);
-  }
+  const valor = status === 'cancelado' ? 'cancelado' : (_honEditStatusOriginal === 'pago' ? 'pago' : 'pendente');
+  document.getElementById('hon-edit-status').value = valor;
+  document.getElementById('hon-epill-ativo')?.classList.toggle('active', valor !== 'cancelado');
+  const canc = document.getElementById('hon-epill-cancelado');
+  if (canc) canc.className = 'hon-pill' + (valor === 'cancelado' ? ' active-cancelado' : '');
 }
 
 function abrirEditarHonorario(id) {
@@ -10283,14 +10516,13 @@ function abrirEditarHonorario(id) {
   document.getElementById('hon-edit-desc').value    = h.descricao || '';
   document.getElementById('hon-edit-valor').value   = h.valor ? _fmtValor(h.valor) : '';
   document.getElementById('hon-edit-notas').value   = h.notas || '';
-  document.getElementById('hon-edit-entrada').value = h.valor_entrada ? _fmtValor(h.valor_entrada) : '';
 
   const tipoEl = document.getElementById('hon-edit-tipo');
   if (tipoEl) tipoEl.value = h.tipo || 'fixo';
 
-  // Detecta forma de cobrança a partir dos dados salvos
+  // Mesma leitura do HonCalc: o campo `recorrente` decide (tipo é só o rótulo)
   let cobranca = 'avista';
-  if (h.recorrente || h.tipo === 'recorrente') cobranca = 'recorrente';
+  if (h.recorrente) cobranca = 'recorrente';
   else if (h.parcelas_total > 1) cobranca = 'parcelado';
   honSetCobrancaEdit(cobranca);
 
@@ -10310,8 +10542,9 @@ function abrirEditarHonorario(id) {
   }
 
   // Status via pills
-  honEditSetStatus(h.status || 'pendente');
-  document.getElementById('hon-edit-pgto').value = h.data_pagamento || '';
+  _honEditStatusOriginal = h.status || 'pendente';
+  honEditSetStatus(h.status === 'cancelado' ? 'cancelado' : 'ativo');
+  _renderFinanceiroHon(h);
 
   _popularSelectsClientes();
   _popularSelectsProcessos();
@@ -10342,21 +10575,29 @@ async function atualizarHonorario() {
     : isRecorr
       ? (document.getElementById('hon-edit-recorr-inicio')?.value || null)
       : (document.getElementById('hon-edit-venc')?.value || null);
+  if ((isParc || isRecorr) && !dataVenc) {
+    showToast(isParc ? 'Informe a data da 1ª parcela.' : 'Informe a data da 1ª cobrança.', 'error');
+    return;
+  }
+  // Recorrente leva o rótulo 'recorrente'; fora dele, 'recorrente' no select
+  // virava acordo à vista com cara de mensal.
+  const tipoSel = document.getElementById('hon-edit-tipo').value;
+  const tipo    = isRecorr ? 'recorrente' : (tipoSel === 'recorrente' ? 'fixo' : tipoSel);
 
+  // data_pagamento e valor_entrada não saem mais deste formulário: são
+  // pagamentos e ficam no quadro "Cobranças e pagamentos".
   const { error } = await _supabase.from('honorarios').update({
     descricao:       desc,
     cliente_id:      document.getElementById('hon-edit-cliente').value  || null,
     processo_id:     document.getElementById('hon-edit-processo').value || null,
-    tipo:            document.getElementById('hon-edit-tipo').value,
+    tipo,
     valor,
     status:          document.getElementById('hon-edit-status').value,
     data_vencimento: dataVenc || null,
-    data_pagamento:  document.getElementById('hon-edit-pgto').value || null,
     recorrente:      isRecorr,
     periodicidade:   isRecorr ? (document.getElementById('hon-edit-period')?.value || null) : null,
     parcelas_total:  isParc ? parcelasQtd : numCobr,
     notas:           document.getElementById('hon-edit-notas').value.trim() || null,
-    valor_entrada:   _parseValorMoeda(document.getElementById('hon-edit-entrada')?.value),
   }).eq('id', id);
   if (error) { showToast('Erro: ' + error.message, 'error'); return; }
   showToast('Honorário atualizado!', 'success');
@@ -10365,8 +10606,14 @@ async function atualizarHonorario() {
 }
 
 async function excluirHonorario(id) {
-  if (!confirm('Excluir este honorário? Essa ação não pode ser desfeita.')) return;
-  await _supabase.from('honorarios').delete().eq('id', id);
+  const h = _honorariosDB.find(x => x.id === id);
+  const qtd = h?._pags?.length || 0;
+  const ok = await _confirmar(
+    `Essa ação não pode ser desfeita.${qtd ? ` Os ${qtd} pagamento${qtd > 1 ? 's' : ''} registrado${qtd > 1 ? 's' : ''} nele também são apagados.` : ''} Se o cliente só parou de pagar, prefira marcar como Cancelado — o histórico fica.`,
+    'Excluir este honorário?', { textoOk: 'Excluir', perigo: true, icone: '🗑️' });
+  if (!ok) return;
+  const { error } = await _supabase.from('honorarios').delete().eq('id', id);
+  if (error) { showToast('Erro ao excluir: ' + error.message, 'error'); return; }
   showToast('Honorário removido.', 'success');
   closeModal('modal-editar-honorario');
   await carregarHonorarios();

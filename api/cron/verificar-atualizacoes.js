@@ -8,6 +8,11 @@ import { timingSafeEqual } from 'node:crypto';
 // o painel normaliza na tela e o e-mail precisa normalizar igual.
 import { usuariosComAcesso, enviarAvisoReativacao, enviarEmail, tituloProcesso, novidadesParaEmail,
          tokenDescadastro, linkDescadastro, definirDescadastro } from '../../lib/sync-comum.js';
+// Conta de parcelas/pagamentos de honorários — o MESMO arquivo que a tela usa
+// (dashboard.html carrega como <script>), pra e-mail e tela nunca discordarem
+// sobre o que está vencido. Expõe globalThis.HonCalc.
+import '../../js/honorarios-calc.js';
+const HonCalc = globalThis.HonCalc;
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
 const SUPA_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
@@ -450,35 +455,58 @@ async function rodarPrazoFatal(admin, res, hoje) {
 }
 
 // ── HONORÁRIO VENCIDO ────────────────────────────────────────────────────────
-// Roda 1x/dia. "vencido" não é um status gravado no banco — o front só marca
-// isso em memória (_atualizarVencidos em dashboard.js) — então aqui o atraso
-// é calculado direto: pendente + data_vencimento no passado. O dedup por dia
-// em notif_log garante o "lembra de 24 em 24h": enquanto o honorário continuar
-// pendente, ele aparece de novo nessa consulta todo dia e manda um e-mail novo;
-// assim que o advogado marcar como pago (ou cancelado), some da consulta.
+// Roda 1x/dia. "Vencido" não é status gravado: sai da conta de parcelas e
+// pagamentos (HonCalc) — uma mensalidade em dia não aparece só porque a data
+// da 1ª cobrança ficou pra trás, e um pagamento parcial reduz o valor cobrado.
+// O dedup por dia em notif_log garante o "lembra de 24 em 24h": enquanto
+// houver cobrança em atraso, ela volta todo dia; registrou o pagamento (ou
+// cancelou o honorário), some.
+
+// Honorários + seus pagamentos, já com a conta feita. Sem a tabela
+// honorario_pagamentos (migration não rodada) segue só com o que está no
+// próprio honorário — a conta entende a entrada e o "pago" antigos.
+const COLS_HONORARIO = 'id, user_id, descricao, valor, status, data_vencimento, data_pagamento, created_at, recorrente, periodicidade, parcelas_total, valor_entrada, clientes(nome)';
+async function honorariosComConta(admin, consulta, hoje) {
+  const { data: hons, error } = await consulta;
+  if (error) throw new Error(`honorarios: ${error.message}`);
+  if (!hons?.length) return [];
+  const pagsPorHon = {};
+  const ids = hons.map(h => h.id);
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data: pags, error: errPag } = await admin.from('honorario_pagamentos')
+      .select('honorario_id, valor, data_pagamento').in('honorario_id', ids.slice(i, i + 200));
+    if (errPag) break;
+    for (const p of pags || []) (pagsPorHon[p.honorario_id] ||= []).push(p);
+  }
+  return hons.map(h => ({ h, calc: HonCalc.calcular(h, pagsPorHon[h.id] || [], { hoje }) }));
+}
 
 async function rodarHonorarioVencido(admin, res, hoje) {
-  const { data: honorarios } = await admin
+  // Sem data = parcelado/recorrente antigo que conta do cadastro (à vista sem
+  // data nunca vence — a própria conta trata).
+  const honorarios = await honorariosComConta(admin, admin
     .from('honorarios')
-    .select('user_id, descricao, valor, data_vencimento, clientes(nome)')
-    .eq('status', 'pendente')
-    .not('data_vencimento', 'is', null)
-    .lt('data_vencimento', hoje)
-    .order('data_vencimento', { ascending: true });
-
-  if (!honorarios?.length) {
-    return res.status(200).json({ ok: true, tipo: 'honorario_vencido', emailsEnviados: 0, hoje, motivo: 'nada vencido' });
-  }
+    .select(COLS_HONORARIO)
+    .neq('status', 'cancelado')
+    .or(`data_vencimento.lt.${hoje},data_vencimento.is.null`)
+    .order('data_vencimento', { ascending: true }), hoje);
 
   const porUsuario = {};
-  for (const h of honorarios) {
+  for (const { h, calc } of honorarios) {
+    if (!calc.vencidas.length) continue;
     if (!porUsuario[h.user_id]) porUsuario[h.user_id] = [];
     porUsuario[h.user_id].push({
       descricao:  h.descricao,
-      valor:      h.valor,
-      vencimento: h.data_vencimento,
+      valor:      calc.emAtraso,
+      vencimento: calc.vencidas[0].venc,
       cliente:    h.clientes?.nome || null,
+      cobrancas:  calc.vencidas.length,
+      rotulo:     calc.forma === 'avista' ? null : calc.vencidas.map(p => p.rotulo).slice(0, 3).join(', ') + (calc.vencidas.length > 3 ? '…' : ''),
     });
+  }
+
+  if (!Object.keys(porUsuario).length) {
+    return res.status(200).json({ ok: true, tipo: 'honorario_vencido', emailsEnviados: 0, hoje, motivo: 'nada vencido' });
   }
 
   let emailsEnviados = 0;
@@ -625,9 +653,13 @@ async function buscarAgendaSemana(admin, userIds, hoje) {
   const seteDias = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
   const agenda   = {};
 
-  const [{ data: eventos }, { data: honorarios }, { data: tarefas }] = await Promise.all([
+  // Honorário: cada cobrança em aberto que vence na semana (num mensal, a
+  // data_vencimento é só a 1ª cobrança — filtrar por ela sumia com os meses
+  // seguintes). Falha aqui não derruba a agenda.
+  const [{ data: eventos }, honorarios, { data: tarefas }] = await Promise.all([
     admin.from('eventos').select('user_id, titulo, tipo, data, urgencia').in('user_id', userIds).gte('data', hoje).lte('data', seteDias).order('data'),
-    admin.from('honorarios').select('user_id, descricao, data_vencimento, status').in('user_id', userIds).gte('data_vencimento', hoje).lte('data_vencimento', seteDias).in('status', ['pendente', 'vencido']).order('data_vencimento'),
+    honorariosComConta(admin, admin.from('honorarios').select(COLS_HONORARIO).in('user_id', userIds)
+      .neq('status', 'cancelado').or(`data_vencimento.lte.${seteDias},data_vencimento.is.null`), hoje).catch(() => []),
     admin.from('tarefas').select('user_id, titulo, prazo, prioridade').in('user_id', userIds).gte('prazo', hoje).lte('prazo', seteDias).neq('coluna', 'concluida').order('prazo'),
   ]);
 
@@ -635,9 +667,12 @@ async function buscarAgendaSemana(admin, userIds, hoje) {
     if (!agenda[e.user_id]) agenda[e.user_id] = [];
     agenda[e.user_id].push({ tipo: 'evento', descricao: e.titulo, data: e.data, urgencia: e.urgencia });
   }
-  for (const h of honorarios || []) {
-    if (!agenda[h.user_id]) agenda[h.user_id] = [];
-    agenda[h.user_id].push({ tipo: 'honorario', descricao: h.descricao, data: h.data_vencimento, urgencia: h.status === 'vencido' ? 'urgente' : 'baixa' });
+  for (const { h, calc } of honorarios) {
+    for (const p of calc.parcelas) {
+      if (p.falta <= 0 || !p.venc || p.venc < hoje || p.venc > seteDias) continue;
+      if (!agenda[h.user_id]) agenda[h.user_id] = [];
+      agenda[h.user_id].push({ tipo: 'honorario', descricao: calc.forma === 'avista' ? h.descricao : `${h.descricao} (${p.rotulo})`, data: p.venc, urgencia: 'baixa' });
+    }
   }
   for (const t of tarefas || []) {
     if (!agenda[t.user_id]) agenda[t.user_id] = [];
@@ -866,9 +901,10 @@ async function enviarAlertaHonorarioVencido(para, nome, lista, hoje) {
 
   const blocos = lista.map(h => {
     const dias = Math.round((new Date(hoje + 'T12:00:00') - new Date(h.vencimento + 'T12:00:00')) / 86400000);
+    const varias = h.cobrancas > 1 ? ` · ${h.cobrancas} cobranças` : '';
     return `<div style="background:#fef2f2;border-left:4px solid #be123c;border-radius:6px;padding:14px 16px;margin-bottom:10px">
-      <div style="font-size:13px;font-weight:700;color:#9f1239">R$ ${_fmtMoedaBR(h.valor)} — vencido há ${dias} dia${dias > 1 ? 's' : ''}</div>
-      <div style="font-size:12px;color:#111827;margin-top:4px">${truncar(h.descricao, 70)}</div>
+      <div style="font-size:13px;font-weight:700;color:#9f1239">R$ ${_fmtMoedaBR(h.valor)} em atraso — há ${dias} dia${dias > 1 ? 's' : ''}${varias}</div>
+      <div style="font-size:12px;color:#111827;margin-top:4px">${truncar(h.descricao, 70)}${h.rotulo ? ` <span style="color:#6b7280">(${h.rotulo})</span>` : ''}</div>
       <div style="font-size:11px;color:#9ca3af;margin-top:2px">${formatarData(h.vencimento)}${h.cliente ? ' · ' + h.cliente : ''}</div>
     </div>`;
   }).join('');
@@ -878,7 +914,7 @@ async function enviarAlertaHonorarioVencido(para, nome, lista, hoje) {
 <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
   <div style="background:#be123c;padding:24px 28px"><div style="font-size:18px;font-weight:700;color:#fff">Meu Processo</div><div style="font-size:12px;color:rgba(255,255,255,.7);margin-top:2px">Honorário vencido</div></div>
   <div style="padding:24px 28px">
-    <div style="font-size:15px;color:#111827;margin-bottom:16px"><strong>${nome}</strong>, você tem ${lista.length > 1 ? `${lista.length} honorários vencidos, somando R$ ${_fmtMoedaBR(total)}` : 'um honorário vencido'}. Marque como pago no sistema assim que receber, pra parar de receber esse aviso.</div>
+    <div style="font-size:15px;color:#111827;margin-bottom:16px"><strong>${nome}</strong>, você tem ${lista.length > 1 ? `${lista.length} honorários vencidos, somando R$ ${_fmtMoedaBR(total)}` : 'um honorário vencido'}. Quando receber, registre o pagamento no sistema (vale pagamento parcial ou adiantado) — o aviso para sozinho.</div>
     ${blocos}
   </div>
   ${btnDashboard('#be123c')}

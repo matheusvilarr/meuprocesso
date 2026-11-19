@@ -78,13 +78,6 @@ body {
 
 body.sidebar-collapsed .sidebar { width: var(--sidebar-w-collapsed); }
 
-/* Clicar numa área vazia da barra abre/fecha (ver _sidebarCliqueVazio).
-   O cursor indica que a barra inteira é clicável; os itens têm o seu próprio. */
-@media (min-width: 769px) {
-  .sidebar { cursor: e-resize; transition: width .18s ease; }
-  body:not(.sidebar-collapsed) .sidebar { cursor: w-resize; }
-  .sidebar .nav-item, .sidebar a, .sidebar button, .sidebar .logo-mark, .sidebar .sidebar-user { cursor: pointer; }
-}
 
 .sidebar-logo {
   padding: 10px 20px 6px;
@@ -736,7 +729,30 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
 .tb-caixa {
   background: var(--white); border: 1px solid var(--gray-200); border-radius: var(--radius-lg);
   overflow: hidden; box-shadow: 0 1px 2px rgba(16, 24, 40, .04);
+  container-type: inline-size;
 }
+/* A tabela se ajusta ao espaço que sobra (não à tela): com a barra lateral
+   inteira, num notebook de 1366px a "Última movimentação" ficava com ~40px.
+   Médio: o tribunal vai pra linha do número. Pequeno: sai também o próximo
+   prazo (continua no "espiar"). */
+.tb-trib-inline { display: none; margin: 3px 0 0 2px; font-size: 11.5px; }
+/* .tb-caixa na frente: as larguras normais vêm mais abaixo no arquivo e
+   ganhariam destas (container query não aumenta a especificidade). */
+/* No celular (até 768px) a tabela já vira lista — regras próprias lá embaixo. */
+@media (min-width: 769px) {
+  @container (max-width: 1080px) {
+    .tb-caixa .tb .tb-col-trib { display: none; }
+    .tb-caixa .tb-trib-inline { display: block; }
+    .tb-caixa .tb th:nth-child(3) { width: 24%; }
+    .tb-caixa .tb .tb-col-data   { width: 104px; }
+    .tb-caixa .tb .tb-col-prazo  { width: 112px; }
+    .tb-caixa .tb .tb-col-status { width: 112px; }
+  }
+  @container (max-width: 760px) {
+    .tb-caixa .tb .tb-col-prazo { display: none; }
+  }
+}
+@media (max-width: 768px) { .tb-caixa .tb-trib-inline { display: block; } }
 .tb { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13.5px; }
 .tb th {
   text-align: left; font-size: 12px; font-weight: 500; color: var(--gray-600);
@@ -989,7 +1005,11 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
 .detail-field label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-400); font-weight: 500; }
 .detail-field p     { font-size: 13px; font-weight: 500; color: var(--gray-800); margin-top: 3px; }
 
-.detail-layout { display: grid; grid-template-columns: 1fr 320px; gap: 20px; }
+.detail-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; }
+/* A coluna da direita reaproveita .dash-right, que no painel inicial vai pra
+   3ª coluna (grid-column: 3) — aqui só existem 2, e ela era empurrada pra uma
+   3ª coluna invisível, cortada fora da tela. */
+.detail-layout > .dash-right { grid-column: auto; min-width: 0; }
 .detail-left   { display: flex; flex-direction: column; gap: 16px; }
 
 /* Tabs */
@@ -1424,7 +1444,9 @@ body.sidebar-collapsed .main { margin-left: var(--sidebar-w-collapsed); }
   display: flex; align-items: center; gap: 4px;
 }
 
-.task-cols { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+/* minmax(0, 1fr): com "1fr" a coluna não fica menor que o texto mais comprido
+   de um cartão e a 4ª coluna saía da tela em notebook (1366px). */
+.task-cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
 
 .task-col-body {
   min-height: 120px; padding: 4px 0; flex: 1 1 auto;
@@ -1955,7 +1977,7 @@ body.kanban-dragging .task-col-body {
 /* ── HONORÁRIOS: KPIs ─────────────────────────────────── */
 .hon-kpi-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 24px;
 }
@@ -2129,15 +2151,108 @@ body.kanban-dragging .task-col-body {
 
 /* Modo oculto — blur nos valores */
 #page-honorarios.hon-oculto .hon-kpi-val,
-#page-honorarios.hon-oculto .hon-valor {
+#page-honorarios.hon-oculto .hon-valor,
+#page-honorarios.hon-oculto .hon-sit,
+#page-honorarios.hon-oculto .hon-card-sub {
   filter: blur(7px);
   user-select: none;
   transition: filter .2s;
 }
 #page-honorarios:not(.hon-oculto) .hon-kpi-val,
-#page-honorarios:not(.hon-oculto) .hon-valor {
+#page-honorarios:not(.hon-oculto) .hon-valor,
+#page-honorarios:not(.hon-oculto) .hon-sit,
+#page-honorarios:not(.hon-oculto) .hon-card-sub {
   filter: none;
   transition: filter .2s;
+}
+
+/* ── Honorários: situação no cartão ── */
+.hon-valor-sufixo { font-size: 12px; font-weight: 600; color: var(--gray-400); margin-left: 2px; }
+.hon-card-sub { font-size: 11px; color: var(--gray-600); margin-top: -4px; font-variant-numeric: tabular-nums; }
+.hon-sit { font-size: 11.5px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.hon-sit.atraso  { color: var(--red); }
+.hon-sit.parcial { color: var(--amber); }
+.hon-sit.ok      { color: var(--green); }
+.hon-status-dica { font-size: 11.5px; color: var(--gray-400); margin-top: 8px; line-height: 1.45; }
+
+/* ── Honorários: cobranças e pagamentos (Editar honorário) ── */
+.hon-fin {
+  border: 1px solid var(--gray-100); border-radius: 10px; padding: 14px;
+  background: var(--gray-50); display: flex; flex-direction: column; gap: 10px; min-width: 0;
+}
+.hon-fin:empty { display: none; }
+.hon-fin-topo { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.hon-fin-titulo, .hon-fin-subtitulo, .hon-previa-titulo {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--gray-600);
+}
+.hon-fin-subtitulo { color: var(--gray-400); margin-top: 4px; }
+.hon-fin-resumo { font-size: 13px; color: var(--gray-800); }
+.hon-fin-resumo strong { color: var(--navy); font-variant-numeric: tabular-nums; }
+.hon-fin-resumo .atraso { color: var(--red); font-weight: 600; }
+.hon-fin-aviso { font-size: 12px; background: var(--amber-light); color: var(--amber); padding: 8px 10px; border-radius: 6px; line-height: 1.45; }
+
+.hon-parc-tab {
+  width: 100%; border-collapse: collapse; font-size: 12.5px; background: var(--white);
+  border: 1px solid var(--gray-100); border-radius: 8px; overflow: hidden;
+}
+.hon-parc-tab th {
+  text-align: left; font-size: 10.5px; font-weight: 600; color: var(--gray-400); text-transform: uppercase;
+  letter-spacing: .04em; padding: 7px 10px; border-bottom: 1px solid var(--gray-100);
+}
+.hon-parc-tab td { padding: 7px 10px; border-bottom: 1px solid var(--gray-50); color: var(--gray-800); vertical-align: middle; }
+.hon-parc-tab td.num { white-space: nowrap; }
+.hon-parc-venc { font-size: 11px; color: var(--gray-400); margin-top: 1px; white-space: nowrap; }
+.hon-parc-tab tr:last-child td { border-bottom: none; }
+.hon-parc-tab .num { text-align: right; font-variant-numeric: tabular-nums; }
+.hon-parc-ocultas td { color: var(--gray-400); font-size: 11.5px; font-style: italic; }
+.hon-parc-chip { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 10px; line-height: 1.4; }
+.hon-parc-chip.ok      { background: var(--green-light); color: var(--green); }
+.hon-parc-chip.parcial { background: var(--amber-light); color: var(--amber); }
+.hon-parc-chip.atraso  { background: var(--red-light);   color: var(--red); }
+.hon-parc-chip.aberta  { background: #eff6ff;            color: #1d4ed8; }
+
+.hon-pag-lista { display: flex; flex-direction: column; gap: 6px; }
+.hon-pag-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: var(--white); border: 1px solid var(--gray-100); border-radius: 8px; padding: 8px 10px; font-size: 12.5px;
+}
+.hon-pag-item strong { color: var(--green); font-variant-numeric: tabular-nums; }
+.hon-pag-item span { color: var(--gray-600); }
+.hon-pag-obs { font-size: 11.5px; color: var(--gray-400); margin-top: 2px; }
+.hon-pag-del {
+  background: none; border: none; color: var(--gray-400); cursor: pointer; font-size: 15px;
+  padding: 4px; border-radius: 6px; flex-shrink: 0;
+}
+.hon-pag-del:hover { color: var(--red); background: var(--red-light); }
+.hon-pag-vazio { font-size: 12.5px; color: var(--gray-400); }
+
+/* ── Honorários: janela "Registrar pagamento" ── */
+.hon-pag-resumo { background: var(--gray-50); border-radius: 8px; padding: 10px 12px; }
+.hon-pag-resumo-desc { font-size: 13.5px; font-weight: 600; color: var(--navy); }
+.hon-pag-resumo-meta { font-size: 12px; color: var(--gray-600); margin: 2px 0 4px; }
+.hon-pag-atalhos { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -4px; }
+.hon-pag-atalhos:empty { display: none; }
+.hon-pag-atalho {
+  background: var(--white); border: 1px solid var(--gray-200); border-radius: 20px;
+  padding: 4px 10px; font-size: 12px; color: var(--gray-600); cursor: pointer;
+}
+.hon-pag-atalho:hover { border-color: var(--navy); color: var(--navy); }
+.hon-pag-previa { border: 1px dashed var(--gray-200); border-radius: 8px; padding: 10px 12px; }
+.hon-pag-previa:empty { display: none; }
+.hon-previa-titulo { color: var(--gray-400); margin-bottom: 6px; }
+.hon-pag-previa ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.hon-pag-previa li { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; color: var(--gray-800); }
+.hon-pag-previa li em { font-style: normal; color: var(--gray-400); font-size: 11.5px; }
+.hon-pag-previa li.quita strong { color: var(--green); }
+.hon-pag-previa li.abate strong { color: var(--amber); }
+.hon-pag-previa li.mais { color: var(--gray-400); font-size: 12px; }
+.hon-previa-credito { margin-top: 8px; font-size: 12px; color: var(--amber); }
+
+@media (max-width: 600px) {
+  .hon-parc-tab { font-size: 12px; }
+  .hon-parc-tab td, .hon-parc-tab th { padding: 6px 6px; }
+  .hon-parc-tab td:last-child .hon-parc-venc { white-space: normal; }
+  .hon-pag-previa li { flex-direction: column; gap: 0; }
 }
 
 .hon-tipo-badge {
@@ -2579,6 +2694,11 @@ body.oab-pendente { overflow: hidden; }
   .dash-left  { grid-column: 1; }
   .dash-right { grid-column: 1; }
   .task-cols  { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+/* Detalhe do processo: com a barra lateral inteira, abaixo disso a coluna de
+   movimentações ficava estreita demais ao lado da de prazos — empilha. */
+@media (max-width: 1150px) {
+  .detail-layout { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ── 768px — mobile ── */

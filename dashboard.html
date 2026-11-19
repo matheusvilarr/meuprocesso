@@ -28,7 +28,6 @@
 </script>
 </head>
 <body>
-<script>document.body.classList.add('sidebar-collapsed');</script>
 
 <!-- SIDEBAR -->
 <aside class="sidebar">
@@ -1408,7 +1407,7 @@
 
     <!-- KPIs -->
     <div class="hon-kpi-row" id="hon-kpi-row">
-      <div class="hon-kpi-card" data-widget="receber">
+      <div class="hon-kpi-card" data-widget="receber" title="Tudo o que falta receber. Mensalidades contam só até o fim deste mês.">
         <div class="hon-kpi-left">
           <div class="hon-kpi-icon blue"><i class="ti ti-coin"></i></div>
           <div>
@@ -1468,9 +1467,9 @@
       </div>
       <select id="hon-filtro-status" class="filter-select" onchange="filtrarHonorarios()">
         <option value="">Todos os status</option>
-        <option value="pendente">Pendente</option>
-        <option value="vencido">Vencido</option>
-        <option value="pago">Pago</option>
+        <option value="pendente">Em aberto (em dia)</option>
+        <option value="vencido">Com atraso</option>
+        <option value="pago">Quitado</option>
         <option value="cancelado">Cancelado</option>
       </select>
       <select id="hon-filtro-tipo" class="filter-select" onchange="filtrarHonorarios()">
@@ -1655,13 +1654,19 @@
           </select>
         </div>
         <div class="form-field">
-          <label class="form-label">Valor total (R$) *</label>
+          <label class="form-label" id="hon-valor-label">Valor total (R$) *</label>
           <input id="hon-valor" class="form-input" type="text" inputmode="decimal" placeholder="0,00" oninput="honCalcParcela()">
         </div>
       </div>
-      <div class="form-field">
-        <label class="form-label">Valor de entrada (R$)</label>
-        <input id="hon-entrada" class="form-input" type="text" inputmode="decimal" placeholder="0,00 — opcional">
+      <div class="form-row-2">
+        <div class="form-field">
+          <label class="form-label">Já recebido / entrada (R$)</label>
+          <input id="hon-entrada" class="form-input" type="text" inputmode="decimal" placeholder="0,00 — opcional">
+        </div>
+        <div class="form-field">
+          <label class="form-label">Recebido em</label>
+          <input id="hon-entrada-data" class="form-input" type="date">
+        </div>
       </div>
 
       <!-- Forma de cobrança -->
@@ -1781,14 +1786,13 @@
           </select>
         </div>
         <div class="form-field">
-          <label class="form-label">Valor total (R$) *</label>
+          <label class="form-label" id="hon-edit-valor-label">Valor total (R$) *</label>
           <input id="hon-edit-valor" class="form-input" type="text" inputmode="decimal" oninput="honEditCalcParcela()">
         </div>
       </div>
-      <div class="form-field">
-        <label class="form-label">Valor de entrada (R$)</label>
-        <input id="hon-edit-entrada" class="form-input" type="text" inputmode="decimal" placeholder="0,00 — opcional">
-      </div>
+
+      <!-- Cobranças e pagamentos (preenchido por _renderFinanceiroHon) -->
+      <div id="hon-edit-financeiro" class="hon-fin"></div>
 
       <!-- Forma de cobrança (edit) -->
       <div>
@@ -1854,18 +1858,11 @@
       <div>
         <label class="form-label" style="display:block;margin-bottom:8px">Status</label>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <button type="button" class="hon-pill" onclick="honEditSetStatus('pendente')"  id="hon-epill-pendente"> <i class="ti ti-clock"></i> Pendente</button>
-          <button type="button" class="hon-pill" onclick="honEditSetStatus('vencido')"   id="hon-epill-vencido">  <i class="ti ti-alert-circle"></i> Vencido</button>
-          <button type="button" class="hon-pill" onclick="honEditSetStatus('pago')"      id="hon-epill-pago">     <i class="ti ti-check"></i> Pago</button>
+          <button type="button" class="hon-pill" onclick="honEditSetStatus('ativo')"     id="hon-epill-ativo">    <i class="ti ti-circle-check"></i> Ativo</button>
           <button type="button" class="hon-pill" onclick="honEditSetStatus('cancelado')" id="hon-epill-cancelado"><i class="ti ti-ban"></i> Cancelado</button>
         </div>
         <input type="hidden" id="hon-edit-status" value="pendente">
-        <div id="hon-pgto-wrap" style="display:none;margin-top:12px">
-          <div class="form-field">
-            <label class="form-label">Data de pagamento</label>
-            <input id="hon-edit-pgto" class="form-input" type="date">
-          </div>
-        </div>
+        <div class="hon-status-dica">Pago, vencido e em aberto saem dos pagamentos registrados acima. Cancelado para de cobrar e sai do "A receber".</div>
       </div>
 
       <div class="form-field">
@@ -1880,6 +1877,42 @@
       <button class="btn-secondary" onclick="closeModal('modal-editar-honorario')">Cancelar</button>
       <button class="btn-primary" onclick="atualizarHonorario()">
         <i class="ti ti-check"></i> Salvar
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Registrar pagamento de honorário -->
+<div class="modal-backdrop" id="modal-pagamento-hon" onclick="closeModalOutside(event,'modal-pagamento-hon')">
+  <div class="modal" style="max-width:460px">
+    <div class="modal-header">
+      <span class="modal-title"><i class="ti ti-cash" style="margin-right:6px;opacity:.6"></i>Registrar pagamento</span>
+      <span class="modal-close" onclick="closeModal('modal-pagamento-hon')"><i class="ti ti-x"></i></span>
+    </div>
+    <div class="modal-body" style="display:flex;flex-direction:column;gap:14px">
+      <input type="hidden" id="hon-pag-hid">
+      <div class="hon-pag-resumo" id="hon-pag-resumo"></div>
+      <div class="form-row-2">
+        <div class="form-field">
+          <label class="form-label">Valor recebido (R$) *</label>
+          <input id="hon-pag-valor" class="form-input" type="text" inputmode="decimal" placeholder="0,00" oninput="_honPreviaPagamento()">
+        </div>
+        <div class="form-field">
+          <label class="form-label">Recebido em *</label>
+          <input id="hon-pag-data" class="form-input" type="date" onchange="_honPreviaPagamento()">
+        </div>
+      </div>
+      <div class="hon-pag-atalhos" id="hon-pag-atalhos"></div>
+      <div class="form-field">
+        <label class="form-label">Observação</label>
+        <input id="hon-pag-obs" class="form-input" type="text" placeholder="Ex: Pix, adiantamento combinado…">
+      </div>
+      <div class="hon-pag-previa" id="hon-pag-previa"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('modal-pagamento-hon')">Cancelar</button>
+      <button class="btn-primary" id="hon-pag-salvar" onclick="salvarPagamentoHon()">
+        <i class="ti ti-check"></i> Registrar
       </button>
     </div>
   </div>
@@ -2688,6 +2721,7 @@
 
 <script src="js/supabase-client.js"></script>
 <script src="js/auth-guard.js"></script>
+<script src="js/honorarios-calc.js"></script>
 <script src="js/dashboard.js"></script>
 </body>
 </html>
