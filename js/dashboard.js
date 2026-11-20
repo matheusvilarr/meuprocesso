@@ -989,14 +989,17 @@ function selecionarAbaBusca(aba, btn) {
   }
 }
 
-function _detectarArea(siglaTribunal, nomeClasse) {
+// DataJud não manda um campo pronto de "área do direito" — classe, órgão
+// julgador e assuntos são os três sinais que têm (classe isolada costuma ser
+// genérica demais: "Cumprimento de Sentença" não diz nada sobre a área).
+function _detectarArea(siglaTribunal, ...textos) {
   const t = (siglaTribunal || '').toUpperCase();
-  const c = (nomeClasse    || '').toUpperCase();
+  const c = textos.filter(Boolean).join(' ').toUpperCase();
   if (t.startsWith('TRT') || c.includes('TRABALH') || c.includes('RECLAMAÇÃO')) return 'Trabalhista';
   if (c.includes('FAMÍL') || c.includes('DIVÓRC') || c.includes('ALIMENT') || c.includes('GUARDA') || c.includes('ADOÇÃO')) return 'Família';
-  if (c.includes('TRIBUT') || c.includes('FISCAL') || c.includes('EXECUÇÃO FISCAL')) return 'Tributário';
+  if (c.includes('TRIBUT') || c.includes('FISCAL') || c.includes('EXECUÇÃO FISCAL') || c.includes('FAZENDA PÚBLICA')) return 'Tributário';
   if (c.includes('PREVIDÊN') || c.includes('BENEFÍCIO') || c.includes('INSS') || c.includes('APOSENTAD')) return 'Previdenciário';
-  if (c.includes('CRIMIN') || c.includes('PENAL') || c.includes('CRIME') || c.includes('INQUÉRIT')) return 'Criminal';
+  if (c.includes('CRIMIN') || c.includes('PENAL') || c.includes('CRIME') || c.includes('INQUÉRIT') || c.includes('JÚRI')) return 'Criminal';
   return 'Cível';
 }
 
@@ -4056,6 +4059,7 @@ async function salvarApelido() {
 // jeito de completar o número depois de cadastrado.
 function abrirEditarProcesso() {
   if (!_processoAtual) return;
+  document.getElementById('ep-area').value              = _processoAtual.area || 'Cível';
   document.getElementById('ep-classe').value           = _processoAtual.classe || '';
   document.getElementById('ep-tribunal').value         = _processoAtual.tribunal || '';
   document.getElementById('ep-orgao-julgador').value   = _processoAtual.orgao_julgador || '';
@@ -4082,6 +4086,7 @@ async function salvarEdicaoProcesso() {
   const btn = document.getElementById('btn-salvar-edicao-processo');
 
   const payload = {
+    area:             document.getElementById('ep-area').value,
     classe:           document.getElementById('ep-classe').value.trim() || null,
     tribunal:         document.getElementById('ep-tribunal').value.trim() || null,
     orgao_julgador:   document.getElementById('ep-orgao-julgador').value.trim() || null,
@@ -8245,7 +8250,7 @@ async function _importarComMerge(d) {
     numero,
     nome:                _tituloProcesso(d.classe) || numero || '',
     cliente:             clientePart?.nome    || '',
-    area:                'Cível',
+    area:                _detectarArea(d.tribunal, d.classe, d.orgaoJulgador, (d.assuntos || []).join(' ')),
     tribunal:            d.tribunal || _extrairTribunalDeIndex(d._datajudIndex) || '',
     parte_contraria:     '',
     // Sem índice o processo fica fora da fila — deriva do número como o servidor faz
@@ -9150,7 +9155,7 @@ async function importarProcessoDJe(docIndex) {
     datajud_index:   _indiceDoNumero(numero),
     cliente:         clienteFinal,
     parte_contraria: doc.partes?.contrario?.length > 2 ? doc.partes.contrario : null,
-    area:            _detectarArea(doc.siglaTribunal, doc.nomeClasse),
+    area:            _detectarArea(doc.siglaTribunal, doc.nomeClasse, doc.nomeOrgao),
     classe:          _tituloProcesso(doc.nomeClasse) || null,
     orgao_julgador:  doc.nomeOrgao   || null,
     movimentos_recentes: [novoMov],
@@ -9255,7 +9260,7 @@ async function importarTodosDJe() {
       datajud_index:   _indiceDoNumero(numero),
       cliente:         doc.partes?.cliente   || null,
       parte_contraria: doc.partes?.contrario || null,
-      area:            _detectarArea(doc.siglaTribunal, doc.nomeClasse),
+      area:            _detectarArea(doc.siglaTribunal, doc.nomeClasse, doc.nomeOrgao),
       classe:          _tituloProcesso(doc.nomeClasse) || null,
       orgao_julgador:  doc.nomeOrgao   || null,
       movimentos_recentes: [{

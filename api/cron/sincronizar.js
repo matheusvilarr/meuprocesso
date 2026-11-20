@@ -20,7 +20,7 @@ import djenCadernos, { importarHistoricoOab } from '../../lib/djen-cadernos.js';
 import {
   parsarData, decodificarBuffer, logErro, chaveMov, movimentosDosHits,
   ehMovDJEN, datajudIndexFromNumero, buscarOabsUsuarios, corrigirMojibake,
-  normalizarNumeroCNJ, tituloProcesso, limparLogsAntigos,
+  normalizarNumeroCNJ, tituloProcesso, detectarArea, limparLogsAntigos,
   abrirExecucao, fecharExecucao, enviarEmail, cabecalho, rodape, btnDashboard,
   inferirTratamento, usuariosComAcesso, enviarAvisoReativacao, normalizarNumeroSuperior,
   montarNovidadesDatajud, gravarComNovidades,
@@ -564,7 +564,7 @@ async function rodarFilaStj(admin, res) {
       // indexar, sem precisar passar pela fila do STJ de novo.
       const semDadosDatajud = !hits.length;
       const d = semDadosDatajud
-        ? { numero, tribunal: null, _datajudIndex: index, classe: null, orgaoJulgador: null, dataAjuizamento: null, partes: [], movimentos: [] }
+        ? { numero, tribunal: null, _datajudIndex: index, classe: null, orgaoJulgador: null, assuntos: [], dataAjuizamento: null, partes: [], movimentos: [] }
         : normalizarDescoberta(hits[0]._source, index);
       d.numero     = numero;
       d.movimentos = semDadosDatajud ? [] : movimentosDosHits(hits);
@@ -662,7 +662,7 @@ async function rodarFilaStj(admin, res) {
           numero,
           nome:                     d.classe || numero,
           cliente:                  clientePart?.nome || '',
-          area:                     'Cível',
+          area:                     detectarArea(d.tribunal, d.classe, d.orgaoJulgador, (d.assuntos || []).join(' ')),
           tribunal:                 d.tribunal || '',
           datajud_index:            d._datajudIndex || index,
           classe:                   d.classe || null,
@@ -888,6 +888,7 @@ function normalizarDescoberta(p, index) {
     _datajudIndex: index,
     classe: p.classe?.nome ? tituloProcesso(p.classe.nome) : null,
     orgaoJulgador: p.orgaoJulgador?.nome ? corrigirMojibake(p.orgaoJulgador.nome) : null,
+    assuntos: (p.assuntos || []).map(a => corrigirMojibake(a.nome)),
     dataAjuizamento: parsarData(p.dataAjuizamento),
     partes: (p.partes || []).map(parte => ({
       nome: parte.nome,
