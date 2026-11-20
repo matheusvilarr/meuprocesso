@@ -990,7 +990,7 @@ function renderSincronizacoes() {
 function explicarErro(origem, mensagem) {
   const m = String(mensagem || '');
   if (origem === 'cron:djen' && /403/.test(m)) return 'Código antigo (DJEN por OAB, anterior a 29/09) bloqueado pela API do DJEN. Não deve mais aparecer.';
-  if (/espera-curta/.test(m))                 return 'Nossa consulta expirou antes de o CNJ responder. Desde 13/11 esperamos até 65s (antes eram 58s — 2s antes do próprio CNJ desistir aos 60s —, e antes disso 28s).';
+  if (/espera-curta/.test(m))                 return 'Nossa consulta expirou antes de o CNJ responder. Desde 20/11 esperamos até 65s (antes eram 58s — 2s antes do próprio CNJ desistir aos 60s —, e antes disso 28s).';
   if (/timeout|aborted/i.test(m))             return 'Consulta ao DataJud expirou. Anterior a 30/09 o limite era 28s, abaixo do tempo normal de resposta do CNJ — a maioria destes era falha nossa, já corrigida.';
   if (/DataJud respondeu 5\d\d/.test(m))       return 'Erro no servidor do DataJud (CNJ). Tentado de novo na próxima execução.';
   if (/DataJud respondeu 429/.test(m))         return 'DataJud limitou o número de consultas. Tentado de novo na próxima execução.';

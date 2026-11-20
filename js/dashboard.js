@@ -4632,19 +4632,47 @@ function _atualizacaoDatajud(proc, resultado) {
   return { upd, novos, importantes };
 }
 
+let _sincronizandoTodos = false;
+
 async function sincronizarTodos() {
+  // Com o DataJud lento (~60s por resposta), uma passada por 150 processos leva
+  // horas — sem a trava, o intervalo de 30 min empilhava passadas na mesma aba.
+  if (_sincronizandoTodos) return;
+  _sincronizandoTodos = true;
+  try {
+    await _sincronizarTodos();
+  } finally {
+    _sincronizandoTodos = false;
+  }
+}
+
+async function _sincronizarTodos() {
   const agora = Date.now();
   const procs = (window._processosDB || []).filter(p =>
     p.datajud_index && p.numero && !window._sharedSet?.[p.id] &&
     !(p.ultima_verificacao && agora - new Date(p.ultima_verificacao).getTime() < SYNC_PULAR_RECENTE_MS)
   );
   if (!procs.length) return;
+  // Ordem aleatória: com a parada por falhas seguidas, os mesmos processos no
+  // começo da lista barrariam todos os outros em toda passada.
+  for (let i = procs.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [procs[i], procs[j]] = [procs[j], procs[i]];
+  }
 
   let atualizados = 0;
+  let falhasSeguidas = 0;
 
   for (const p of procs) {
     try {
       const res  = await _apiFetch(`/api/buscar-processo?tipo=numero&numero=${encodeURIComponent(p.numero)}`);
+      // 502/504 = DataJud fora do ar (404 é resposta: só não achou o processo).
+      // 3 seguidas: desiste desta passada, a próxima tenta em 30 min.
+      if (res.status === 502 || res.status === 504) {
+        if (++falhasSeguidas >= 3) break;
+        continue;
+      }
+      falhasSeguidas = 0;
       const data = await res.json();
       if (!res.ok || !data.resultados?.length) continue;
 
@@ -4654,11 +4682,21 @@ async function sincronizarTodos() {
       // ainda = número) precisa passar adiante — é a única forma de ele um
       // dia ganhar nome/classe/tribunal, já que isso só acontece dentro de
       // _atualizacaoDatajud(). Sem este "e", ele ficava preso pra sempre.
-      if (hash === p.movimentos_hash && p.nome !== p.numero) continue;
+      if (hash === p.movimentos_hash && p.nome !== p.numero) {
+        // Sem novidade também é consulta que deu certo (igual ao "sem-mudanca"
+        // do cron): sai da fila do servidor e desta aba pelas próximas 6h.
+        const verificado = new Date().toISOString();
+        p.ultima_verificacao = verificado;
+        await _supabase.from('processos').update({
+          ultima_verificacao: verificado, sync_ultima_tentativa: verificado, sync_falhas: 0, sync_ultimo_erro: null,
+        }).eq('id', p.id);
+        continue;
+      }
 
       // { ...p, ...fresco }: o fresco só traz os campos de novidade; nome e
       // número vêm do cache (sem eles o processo descoberto nunca ganhava nome).
       const r = await _gravarComNovidades(p.id, fresco => _atualizacaoDatajud({ ...p, ...fresco }, d));
+      if (r.gravado) p.ultima_verificacao = new Date().toISOString();
       if (r.gravado && r.importantes?.length) atualizados++;
     } catch (_) {}
   }
