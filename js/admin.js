@@ -990,7 +990,7 @@ function renderSincronizacoes() {
 function explicarErro(origem, mensagem) {
   const m = String(mensagem || '');
   if (origem === 'cron:djen' && /403/.test(m)) return 'Código antigo (DJEN por OAB, anterior a 29/09) bloqueado pela API do DJEN. Não deve mais aparecer.';
-  if (/espera-curta/.test(m))                 return 'Nossa consulta expirou antes de o CNJ responder. Desde 30/09 esperamos até 45s (antes eram 28s, e isso cortava respostas que estavam chegando).';
+  if (/espera-curta/.test(m))                 return 'Nossa consulta expirou antes de o CNJ responder. Desde 13/11 esperamos até 65s (antes eram 58s — 2s antes do próprio CNJ desistir aos 60s —, e antes disso 28s).';
   if (/timeout|aborted/i.test(m))             return 'Consulta ao DataJud expirou. Anterior a 30/09 o limite era 28s, abaixo do tempo normal de resposta do CNJ — a maioria destes era falha nossa, já corrigida.';
   if (/DataJud respondeu 5\d\d/.test(m))       return 'Erro no servidor do DataJud (CNJ). Tentado de novo na próxima execução.';
   if (/DataJud respondeu 429/.test(m))         return 'DataJud limitou o número de consultas. Tentado de novo na próxima execução.';
@@ -1599,7 +1599,7 @@ function renderExecucoes(d) {
 
   wrap.innerHTML = `
     <h3 style="font-size:14px;margin:0 0 4px;">Últimas execuções</h3>
-    <p style="font-size:12px;color:#6b7280;margin:0 0 12px;">"Morreu no meio" = a função começou e não chegou ao fim, quase sempre por estourar os 120s da Vercel. "Fila no fim" = quantos ainda restavam para consultar.</p>
+    <p style="font-size:12px;color:#6b7280;margin:0 0 12px;">"Morreu no meio" = a função começou e não chegou ao fim, quase sempre por estourar os 180s da Vercel. "Fila no fim" = quantos ainda restavam para consultar.</p>
     <div class="adm-table-wrap"><table class="adm-table">
       <thead><tr><th>Quando</th><th>Cron</th><th>Situação</th><th>Duração</th><th>Processados</th><th>Resultado</th><th>Fila no fim</th></tr></thead>
       <tbody>${execs.map(e => {

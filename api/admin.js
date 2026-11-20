@@ -1024,7 +1024,7 @@ async function acaoSaude(req, res, admin) {
   }
 
   if (morreram24h) add('critico', `${morreram24h} execução(ões) automática(s) morreram no meio nas últimas 24h`,
-    'A função começou e não chegou ao fim — quase sempre estouro do tempo máximo da Vercel (120s). Os processos que ficaram de fora voltam para a fila, mas a vazão cai.',
+    'A função começou e não chegou ao fim — quase sempre estouro do tempo máximo da Vercel (180s). Os processos que ficaram de fora voltam para a fila, mas a vazão cai.',
     { tipo: 'aba', aba: 'execucoes', label: 'Ver execuções' });
 
   if (cobertura.voltaDias && cobertura.voltaDias > 2) add('atencao',

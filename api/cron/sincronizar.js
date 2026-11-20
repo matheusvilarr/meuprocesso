@@ -218,16 +218,20 @@ async function rodarDatajud(admin, res, hoje) {
 
 // Medido em 30/09 e 05/10/2026 contra a API pública: o DataJud enfileira em
 // vez de recusar, mediana de resposta ~35s, e o próprio CNJ tem um limite
-// interno e desiste sozinho aos 60s (HTTP 504). Esperar além disso é tempo
-// jogado fora; por isso a espera por requisição é 58s — entre o que ele
-// costuma levar e o ponto em que ele mesmo desiste.
+// interno e desiste sozinho aos 60s (HTTP 504).
 // (Até 09/10/2026 havia também uma concorrência de 40 consultas simultâneas,
 // uma por processo — descontinuada quando o sync passou a agrupar por
 // tribunal via query "terms"; ver LOTE_DATAJUD_CONCORRENCIA mais abaixo.)
 const JANELA_INICIAR_MS    = 55000;  // até quando novas consultas são iniciadas
-const ESPERA_DATAJUD_MS    = 58000;  // quanto esperamos cada resposta
-// 55s iniciando + 58s da última resposta + gravação = ~115s, dentro do
-// maxDuration de 120s do vercel.json — a margem é pequena, não dá pra subir mais.
+const ESPERA_DATAJUD_MS    = 65000;  // quanto esperamos cada resposta
+// Era 58s (2s ANTES do próprio CNJ desistir aos 60s) — 160 dos 287 erros/dia
+// de sincronização eram esse auto-abortar chegando cedo demais, tirando uma
+// resposta que já estava a caminho (sucesso, ou pelo menos o 504 do próprio
+// CNJ, limpo e classificável). 65s dá 5s de folga depois do ponto em que o
+// CNJ já desistiu sozinho. 55s iniciando + 65s da última resposta + gravação
+// ≈ 122s — por isso o maxDuration deste arquivo subiu pra 180s no
+// vercel.json (checado em 13/11/2026: Hobby hoje aceita até 300s, bem mais
+// do que os 120s de quando esse número foi escolhido originalmente).
 
 // Pool contínuo: assim que uma consulta termina, a próxima começa. Antes era
 // em lotes, e o lote inteiro ficava parado esperando a consulta mais lenta.
