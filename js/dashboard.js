@@ -1161,24 +1161,25 @@ async function buscarAdvogadoDJEN() {
       </div>` : '';
 
     html += window._djeResultados.map((doc, i) => {
-      const numPrincipal = doc.processos[0] || '';
+      const numPrincipal = _esc(doc.processos[0] || '');
       const dataFmt      = fmt2(doc.data_disponibilizacao);
-      const orgao        = (doc.nomeOrgao || '').slice(0, 60);
+      const orgao        = _esc((doc.nomeOrgao || '').slice(0, 60));
+      const link         = _hrefExterno(doc.link);
       const temMatch     = doc.matches.length > 0;
       const semNumero    = !numPrincipal;
       const badgePubs    = (doc._pubCount || 1) > 1
         ? `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:8px;background:#fef3c7;color:#92400e;white-space:nowrap">${doc._pubCount} publicações</span>`
         : '';
 
-      const badgeTipo = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;background:${temMatch ? '#dcfce7;color:#166534' : '#e8edf5;color:var(--gray-800)'};white-space:nowrap">${temMatch ? '✓ No sistema' : (doc.tipoComunicacao || 'PUBLICAÇÃO')}</span>`;
-      const badgeDecisao = doc.tipoDecisao ? `<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#f3f4f6;color:var(--gray-500)">${doc.tipoDecisao}</span>` : '';
+      const badgeTipo = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;background:${temMatch ? '#dcfce7;color:#166534' : '#e8edf5;color:var(--gray-800)'};white-space:nowrap">${temMatch ? '✓ No sistema' : _esc(doc.tipoComunicacao || 'PUBLICAÇÃO')}</span>`;
+      const badgeDecisao = doc.tipoDecisao ? `<span style="font-size:10px;padding:1px 6px;border-radius:8px;background:#f3f4f6;color:var(--gray-500)">${_esc(doc.tipoDecisao)}</span>` : '';
 
       // Card compacto para processos já no sistema
       if (temMatch) {
         return `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;display:flex;align-items:center;gap:10px">
           <div style="flex:1;min-width:0">
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">${badgeTipo}${badgeDecisao}${badgePubs}
-              <span style="font-size:10px;color:var(--gray-400);margin-left:auto;white-space:nowrap">${dataFmt} · ${doc.siglaTribunal || ''}</span>
+              <span style="font-size:10px;color:var(--gray-400);margin-left:auto;white-space:nowrap">${dataFmt} · ${_esc(doc.siglaTribunal || '')}</span>
             </div>
             <div style="font-size:12px;font-weight:600;color:var(--navy);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${numPrincipal || 'sem número'}${doc.processos.length > 1 ? ` <span style="color:var(--gray-400);font-weight:400">+${doc.processos.length-1}</span>` : ''}</div>
             ${orgao ? `<div style="font-size:10px;color:var(--gray-500);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${orgao}</div>` : ''}
@@ -1190,7 +1191,7 @@ async function buscarAdvogadoDJEN() {
                 ? `<button class="btn-primary" style="font-size:11px;padding:4px 10px;white-space:nowrap" onclick="salvarAtualizacaoDJe(${i},'${doc.matches[0].id}',this)"><i class="ti ti-refresh"></i> Tentar de novo</button>`
                 : `<span style="font-size:11px;color:var(--gray-400);white-space:nowrap"><i class="ti ti-check"></i> Já atualizado</span>`}
             <button class="btn-secondary" style="font-size:11px;padding:4px 8px" onclick="abrirProcesso('${doc.matches[0].id}')"><i class="ti ti-arrow-right"></i></button>
-            ${doc.link ? `<a href="${doc.link}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;font-size:11px;color:var(--gray-400);padding:4px 6px;text-decoration:none" title="DJEN"><i class="ti ti-external-link"></i></a>` : ''}
+            ${link ? `<a href="${link}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;font-size:11px;color:var(--gray-400);padding:4px 6px;text-decoration:none" title="DJEN"><i class="ti ti-external-link"></i></a>` : ''}
           </div>
         </div>`;
       }
@@ -1202,13 +1203,13 @@ async function buscarAdvogadoDJEN() {
              <div style="font-size:10px;font-weight:700;color:#92400e;margin-bottom:4px"><i class="ti ti-lock" style="font-size:10px"></i> Segredo de Justiça</div>
              <input id="dje-cliente-manual-${i}" type="text" class="form-input" placeholder="Nome do cliente" style="font-size:11px;padding:5px 9px">
            </div>`
-        : (doc.partes?.cliente ? `<div style="font-size:11px;color:var(--gray-700);margin:3px 0"><b>Cliente:</b> ${doc.partes.cliente}${doc.partes.contrario ? ` · <b>vs</b> ${doc.partes.contrario}` : ''}</div>` : '');
-      const preview = semNumero ? '' : doc.textoLimpo.slice(0, 110) + (doc.textoLimpo.length > 110 ? '…' : '');
+        : (doc.partes?.cliente ? `<div style="font-size:11px;color:var(--gray-700);margin:3px 0"><b>Cliente:</b> ${_esc(doc.partes.cliente)}${doc.partes.contrario ? ` · <b>vs</b> ${_esc(doc.partes.contrario)}` : ''}</div>` : '');
+      const preview = semNumero ? '' : _escTextoHtml(doc.textoLimpo.slice(0, 110) + (doc.textoLimpo.length > 110 ? '…' : ''));
 
       return `<div style="background:var(--gray-50);border:1px solid var(--gray-200);border-radius:8px;padding:10px 12px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:8px">
           <div style="display:flex;align-items:center;gap:5px">${badgeTipo}${badgeDecisao}${badgePubs}</div>
-          <span style="font-size:10px;color:var(--gray-400);white-space:nowrap">${dataFmt} · ${doc.siglaTribunal || ''}</span>
+          <span style="font-size:10px;color:var(--gray-400);white-space:nowrap">${dataFmt} · ${_esc(doc.siglaTribunal || '')}</span>
         </div>
         <div style="font-size:12px;font-weight:600;color:var(--navy)">${numPrincipal || '<span style="color:var(--gray-400);font-style:italic">Sem número</span>'}${doc.processos.length > 1 ? ` <span style="color:var(--gray-400);font-weight:400;font-size:11px">+${doc.processos.length-1}</span>` : ''}</div>
         ${orgao ? `<div style="font-size:10px;color:var(--gray-500);margin-top:1px">${orgao}</div>` : ''}
@@ -1216,7 +1217,7 @@ async function buscarAdvogadoDJEN() {
         ${preview ? `<div style="font-size:11px;color:var(--gray-500);margin-top:5px;line-height:1.5;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">${preview}</div>` : ''}
         <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
           ${numPrincipal ? `<button class="btn-secondary" style="font-size:11px;padding:4px 10px" onclick="importarProcessoDJe(${i})"><i class="ti ti-plus"></i> Importar</button>` : ''}
-          ${doc.link ? `<a href="${doc.link}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--gray-400);padding:4px 6px;text-decoration:none"><i class="ti ti-external-link" style="font-size:11px"></i> DJEN</a>` : ''}
+          ${link ? `<a href="${link}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--gray-400);padding:4px 6px;text-decoration:none"><i class="ti ti-external-link" style="font-size:11px"></i> DJEN</a>` : ''}
         </div>
       </div>`;
     }).join('');
@@ -1225,7 +1226,7 @@ async function buscarAdvogadoDJEN() {
 
   } catch(e) {
     titulo.textContent = '';
-    lista.innerHTML = `<div style="color:var(--red);font-size:13px;padding:10px">❌ ${e.message || 'Erro ao acessar o DJEN.'}</div>`;
+    lista.innerHTML = `<div style="color:var(--red);font-size:13px;padding:10px">❌ ${_esc(e.message || 'Erro ao acessar o DJEN.')}</div>`;
   }
 }
 
@@ -1619,28 +1620,28 @@ function exibirResultados(lista) {
     <div class="busca-result-card">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
         <div>
-          <div style="font-size:13px;font-weight:600;color:var(--navy)">${d.numero || '—'}</div>
-          <div style="font-size:12px;color:var(--gray-500);margin-top:2px">${d.classe || ''}</div>
+          <div style="font-size:13px;font-weight:600;color:var(--navy)">${_esc(d.numero || '—')}</div>
+          <div style="font-size:12px;color:var(--gray-500);margin-top:2px">${_esc(d.classe || '')}</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
-          <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#e8edf5;color:var(--gray-800);white-space:nowrap">${d.tribunal || ''}</span>
+          <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#e8edf5;color:var(--gray-800);white-space:nowrap">${_esc(d.tribunal || '')}</span>
           ${jaExiste ? `<span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:#dcfce7;color:#15803d">Já cadastrado</span>` : ''}
         </div>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;margin-bottom:10px">
-        <div><span style="color:var(--gray-400)">Órgão: </span><span style="font-weight:500">${d.orgaoJulgador || '—'}</span></div>
+        <div><span style="color:var(--gray-400)">Órgão: </span><span style="font-weight:500">${_esc(d.orgaoJulgador || '—')}</span></div>
         <div><span style="color:var(--gray-400)">Ajuizado: </span><span style="font-weight:500">${fmt(d.dataAjuizamento)}</span></div>
       </div>
       ${d.partes && d.partes.length ? `
         <div style="font-size:12px;color:var(--gray-600);margin-bottom:10px">
-          ${d.partes.slice(0,3).map(p => `<span style="margin-right:8px">· ${p.tipo ? '<em style=color:var(--gray-400)>'+p.tipo+'</em> ' : ''}${p.nome}</span>`).join('')}
+          ${d.partes.slice(0,3).map(p => `<span style="margin-right:8px">· ${p.tipo ? '<em style=color:var(--gray-400)>'+_esc(p.tipo)+'</em> ' : ''}${_esc(p.nome)}</span>`).join('')}
         </div>` : ''}
       ${d.movimentos && d.movimentos.length ? `
         <div style="border-top:1px solid var(--gray-200);padding-top:8px;margin-bottom:10px">
           ${d.movimentos.slice(0,3).map(m => `
             <div style="display:flex;gap:6px;font-size:11px;margin-bottom:3px">
               <span style="color:var(--gray-400);white-space:nowrap;flex-shrink:0">${fmt(m.data)}</span>
-              <span style="color:var(--gray-700)">${m.nome}</span>
+              <span style="color:var(--gray-700)">${_esc(m.nome)}</span>
             </div>`).join('')}
         </div>` : ''}
       <button class="btn-primary" style="width:100%;justify-content:center;font-size:12px;padding:8px;gap:6px"
@@ -2219,8 +2220,8 @@ function renderTarefasVencidas() {
     return `<div class="prazo-item tv-item" onclick="abrirTarefaPorId('${t.id}','${t.quadro_id || ''}')">
       <button type="button" class="prazo-check" title="Marcar como concluída" onclick="event.stopPropagation();_prazoCheck(this,'tarefa','${t.id}')"><i class="ti ti-check"></i></button>
       <div class="prazo-info">
-        <div class="prazo-name">${escHtml(t.titulo)}</div>
-        <div class="prazo-type">${ref ? escHtml(ref) + ' · ' : ''}prazo era ${new Date(t.prazo + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}</div>
+        <div class="prazo-name">${_esc(t.titulo)}</div>
+        <div class="prazo-type">${ref ? _esc(ref) + ' · ' : ''}prazo era ${new Date(t.prazo + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}</div>
       </div>
       <span class="tv-atraso">venceu ${dias === 1 ? 'ontem' : `há ${dias} dias`}</span>
     </div>`;
@@ -2292,14 +2293,14 @@ function atualizarPrazosDash() {
       const { h, p } = item.raw;
       const valorFmt = _fmtBRL(p.falta);
       const urgencia = p.situacao === 'vencida' ? 'urgency-alta' : 'urgency-media';
-      const qual = p.rotulo && p.rotulo !== 'À vista' ? ` · ${escHtml(p.rotulo)}` : '';
+      const qual = p.rotulo && p.rotulo !== 'À vista' ? ` · ${_esc(p.rotulo)}` : '';
       return `
         <div class="prazo-item" onclick="showPage('honorarios')">
           <span class="prazo-slot" title="Honorário — abra para registrar o pagamento"><i class="ti ti-currency-dollar"></i></span>
           <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
           <div class="prazo-urgency ${urgencia}"></div>
           <div class="prazo-info">
-            <div class="prazo-name">${escHtml(h.cliente_nome || h.descricao)} — ${valorFmt}</div>
+            <div class="prazo-name">${_esc(h.cliente_nome || h.descricao)} — ${valorFmt}</div>
             <div class="prazo-type">${p.situacao === 'vencida' ? 'Honorário vencido' : 'Honorário a vencer'}${qual}</div>
           </div>
           <span class="dias-badge ${badgeCls}">${diasTxt}</span>
@@ -2314,7 +2315,7 @@ function atualizarPrazosDash() {
           <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
           <div class="prazo-urgency ${badgeCls === 'dias-urgente' ? 'urgency-alta' : badgeCls === 'dias-aviso' ? 'urgency-media' : 'urgency-baixa'}"></div>
           <div class="prazo-info">
-            <div class="prazo-name"><i class="ti ti-checklist" style="font-size:11px;color:var(--gray-400);margin-right:3px"></i>${escHtml(t.titulo)}</div>
+            <div class="prazo-name"><i class="ti ti-checklist" style="font-size:11px;color:var(--gray-400);margin-right:3px"></i>${_esc(t.titulo)}</div>
             <div class="prazo-type">Tarefa</div>
           </div>
           <span class="dias-badge ${badgeCls}">${diasTxt}</span>
@@ -2330,7 +2331,7 @@ function atualizarPrazosDash() {
         <div class="prazo-date"><div class="prazo-day">${dia}</div><div class="prazo-month">${mes}</div></div>
         <div class="prazo-urgency ${urgCls[e.urgencia] || 'urgency-baixa'}"></div>
         <div class="prazo-info">
-          <div class="prazo-name" style="${tituloEstilo}"><i class="ti ti-calendar-event" style="font-size:11px;color:var(--gray-400);margin-right:3px"></i>${escHtml(e.titulo)}</div>
+          <div class="prazo-name" style="${tituloEstilo}"><i class="ti ti-calendar-event" style="font-size:11px;color:var(--gray-400);margin-right:3px"></i>${_esc(e.titulo)}</div>
           <div class="prazo-type">${tipoLabel[e.tipo] || 'Lembrete'}</div>
         </div>
         <span class="dias-badge ${badgeCls}">${diasTxt}</span>
@@ -2720,7 +2721,7 @@ function _tbEspiarHtml(p) {
   const movs = _agruparRepetidos(p.movimentos_recentes || []).slice(0, 5).map(m => {
     const mm = (m.nome || '').match(/^DJEN\s*[—-]\s*(.*)$/);
     const rotina = _movRotina(m, ctx), novo = novos.has(_chaveMov(m)) && !rotina;
-    return `<li class="${rotina ? 'tb-esp-rotina' : ''}${novo ? ' tb-esp-novo' : ''}"><span class="tb-esp-dt">${fmt(m.data)}</span><span class="tb-esp-tx">${mm ? '<span class="tb-fonte">DJEN</span>' + _esc(mm[1]) : _esc(m.nome)}${m._vezes > 1 ? ` <span class="nov-vezes">×${m._vezes}</span>` : ''}${novo ? ' <span class="cnj-tl-novo-badge">NOVO</span>' : ''}${m._url ? `<a class="tb-esp-link" href="${_esc(m._url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Ler a publicação no DJEN"><i class="ti ti-external-link"></i></a>` : ''}</span></li>`;
+    return `<li class="${rotina ? 'tb-esp-rotina' : ''}${novo ? ' tb-esp-novo' : ''}"><span class="tb-esp-dt">${fmt(m.data)}</span><span class="tb-esp-tx">${mm ? '<span class="tb-fonte">DJEN</span>' + _esc(mm[1]) : _esc(m.nome)}${m._vezes > 1 ? ` <span class="nov-vezes">×${m._vezes}</span>` : ''}${novo ? ' <span class="cnj-tl-novo-badge">NOVO</span>' : ''}${_hrefExterno(m._url) ? `<a class="tb-esp-link" href="${_hrefExterno(m._url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Ler a publicação no DJEN"><i class="ti ti-external-link"></i></a>` : ''}</span></li>`;
   }).join('');
   const hoje = new Date().toLocaleDateString('sv');
   const prazos = [
@@ -3446,8 +3447,8 @@ function renderizarTimelineCNJ(proc) {
                     ? '<span style="margin-left:6px;background:#fef3c7;color:#92400e;font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px">DJEN</span>'
                     : '<span style="margin-left:6px;background:#e8f0fe;color:#053958;font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px">CNJ</span>'
               }
-              ${m._url
-                ? `<a href="${m._url}" target="_blank" rel="noopener" title="Ver publicação" style="margin-left:6px;color:var(--gray-400);font-size:11px;text-decoration:none;vertical-align:middle"><i class="ti ti-external-link"></i></a>`
+              ${_hrefExterno(m._url)
+                ? `<a href="${_hrefExterno(m._url)}" target="_blank" rel="noopener" title="Ver publicação" style="margin-left:6px;color:var(--gray-400);font-size:11px;text-decoration:none;vertical-align:middle"><i class="ti ti-external-link"></i></a>`
                 : (!isNota && !isHistorico && linkTribunal)
                   ? `<a href="${linkTribunal}" target="_blank" rel="noopener" title="Ver no tribunal" style="margin-left:6px;color:var(--gray-400);font-size:11px;text-decoration:none;vertical-align:middle;opacity:.7;transition:opacity .15s" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.7"><i class="ti ti-external-link"></i></a>`
                   : ''}
@@ -3664,7 +3665,18 @@ function _corrigirMojibake(texto) {
 }
 
 function _esc(s) {
-  return _corrigirMojibake(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return _corrigirMojibake(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+// Texto que veio de HTML externo (DJEN): os tags já foram tirados, mas sobram
+// entidades (&nbsp;, &ccedil;) que o _esc sozinho mostraria cruas.
+function _escTextoHtml(s) {
+  return _esc(_stripHtml(s));
+}
+
+// Só deixa passar link http(s) — o link da publicação vem da API do DJEN.
+function _hrefExterno(url) {
+  return /^https?:\/\//i.test(String(url || '').trim()) ? _esc(String(url).trim()) : '';
 }
 
 // Para valores dentro de string JS entre aspas simples num atributo onclick="..."
@@ -6432,7 +6444,7 @@ function renderCompromissosDia() {
     const d   = new Date(item.data + 'T12:00:00');
     const isVenc = d < hoje;
     const cor = isEvento ? (tipoColor[r.tipo] || '#6b7280') : (r.prioridade === 'urgente' ? '#dc2626' : '#0891b2');
-    const titulo = escHtml(isEvento ? (r.titulo || r.descricao || '—') : r.titulo);
+    const titulo = _esc(isEvento ? (r.titulo || r.descricao || '—') : r.titulo);
     const hora   = isEvento && r.hora ? r.hora.slice(0, 5) : null;
     const elId   = `comprdia-${isEvento ? 'ev' : 'ta'}-${r.id}`;
     const acao   = `'${item.tipo}','${r.id}'`;
@@ -6440,7 +6452,7 @@ function renderCompromissosDia() {
     const tag    = isVenc
       ? '<span class="comprdia-tag comprdia-tag-venc">Vencido</span>'
       : hora ? `<span class="comprdia-tag comprdia-tag-hora">${hora}</span>` : '';
-    return `<div class="comprdia-item${concluido ? ' done' : ''}" id="${elId}" title="${escHtml(tipoLabel[r.tipo] || (isEvento ? 'Evento' : 'Tarefa'))}">
+    return `<div class="comprdia-item${concluido ? ' done' : ''}" id="${elId}" title="${_esc(tipoLabel[r.tipo] || (isEvento ? 'Evento' : 'Tarefa'))}">
       <button type="button" class="prazo-check pequeno ${concluido ? 'feito' : ''}" title="${concluido ? 'Desmarcar' : 'Marcar como concluído'}"
         onclick="event.stopPropagation();_prazoCheck(this,${acao},true)"><i class="ti ti-check"></i></button>
       <div class="comprdia-dot" style="background:${cor}"></div>
@@ -8418,9 +8430,6 @@ async function importarLoteSelecionados() {
 
 let _descobertosCache = [];
 
-function escHtml(s) {
-  return _corrigirMojibake(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
-}
 
 async function carregarDescobertos() {
   try {
@@ -8649,10 +8658,10 @@ function _itemDescobertoHtml(item) {
     const idPartes = [d.classe, tribunal].filter(Boolean).join(' · ');
     const identificacao = (cliente || idPartes)
       ? `<div style="font-size:12px;color:var(--gray-700);margin-top:3px;line-height:1.4">
-           ${cliente ? `<b>${escHtml(cliente)}</b>` : ''}${cliente && idPartes ? ' · ' : ''}${escHtml(idPartes)}
+           ${cliente ? `<b>${_esc(cliente)}</b>` : ''}${cliente && idPartes ? ' · ' : ''}${_esc(idPartes)}
          </div>`
       : '';
-    const tipoPub = it.nome ? escHtml(String(it.nome).replace(/^DJEN — /, '')) : '';
+    const tipoPub = it.nome ? _esc(String(it.nome).replace(/^DJEN — /, '')) : '';
     const detalhe = d._historico && it.data
       ? `<div style="font-size:11.5px;color:var(--gray-500);margin-top:2px;line-height:1.45">Última publicação no DJEN em ${fmtDia(it.data)}${tipoPub ? ' · ' + tipoPub : ''}</div>`
       : it.nome
@@ -8661,7 +8670,7 @@ function _itemDescobertoHtml(item) {
     return `
     <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 12px;background:var(--gray-50);border-radius:var(--radius)" id="descoberto-${item.id}">
       <div style="min-width:0">
-        <div style="font-size:13px;font-weight:700;color:var(--navy);font-family:monospace">${escHtml(d.numero || item.numero)}</div>
+        <div style="font-size:13px;font-weight:700;color:var(--navy);font-family:monospace">${_esc(d.numero || item.numero)}</div>
         ${identificacao}
         ${detalhe}
       </div>
@@ -8983,11 +8992,12 @@ async function rodarMonitorDJe() {
       </div>` : '';
 
     lista.innerHTML += window._djeResultados.map((doc, i) => {
-      const preview = doc.textoLimpo.slice(0, 220) + (doc.textoLimpo.length > 220 ? '…' : '');
+      const preview = _escTextoHtml(doc.textoLimpo.slice(0, 220) + (doc.textoLimpo.length > 220 ? '…' : ''));
       const temMatch = doc.matches.length > 0;
-      const numPrincipal = doc.processos[0] || '';
+      const numPrincipal = _esc(doc.processos[0] || '');
       const dataFmt = fmt(doc.data_disponibilizacao);
-      const orgao = doc.nomeOrgao || '';
+      const orgao = _esc(doc.nomeOrgao || '');
+      const link = _hrefExterno(doc.link);
 
       if (temMatch) {
         const proc = doc.matches[0];
@@ -8998,7 +9008,7 @@ async function rodarMonitorDJe() {
                 <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:#dcfce7;color:#166534;letter-spacing:.03em">
                   <i class="ti ti-bell-ringing" style="font-size:10px"></i> ATUALIZAÇÃO
                 </span>
-                ${doc.tipoDecisao ? `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;background:#e8edf5;color:var(--gray-800)">${doc.tipoDecisao}</span>` : ''}
+                ${doc.tipoDecisao ? `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;background:#e8edf5;color:var(--gray-800)">${_esc(doc.tipoDecisao)}</span>` : ''}
               </div>
               <span style="font-size:10px;color:var(--gray-400);white-space:nowrap">${dataFmt}</span>
             </div>
@@ -9015,7 +9025,7 @@ async function rodarMonitorDJe() {
                 onclick="abrirProcesso('${proc.id}')">
                 <i class="ti ti-arrow-right"></i> Ver processo
               </button>
-              ${doc.link ? `<a href="${doc.link}" target="_blank" rel="noopener"
+              ${link ? `<a href="${link}" target="_blank" rel="noopener"
                 style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--gray-500);padding:6px 8px;text-decoration:none">
                 <i class="ti ti-external-link" style="font-size:11px"></i> DJEN</a>` : ''}
             </div>
@@ -9027,9 +9037,9 @@ async function rodarMonitorDJe() {
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px">
             <div style="display:flex;align-items:center;gap:6px">
               <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:#e8edf5;color:var(--gray-800);letter-spacing:.03em">
-                ${doc.tipoComunicacao || 'PUBLICAÇÃO'}
+                ${_esc(doc.tipoComunicacao || 'PUBLICAÇÃO')}
               </span>
-              ${doc.tipoDecisao ? `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;background:#f3f4f6;color:var(--gray-600)">${doc.tipoDecisao}</span>` : ''}
+              ${doc.tipoDecisao ? `<span style="font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px;background:#f3f4f6;color:var(--gray-600)">${_esc(doc.tipoDecisao)}</span>` : ''}
             </div>
             <span style="font-size:10px;color:var(--gray-400);white-space:nowrap">${dataFmt}</span>
           </div>
@@ -9039,8 +9049,8 @@ async function rodarMonitorDJe() {
           </div>
           <div style="font-size:11px;color:var(--gray-500);margin-bottom:4px">${orgao}</div>
           ${doc.partes?.cliente ? `<div style="font-size:11px;color:var(--gray-600);margin-bottom:4px">
-            <span style="color:var(--gray-400)">Cliente: </span>${doc.partes.cliente}
-            ${doc.partes.contrario ? ` · <span style="color:var(--gray-400)">vs </span>${doc.partes.contrario}` : ''}
+            <span style="color:var(--gray-400)">Cliente: </span>${_esc(doc.partes.cliente)}
+            ${doc.partes.contrario ? ` · <span style="color:var(--gray-400)">vs </span>${_esc(doc.partes.contrario)}` : ''}
           </div>` : ''}
           <div style="font-size:11px;color:var(--gray-600);line-height:1.6;max-height:60px;overflow:hidden;margin-bottom:10px">${preview}</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -9049,7 +9059,7 @@ async function rodarMonitorDJe() {
                 onclick="importarProcessoDJe(${i})">
                 <i class="ti ti-plus"></i> Importar processo
               </button>` : ''}
-            ${doc.link ? `<a href="${doc.link}" target="_blank" rel="noopener"
+            ${link ? `<a href="${link}" target="_blank" rel="noopener"
               style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--navy);font-weight:600;padding:6px 8px;text-decoration:none">
               <i class="ti ti-external-link" style="font-size:11px"></i> Abrir no DJEN
             </a>` : ''}
@@ -9060,7 +9070,7 @@ async function rodarMonitorDJe() {
   } catch (e) {
     title.textContent = '';
     lista.innerHTML = `<div style="color:var(--red);font-size:13px;padding:10px">
-      ❌ ${e.message || 'Erro ao acessar o DJEN.'}
+      ❌ ${_esc(e.message || 'Erro ao acessar o DJEN.')}
     </div>`;
   }
 }
@@ -9127,7 +9137,7 @@ async function salvarAtualizacaoDJe(docIndex, processoId, btn) {
   btn.style.background = 'var(--green)';
 
   carregarProcessos();
-  showToast(`Atualização salva em "${_esc(_nomeProc(proc))}"`);
+  showToast(`Atualização salva em "${_nomeProc(proc)}"`);
 }
 
 async function importarProcessoDJe(docIndex) {
