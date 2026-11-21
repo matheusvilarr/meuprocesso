@@ -156,7 +156,7 @@ document.getElementById('registroForm').addEventListener('submit', async functio
     email,
     password: senha,
     options: {
-      data: { full_name: nome, nome, oab },
+      data: { full_name: nome, nome, oab, origem: window.mpOrigem?.() || null },
       emailRedirectTo: `${window.location.origin}/cadastro-confirmado`,
     },
   });

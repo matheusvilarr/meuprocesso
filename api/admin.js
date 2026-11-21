@@ -145,6 +145,7 @@ async function acaoDados(req, res, admin, adminUser) {
         oab:            u.user_metadata?.oab || '—',
         oabDuplicado:   oabNorm ? contagemOab[oabNorm] > 1 : false,
         criadoEm:       u.created_at,
+        comoConheceu:   u.user_metadata?.como_conheceu || null,
         // Só ultimo_acesso (gravado pelo auth-guard quando a pessoa ABRE o
         // dashboard) é atividade real. Havia aqui um fallback para
         // last_sign_in_at, e ele mentia: qualquer sessão criada por fora —
@@ -1310,6 +1311,8 @@ async function acaoDetalheUsuario(req, res, admin) {
       oabs: String(meta.oab || '').split(',').map(s => s.trim()).filter(Boolean),
       telefone: meta.telefone || null,
       criadoEm: u.created_at,
+      comoConheceu: meta.como_conheceu || null,
+      origem: meta.origem || null,   // 1ª visita: { ref, entrada, utm_*, data } — ver js/analytics.js
       ultimoLogin: meta.ultimo_acesso || null,   // ver o comentário em acaoDados
       ultimoSignIn: u.last_sign_in_at || null,
       emailConfirmado: !!u.email_confirmed_at,

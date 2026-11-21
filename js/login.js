@@ -51,6 +51,7 @@ if (new URLSearchParams(window.location.search).get('tab') === 'signup') {
 document.getElementById('btnLinkedin').addEventListener('click', async function () {
   this.disabled = true;
   document.getElementById('btnLinkedinTxt').textContent = 'Redirecionando...';
+  try { sessionStorage.setItem('mp_login', 'linkedin'); } catch (_) {}
   const destino = new URLSearchParams(window.location.search).get('redirect') || '/dashboard';
   const { error } = await _supabase.auth.signInWithOAuth({
     provider: 'linkedin_oidc',
@@ -69,6 +70,7 @@ document.getElementById('btnGoogle').addEventListener('click', async function ()
   this.disabled = true;
   // Trocar o textContent do botão apagaria o ícone do Google junto.
   document.getElementById('btnGoogleTxt').textContent = 'Redirecionando...';
+  try { sessionStorage.setItem('mp_login', 'google'); } catch (_) {}
   const destino = new URLSearchParams(window.location.search).get('redirect') || '/dashboard';
   await _supabase.auth.signInWithOAuth({
     provider: 'google',
@@ -151,6 +153,9 @@ document.getElementById('loginForm').addEventListener('submit', async function (
   }
 
   btn.textContent = 'Redirecionando...';
+  // O evento "login" do GA sai no dashboard (auth-guard.js) — daqui o
+  // redirect corta o envio.
+  try { sessionStorage.setItem('mp_login', 'email'); } catch (_) {}
   const params = new URLSearchParams(window.location.search);
   window.location.href = params.get('redirect') || '/dashboard';
 });
@@ -293,15 +298,17 @@ document.getElementById('signupForm').addEventListener('submit', async function 
   const oabNum   = document.getElementById('su-oab-num').value.trim().replace(/\D/g, '');
   const telefone = document.getElementById('su-telefone').value.trim().replace(/\D/g, '');
   const password = document.getElementById('su-password').value;
+  const comoConheceu = document.getElementById('su-como-conheceu').value;
   const btn      = document.getElementById('btnSignup');
 
   const nomeErr  = document.getElementById('suNomeError');
   const emailErr = document.getElementById('suEmailError');
   const oabErr   = document.getElementById('suOabError');
   const telErr   = document.getElementById('suTelError');
+  const ccErr    = document.getElementById('suComoConheceuError');
   const pwErr    = document.getElementById('suPwError');
 
-  [nomeErr, emailErr, oabErr, telErr, pwErr].forEach(el => el.classList.remove('show'));
+  [nomeErr, emailErr, oabErr, telErr, ccErr, pwErr].forEach(el => el.classList.remove('show'));
   document.getElementById('su-uf').classList.remove('error');
 
   let ok = true;
@@ -329,6 +336,11 @@ document.getElementById('signupForm').addEventListener('submit', async function 
   if (!telefone || telefone.length < 10) {
     telErr.textContent = 'Digite um telefone válido com DDD.';
     telErr.classList.add('show');
+    ok = false;
+  }
+  if (!comoConheceu) {
+    ccErr.textContent = 'Conta pra gente como conheceu o Meu Processo.';
+    ccErr.classList.add('show');
     ok = false;
   }
 
@@ -362,7 +374,7 @@ document.getElementById('signupForm').addEventListener('submit', async function 
     email,
     password,
     options: {
-      data: { full_name: nome, nome, oab, telefone },
+      data: { full_name: nome, nome, oab, telefone, como_conheceu: comoConheceu, origem: window.mpOrigem?.() || null },
       emailRedirectTo: window.location.origin + '/dashboard',
     },
   });

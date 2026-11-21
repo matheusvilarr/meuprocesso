@@ -9,6 +9,41 @@ window._oabsValidas = function (raw) {
   }).filter(Boolean);
 };
 
+// GA: user_id + sign_up/trial_start na 1ª abertura do painel (vale pra e-mail,
+// Google e LinkedIn — o OAuth não passa por nenhuma tela nossa antes daqui).
+// A marca ga_signup no user_metadata evita contar de novo em outro aparelho.
+// Junto grava a origem guardada pelo analytics.js, se o cadastro não trouxe.
+function _registrarAnalytics(user, assinatura, gravandoAcesso) {
+  if (window._isAdmin) {
+    try { localStorage.setItem('mp_interno', '1'); } catch (_) {}
+    window['ga-disable-G-S036MFTGEC'] = true;
+    return;
+  }
+  if (typeof gtag !== 'function') return;
+  const meta     = user.user_metadata || {};
+  const provider = user.app_metadata?.provider || 'email';
+  gtag('set', { user_id: user.id });
+  if (meta.como_conheceu) gtag('set', 'user_properties', { acquisition_self_reported: meta.como_conheceu });
+
+  let entrou = null;
+  try { entrou = sessionStorage.getItem('mp_login'); sessionStorage.removeItem('mp_login'); } catch (_) {}
+
+  const recente = Date.now() - Date.parse(user.created_at) < 3 * 86400 * 1000;
+  if (!meta.ga_signup && recente) {
+    gtag('event', 'sign_up', { method: provider, colaborador: window._isColaborador ? 'sim' : 'nao' });
+    if (assinatura?.plano === 'trial') gtag('event', 'trial_start', { method: provider });
+    const extra = { ga_signup: new Date().toISOString() };
+    if (!meta.origem) {
+      try { const o = JSON.parse(localStorage.getItem('mp_origem') || 'null'); if (o) extra.origem = o; } catch (_) {}
+    }
+    // Depois do ultimo_acesso: dois updateUser simultâneos podem se sobrescrever
+    // no servidor, e sem a marca ga_signup o sign_up seria contado de novo.
+    gravandoAcesso.then(() => _supabase.auth.updateUser({ data: extra })).then(() => {}, () => {});
+  } else if (entrou) {
+    gtag('event', 'login', { method: provider });
+  }
+}
+
 (async () => {
   const { data: { session } } = await _supabase.auth.getSession();
   if (!session) {
@@ -50,8 +85,9 @@ window._oabsValidas = function (raw) {
   // dia, e o painel admin mostrava o horário do PRIMEIRO acesso do dia, não do
   // último); o updateUser mescla o user_metadata, não sobrescreve os outros campos.
   const ultimoAcesso = Date.parse(session.user.user_metadata?.ultimo_acesso || '') || 0;
+  let gravandoAcesso = Promise.resolve();
   if (Date.now() - ultimoAcesso > 3600 * 1000) {
-    _supabase.auth.updateUser({ data: { ultimo_acesso: new Date().toISOString() } })
+    gravandoAcesso = _supabase.auth.updateUser({ data: { ultimo_acesso: new Date().toISOString() } })
       .then(() => {}, () => {});   // não bloqueia a abertura do dashboard
   }
 
@@ -83,6 +119,8 @@ window._oabsValidas = function (raw) {
   // Colaborador não precisa: ele acompanha a OAB do titular.
   window._oabPendente = !window._isColaborador &&
     window._oabsValidas(session.user.user_metadata?.oab).length === 0;
+
+  _registrarAnalytics(session.user, assinatura, gravandoAcesso);
 
   // Sinaliza pro dashboard.js que o auth está pronto — evita setInterval polling
   document.dispatchEvent(new Event('authReady'));

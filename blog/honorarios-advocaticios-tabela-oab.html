@@ -7,7 +7,15 @@
   window.dataLayer = window.dataLayer || [];
   function gtag(){dataLayer.push(arguments);}
   gtag('js', new Date());
+  // Tráfego interno (admin, ou quem abriu qualquer página com ?interno=1) não vai pro GA; ?interno=0 desfaz.
+  try {
+    if (/[?&]interno=1\b/.test(location.search)) localStorage.setItem('mp_interno', '1');
+    if (/[?&]interno=0\b/.test(location.search)) localStorage.removeItem('mp_interno');
+    if (localStorage.getItem('mp_interno')) window['ga-disable-G-S036MFTGEC'] = true;
+  } catch (e) {}
+  window.mpTrack = function (nome, params) { try { gtag('event', nome, params || {}); } catch (e) {} };
   gtag('config', 'G-S036MFTGEC');
+  (function () { var s = document.createElement('script'); s.src = '/js/analytics.js'; s.defer = true; document.head.appendChild(s); })();
 </script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">

@@ -338,6 +338,25 @@ html, body {
 
 .field-uf select.error { border-color: var(--red); }
 
+.field-select {
+  width: 100%;
+  height: 48px;
+  padding: 0 36px 0 16px;
+  border: 1.5px solid var(--g200);
+  border-radius: 10px;
+  font-family: 'Roboto', sans-serif;
+  font-size: 15px;
+  color: var(--g900);
+  background: var(--white) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 14px center;
+  appearance: none;
+  cursor: pointer;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.field-select:invalid { color: var(--g400); }
+.field-select option { color: var(--g900); }
+.field-select:focus { border-color: var(--navy); box-shadow: 0 0 0 3px rgba(26,46,107,.08); }
+
 /* ── PASSWORD STRENGTH ── */
 .pw-strength {
   height: 4px;

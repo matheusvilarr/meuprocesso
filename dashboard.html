@@ -7,7 +7,15 @@
   window.dataLayer = window.dataLayer || [];
   function gtag(){dataLayer.push(arguments);}
   gtag('js', new Date());
+  // Tráfego interno (admin, ou quem abriu qualquer página com ?interno=1) não vai pro GA; ?interno=0 desfaz.
+  try {
+    if (/[?&]interno=1\b/.test(location.search)) localStorage.setItem('mp_interno', '1');
+    if (/[?&]interno=0\b/.test(location.search)) localStorage.removeItem('mp_interno');
+    if (localStorage.getItem('mp_interno')) window['ga-disable-G-S036MFTGEC'] = true;
+  } catch (e) {}
+  window.mpTrack = function (nome, params) { try { gtag('event', nome, params || {}); } catch (e) {} };
   gtag('config', 'G-S036MFTGEC');
+  (function () { var s = document.createElement('script'); s.src = '/js/analytics.js'; s.defer = true; document.head.appendChild(s); })();
 </script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -173,6 +181,19 @@
         <select id="tela-oab-uf" aria-label="Estado da OAB"><option value="">UF</option></select>
         <input id="tela-oab-num" type="text" inputmode="numeric" placeholder="Número da OAB" autocomplete="off" aria-label="Número da OAB">
       </div>
+      <select id="tela-oab-como" class="tela-oab-como" hidden aria-label="Como conheceu o Meu Processo?">
+        <option value="">Como conheceu o Meu Processo?</option>
+        <option>Pesquisa no Google</option>
+        <option>ChatGPT ou outra IA</option>
+        <option>Instagram</option>
+        <option>LinkedIn</option>
+        <option>YouTube</option>
+        <option>Indicação de colega</option>
+        <option>Grupo de WhatsApp/Telegram</option>
+        <option>Artigo do blog</option>
+        <option>Calculadora de prazos</option>
+        <option>Outro</option>
+      </select>
       <div class="tela-oab-erro" id="tela-oab-erro" role="alert"></div>
       <button type="submit" class="tela-oab-btn" id="tela-oab-btn">Continuar</button>
       <button type="button" class="tela-oab-sair" onclick="fazerLogout()">Entrou com a conta errada? Sair</button>

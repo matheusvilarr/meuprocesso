@@ -1774,6 +1774,7 @@ async function salvarProcesso() {
     showToast('Erro ao salvar: ' + error.message);
     return;
   }
+  window.mpTrack?.('process_added', { method: 'manual', total_processos: (window._processosDB?.length || 0) + 1 });
 
   // Cadastro manual com número no formato STJ (ex: "AREsp 3254978") também
   // entra na fila de resolução — não só a busca. O processo já foi salvo do
@@ -4831,6 +4832,9 @@ function _mostrarTelaOAB() {
   if (!mostrar) return;
   const sel = document.getElementById('tela-oab-uf');
   if (sel && sel.options.length <= 1) sel.insertAdjacentHTML('beforeend', _UFS.map(u => `<option>${u}</option>`).join(''));
+  // Quem se cadastrou por e-mail já respondeu no formulário; Google/LinkedIn só aqui.
+  const como = document.getElementById('tela-oab-como');
+  if (como) como.hidden = !!window._user?.user_metadata?.como_conheceu;
   // OAB antiga gravada só com o número ("59360"): já deixa o número preenchido,
   // falta só escolher o estado.
   const meta = (window._user?.user_metadata?.oab || '').trim();
@@ -4851,6 +4855,9 @@ async function _salvarTelaOAB() {
   err.textContent = '';
   if (!uf)              { err.textContent = 'Selecione o estado da sua OAB.'; return; }
   if (num.length < 3)   { err.textContent = 'Digite o número da OAB (só os números).'; return; }
+  const comoEl = document.getElementById('tela-oab-como');
+  const como   = comoEl && !comoEl.hidden ? comoEl.value : '';
+  if (comoEl && !comoEl.hidden && !como) { err.textContent = 'Conta pra gente como conheceu o Meu Processo.'; return; }
 
   btn.disabled = true; btn.textContent = 'Salvando…';
   try {
@@ -4864,10 +4871,12 @@ async function _salvarTelaOAB() {
       return;
     }
     const oab = `${uf} ${num}`;
-    const { error } = await _supabase.auth.updateUser({ data: { oab } });
+    const dados = como ? { oab, como_conheceu: como } : { oab };
+    const { error } = await _supabase.auth.updateUser({ data: dados });
     if (error) { err.textContent = 'Não deu pra salvar: ' + error.message; return; }
+    if (como && typeof gtag === 'function') gtag('set', 'user_properties', { acquisition_self_reported: como });
 
-    window._user.user_metadata = { ...window._user.user_metadata, oab };
+    window._user.user_metadata = { ...window._user.user_metadata, ...dados };
     window._oabPendente = false;
     _mostrarTelaOAB();
     showToast('OAB salva! Vamos buscar suas intimações no Diário Eletrônico.', 'success');
@@ -8316,6 +8325,7 @@ async function _importarComMerge(d) {
     ultima_verificacao:  movs.length ? new Date().toISOString() : null,
   }, { onConflict: 'user_id,numero' });
   if (error) return { status: 'erro', error };
+  window.mpTrack?.('process_added', { method: 'tribunal', total_processos: (window._processosDB?.length || 0) + 1 });
   return { status: 'importado' };
 }
 

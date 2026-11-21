@@ -1,0 +1,34 @@
+# Meu Processo
+
+> Sistema de gestão jurídica para advogados e escritórios de advocacia no Brasil. Monitora processos judiciais automaticamente em mais de 90 tribunais via CNJ DataJud, acompanha intimações no DJEN (Diário de Justiça Eletrônico Nacional) pela OAB do advogado e avisa por e-mail quando algo muda. Teste grátis por 30 dias, sem cartão de crédito.
+
+O Meu Processo é feito para advogado solo e para escritórios pequenos. O advogado cadastra o número CNJ do processo (ou busca pela OAB, CPF ou nome da parte e importa vários de uma vez), e o sistema verifica diariamente as movimentações. Inclui controle de prazos com alerta por e-mail (1, 3 ou 7 dias antes), calendário jurídico, kanban de tarefas, controle de honorários e workspace colaborativo com nível de acesso por colaborador.
+
+Planos (pagamento único por período, sem renovação automática): mensal R$ 29, semestral R$ 69 e anual R$ 97. Valores atualizados em https://meuprocesso.app.br/precos.
+
+## Produto
+
+- [Página inicial](https://meuprocesso.app.br/): visão geral, recursos e perguntas frequentes
+- [Preços](https://meuprocesso.app.br/precos): planos e o que cada um inclui
+- [Criar conta grátis](https://meuprocesso.app.br/login?tab=signup): teste de 30 dias, cadastro com OAB, e-mail, Google ou LinkedIn
+
+## Ferramentas gratuitas
+
+- [Calculadora de prazo processual](https://meuprocesso.app.br/calculadora-prazo-processual): calcula o prazo final em dias úteis ou corridos pelo CPC, com feriados nacionais e recesso forense
+
+## Blog
+
+- [Como monitorar processos judiciais automaticamente](https://meuprocesso.app.br/blog/monitoramento-processual-automatico)
+- [DataJud: guia para consultar processos do CNJ](https://meuprocesso.app.br/blog/datajud-guia-completo)
+- [DJe e intimações eletrônicas: guia para advogados](https://meuprocesso.app.br/blog/dje-intimacoes-eletronicas)
+- [Prazos processuais no CPC: dias úteis e suspensões](https://meuprocesso.app.br/blog/como-calcular-prazos-processuais)
+- [Gestão de prazos: como nunca perder uma data](https://meuprocesso.app.br/blog/gestao-prazos-processuais)
+- [Recesso e férias forenses 2026: calendário dos tribunais](https://meuprocesso.app.br/blog/recesso-ferias-forenses-2026)
+- [Honorários advocatícios: tipos, tabela OAB e cobrança](https://meuprocesso.app.br/blog/honorarios-advocaticios-tabela-oab)
+- [Advogado iniciante: como organizar seus processos](https://meuprocesso.app.br/blog/advogado-iniciante-primeiros-passos)
+
+## Optional
+
+- [Meu Processo: origem, missão e próximos passos](https://meuprocesso.app.br/blog/construindo-meuprocesso)
+- [Termos de uso](https://meuprocesso.app.br/termos)
+- [Política de privacidade](https://meuprocesso.app.br/privacidade)

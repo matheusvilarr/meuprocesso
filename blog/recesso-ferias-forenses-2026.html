@@ -7,7 +7,15 @@
   window.dataLayer = window.dataLayer || [];
   function gtag(){dataLayer.push(arguments);}
   gtag('js', new Date());
+  // Tráfego interno (admin, ou quem abriu qualquer página com ?interno=1) não vai pro GA; ?interno=0 desfaz.
+  try {
+    if (/[?&]interno=1\b/.test(location.search)) localStorage.setItem('mp_interno', '1');
+    if (/[?&]interno=0\b/.test(location.search)) localStorage.removeItem('mp_interno');
+    if (localStorage.getItem('mp_interno')) window['ga-disable-G-S036MFTGEC'] = true;
+  } catch (e) {}
+  window.mpTrack = function (nome, params) { try { gtag('event', nome, params || {}); } catch (e) {} };
   gtag('config', 'G-S036MFTGEC');
+  (function () { var s = document.createElement('script'); s.src = '/js/analytics.js'; s.defer = true; document.head.appendChild(s); })();
 </script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -88,11 +96,11 @@
 
     <p><strong>STF</strong> — recesso de 02 a 31 de julho de 2026, com suspensão de prazos por resolução interna. O STF tem o recesso de fim de ano estendido também, até 31 de janeiro — atenção para quem tem prazo no STF que começa em dezembro.</p>
 
-    <p><strong>STJ</strong> — recesso de 01 a 31 de julho, retomada em 1 de agosto. Recesso de fim de ano segue o padrão do CPC (20/12 a 20/01).</p>
+    <p><strong>STJ</strong> — prazos suspensos de 02 a 31 de julho (férias coletivas dos ministros). No fim de ano, a suspensão vai de 20/12 a 31/01, porque o recesso emenda com as férias de janeiro.</p>
 
-    <p><strong>TST</strong> — férias coletivas de 01 a 31 de julho por determinação do próprio tribunal. Recesso de fim de ano também de 20/12 a 20/01.</p>
+    <p><strong>TST</strong> — férias coletivas de 02 a 31 de julho. No fim de ano, recesso de 20/12 a 06/01 seguido das férias coletivas de 02 a 31/01, com prazos suspensos até 31/01.</p>
 
-    <p><strong>TJs estaduais e TRFs</strong> — cada um publica resolução anual. Em geral o recesso de julho vai de 01 a 31 de julho, mas alguns tribunais adotam períodos ligeiramente diferentes. Antes de calcular um prazo que caia em julho, vale confirmar no site do tribunal.</p>
+    <p><strong>TJs estaduais e TRFs</strong> — não têm férias coletivas em julho desde a EC 45/2004: em regra, o prazo corre normalmente no mês. Alguns tribunais publicam suspensões pontuais (ponto facultativo, indisponibilidade do sistema), então, antes de calcular um prazo que caia em julho, vale confirmar no site do tribunal.</p>
 
     <h2>Feriados nacionais em 2026</h2>
 

@@ -673,7 +673,7 @@ function renderAdvogados() {
         <div class="adv-email">${esc(a.email)}${a.emailConfirmado ? '' : ` <span class="adm-status-pill adm-status-pendente" style="font-size:9px;">não confirmado</span> <button class="adm-btn-small ok" style="font-size:10px;padding:2px 7px;" onclick="event.stopPropagation();confirmarEmailManual('${a.id}','${esc(a.email)}')" title="A pessoa não recebeu o e-mail de confirmação? Libere o acesso por aqui.">liberar</button>`}</div>
       </td>
       <td class="adv-oab">${a.oab === '—' ? '<span style="color:#9f9f98">—</span>' : esc(a.oab).split(/\s*,\s*/).join('<br>')}${a.oabDuplicado ? '<br><span class="adm-status-pill adm-status-bloqueado" title="Outra conta usa a mesma OAB" style="font-size:9px;"><i class="ti ti-alert-triangle"></i> duplicada</span>' : ''}</td>
-      <td title="${fmtData(a.criadoEm)}">${curta(a.criadoEm)}${ehRecente(a.criadoEm) ? ' <span class="adm-status-pill" style="font-size:9px;background:#dcfce7;color:#166534" title="Entrou nos últimos 7 dias — confira se a licença está como você quer">novo</span>' : ''}</td>
+      <td title="${fmtData(a.criadoEm)}">${curta(a.criadoEm)}${ehRecente(a.criadoEm) ? ' <span class="adm-status-pill" style="font-size:9px;background:#dcfce7;color:#166534" title="Entrou nos últimos 7 dias — confira se a licença está como você quer">novo</span>' : ''}${a.comoConheceu ? `<div style="color:#9f9f98;font-size:11px" title="Como conheceu (resposta no cadastro)">${esc(a.comoConheceu)}</div>` : ''}</td>
       <td title="${a.ultimoLogin ? 'Última vez que abriu o sistema: ' + comHora(a.ultimoLogin) : 'Nunca abriu o dashboard desde 29/09, quando esse registro passou a existir'}${a.ultimoSignIn ? ' · último login (senha/Google/LinkedIn): ' + comHora(a.ultimoSignIn) : ''}">${a.ultimoLogin ? relativo(a.ultimoLogin) : '<span style="color:#9f9f98">nunca abriu</span>'}${a.ultimoSignIn ? `<div class="adv-sub">login: ${comHora(a.ultimoSignIn)}</div>` : ''}</td>
       <td><span class="adv-num">${a.numProcessos}</span> processo${a.numProcessos === 1 ? '' : 's'}<div class="adv-sub">${a.numTarefas} tarefa${a.numTarefas === 1 ? '' : 's'} · ${a.numColaboradores} colab.</div></td>
       <td class="adm-td-livre">${a.bloqueado ? '<span class="adm-status-pill adm-status-bloqueado" style="margin-bottom:3px">Bloqueado</span>' : ''}${celulaAssinatura(a)}</td>
@@ -813,6 +813,8 @@ function renderFicha(d, resumo) {
       <div class="ficha-linha" style="color:#9f9f98;font-size:12px;">
         Cadastro ${fmtData(u.criadoEm)} · última atividade ${u.ultimoLogin ? tempoRelativo(u.ultimoLogin) : 'nunca registrada'} · via ${esc(u.provider)}
         ${u.telefone ? ` · tel. ${esc(u.telefone)}` : ''}
+        ${u.comoConheceu ? ` · conheceu por: <strong>${esc(u.comoConheceu)}</strong>` : ''}
+        ${u.origem ? ` · 1ª visita: ${esc([u.origem.ref || 'acesso direto', u.origem.entrada, u.origem.utm_source && 'utm ' + u.origem.utm_source, u.origem.gclid && 'anúncio Google'].filter(Boolean).join(' → '))}` : ''}
         ${d.colaboradores.length ? ` · ${d.colaboradores.length} colaborador(es)` : ''}
         ${d.ultimosEmails.length ? ` · último e-mail ${d.ultimosEmails[0].data.split('-').reverse().join('/')} (${esc(d.ultimosEmails[0].tipo)})` : ' · nenhum e-mail enviado'}
       </div>
