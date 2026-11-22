@@ -81,6 +81,10 @@ export default async function handler(req, res) {
   }
 
   if (tipo === 'djen') {
+    // O orçamento de tempo do DJEN conta a partir daqui: com o DJEN falhando,
+    // a retentativa do onboarding abaixo chega a ~60s, e antes o relógio do
+    // scan só começava depois dela — a execução podia estourar os 180s.
+    req.inicioMs = Date.now();
     await retentarOnboardingDjen(createClient(SUPA_URL, SUPA_SERVICE_KEY)).catch(() => {});
     return djenCadernos(req, res);
   }
