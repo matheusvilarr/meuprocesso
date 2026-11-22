@@ -1040,7 +1040,7 @@ async function buscarAdvogadoDJEN() {
 
   try {
     const PAGE_SIZE = 100;
-    const base = { dataDisponibilizacaoInicio: dataInicio, dataDisponibilizacaoFim: dataFim, pagina: 1, tamanhoPagina: PAGE_SIZE };
+    const base = { dataDisponibilizacaoInicio: dataInicio, dataDisponibilizacaoFim: dataFim, pagina: 1, itensPorPagina: PAGE_SIZE };
 
     // O DJEN limita 20 requisições/minuto por IP (mesmo limite documentado em
     // lib/djen-cadernos.js pro cron). Antes disparava todas as páginas em
@@ -4619,9 +4619,12 @@ async function _processoFresco(id) {
 // nunca preenchiam esses campos, então um processo descoberto ficava com o
 // número no lugar do nome PARA SEMPRE, mesmo clicando repetidas vezes.
 function _atualizacaoDatajud(proc, resultado) {
-  const movs = Array.isArray(resultado) ? resultado : (resultado?.movimentos || []);
+  let movs = Array.isArray(resultado) ? resultado : (resultado?.movimentos || []);
   const salvos      = proc.movimentos_recentes || [];
   const anteriores  = salvos.filter(m => !_ehMovDJEN(m));
+  // Mesma trava do servidor (lib/sync-comum.js → montarNovidadesDatajud):
+  // resposta sem movimentos não pode apagar o histórico já salvo.
+  if (!movs.length && anteriores.length) movs = anteriores;
   const conhecidas  = new Set(anteriores.map(_chaveMov));
   const chegada     = new Map(anteriores.filter(m => m._detectadoEm).map(m => [_chaveMov(m), m._detectadoEm]));
   const importadoEm = (proc.created_at || '').slice(0, 10);
@@ -8940,7 +8943,7 @@ async function rodarMonitorDJe() {
       dataDisponibilizacaoInicio: dataInicio,
       dataDisponibilizacaoFim:    dataFim,
       pagina:        1,
-      tamanhoPagina: 50,
+      itensPorPagina: 100,   // "tamanhoPagina" (nome antigo) era ignorado pela API — vinham 100
     };
 
     // Faz uma requisição por OAB em paralelo; sem OAB faz uma só requisição por nome

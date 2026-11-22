@@ -991,7 +991,7 @@ async function buscarDJENPorOab(oab) {
     ufOab: oab.uf,
     dataDisponibilizacaoInicio: new Date(Date.now() - 2 * 365 * 86400000).toISOString().slice(0, 10),
     dataDisponibilizacaoFim: new Date().toISOString().slice(0, 10),
-    tamanhoPagina: DJEN_TAMANHO_PAGINA,
+    itensPorPagina: DJEN_TAMANHO_PAGINA,
   };
   let parcial = false;
   // Até 16/10/2026 qualquer falha (limite de 20/min do DJEN, timeout) virava

@@ -7,7 +7,7 @@ import { timingSafeEqual } from 'node:crypto';
 // Títulos antigos vieram gravados como 'APELAçãO CíVEL' (importação de jun/2026);
 // o painel normaliza na tela e o e-mail precisa normalizar igual.
 import { usuariosComAcesso, enviarAvisoReativacao, enviarEmail, tituloProcesso, novidadesParaEmail,
-         tokenDescadastro, linkDescadastro, definirDescadastro } from '../../lib/sync-comum.js';
+         tokenDescadastro, linkDescadastro, definirDescadastro, lerOab } from '../../lib/sync-comum.js';
 // Conta de parcelas/pagamentos de honorários — o MESMO arquivo que a tela usa
 // (dashboard.html carrega como <script>), pra e-mail e tela nunca discordarem
 // sobre o que está vencido. Expõe globalThis.HonCalc.
@@ -115,11 +115,13 @@ async function logErro(admin, origem, mensagem, detalhes, userId) {
 // continua aceso até o advogado abrir o processo.
 
 async function rodarInstant(admin, res, hoje) {
-  const { data: pendentes } = await admin
+  const { data: pendentes, error: errPendentes } = await admin
     .from('processos')
     .select('id, user_id, numero, nome, apelido, cliente, tribunal, datajud_index, ultima_verificacao, novos_movimentos')
     .eq('email_pendente', true)
     .neq('status', 'Arquivado');
+  // Erro de leitura não é "nada pendente" — antes o e-mail simplesmente não saía, sem registro.
+  if (errPendentes) throw new Error(`Falha ao ler processos pendentes: ${errPendentes.message}`);
 
   if (!pendentes?.length) {
     return res.status(200).json({ ok: true, tipo: 'instant', emailsEnviados: 0, motivo: 'nada pendente' });
@@ -181,11 +183,13 @@ async function rodarInstant(admin, res, hoje) {
 // Só envia se a sincronização marcou email_pendente = true no banco.
 
 async function rodarMorning(admin, res, hoje) {
-  const { data: pendentes } = await admin
+  const { data: pendentes, error: errPendentes } = await admin
     .from('processos')
     .select('id, user_id, numero, nome, apelido, cliente, tribunal, datajud_index, ultima_verificacao, novos_movimentos')
     .eq('email_pendente', true)
     .neq('status', 'Arquivado');
+  // Erro de leitura não é "nada pendente" — antes o e-mail simplesmente não saía, sem registro.
+  if (errPendentes) throw new Error(`Falha ao ler processos pendentes: ${errPendentes.message}`);
 
   if (!pendentes?.length) {
     return res.status(200).json({ ok: true, tipo: 'morning', emailsEnviados: 0, hoje, motivo: 'nada pendente' });
@@ -260,7 +264,7 @@ async function rodarAfternoon(admin, res, hoje) {
 
   // Pendentes que surgiram APÓS o morning (ultima_notif_email não é de hoje)
   const cutoffMorning = `${hoje}T11:30:00Z`;
-  const [{ data: pendentes }, { data: eventosAmanha }] = await Promise.all([
+  const [{ data: pendentes, error: errPendentes }, { data: eventosAmanha, error: errEventos }] = await Promise.all([
     admin.from('processos')
       .select('id, user_id, numero, nome, apelido, cliente, tribunal, datajud_index, ultima_verificacao, novos_movimentos')
       .eq('email_pendente', true)
@@ -271,6 +275,7 @@ async function rodarAfternoon(admin, res, hoje) {
       .gte('data', hoje)
       .lte('data', amanha),
   ]);
+  if (errPendentes || errEventos) throw new Error(`Falha ao ler pendentes/eventos: ${(errPendentes || errEventos).message}`);
 
   const porUsuario = {};
   for (const p of pendentes || []) {
@@ -337,12 +342,13 @@ async function rodarAfternoon(admin, res, hoje) {
 
 async function rodarEvening(admin, res, hoje) {
   const amanha = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
-  const { data: eventos } = await admin
+  const { data: eventos, error: errEventos } = await admin
     .from('eventos')
     .select('user_id, titulo, tipo, data, urgencia')
     .gte('data', hoje)
     .lte('data', amanha)
     .eq('urgencia', 'urgente');
+  if (errEventos) throw new Error(`Falha ao ler eventos: ${errEventos.message}`);
 
   if (!eventos?.length) return res.status(200).json({ ok: true, tipo: 'evening', emailsEnviados: 0 });
 
@@ -549,8 +555,9 @@ async function rodarHonorarioVencido(admin, res, hoje) {
 // (enviarEmail central). ?simular=1 só lista, não envia nem registra.
 
 const MAX_LEMBRETES = 2;
-const oabsValidas = raw => String(raw || '').split(',').map(s => s.trim()).filter(Boolean)
-  .filter(o => /^(?:OAB[/ ]?)?[A-Z]{2}[/ ]?\d{3,7}$/.test(o.toUpperCase().replace(/[.\-]/g, '')));
+// Mesma leitura de OAB do robô do DJEN — antes era uma cópia da regex que
+// recusava "DF - 59360" e "59360/DF", e o lembrete pedia OAB a quem já tinha.
+const oabsValidas = raw => String(raw || '').split(',').filter(o => lerOab(o));
 
 async function rodarCadastroIncompleto(admin, res, hoje, simular) {
   const users = [];

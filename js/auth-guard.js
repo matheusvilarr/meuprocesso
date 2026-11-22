@@ -1,11 +1,14 @@
 // Mesma regra que o servidor usa para casar as publicações do DJEN
-// (buscarOabsUsuarios em lib/sync-comum.js). Precisa de UF + número: uma OAB
-// gravada só como "59360" não casa com nada, e o advogado fica sem receber
+// (lerOab em lib/sync-comum.js — mudar nos dois). Precisa de UF + número: uma
+// OAB gravada só como "59360" não casa com nada, e o advogado fica sem receber
 // intimação nenhuma sem entender por quê.
 window._oabsValidas = function (raw) {
-  return String(raw || '').split(',').map(s => s.trim()).filter(Boolean).map(o => {
-    const m = o.toUpperCase().replace(/[.\-]/g, '').match(/^(?:OAB[/ ]?)?([A-Z]{2})[/ ]?(\d{3,7})$/);
-    return m ? { uf: m[1], num: m[2].replace(/^0+/, '') } : null;
+  return String(raw || '').split(',').map(o => {
+    const s = o.toUpperCase().replace(/\./g, '').replace(/-/g, ' ').replace(/\s+/g, ' ').trim();
+    const ufAntes  = s.match(/^(?:OAB[/ ]*)?([A-Z]{2})[/ ]*(\d{3,7}[A-Z]?)$/);
+    const ufDepois = !ufAntes && s.match(/^(?:OAB[/ ]*)?(\d{3,7}[A-Z]?)[/ ]*([A-Z]{2})$/);
+    if (!ufAntes && !ufDepois) return null;
+    return { uf: ufAntes ? ufAntes[1] : ufDepois[2], num: (ufAntes ? ufAntes[2] : ufDepois[1]).replace(/^0+/, '') };
   }).filter(Boolean);
 };
 
