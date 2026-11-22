@@ -13,7 +13,8 @@
 // máximo 12 funções em api/ — a 13ª (api/cron/djen-cadernos.js) fez todos os
 // deploys falharem de 31/07 a 29/09/2026.
 //
-// DataJud: filtro de 20h (browser cobre usuários ativos). Time guard 60s.
+// DataJud: filtro de 20h (browser cobre usuários ativos). Janela de 55s para
+// disparar consultas, disjuntor após 3 lotes seguidos com erro (ver sincronizarDatajud).
 
 import { createClient } from '@supabase/supabase-js';
 import djenCadernos, { importarHistoricoOab } from '../../lib/djen-cadernos.js';
@@ -188,7 +189,10 @@ async function rodarDatajud(admin, res, hoje) {
     inicioMs: startAt,
     fila: filaTotal ?? null,
     processados: r.tentados,
-    resultados: { novos: r.novos, verificados: r.verificados, falhas: r.falhas, reparados },
+    resultados: { novos: r.novos, verificados: r.verificados, falhas: r.falhas, naoTentados: r.naoTentados, disjuntor: r.disjuntor, reparados },
+    // Aparece no histórico de execuções do painel — antes uma pane do DataJud
+    // passava como execução normal.
+    erro: r.disjuntor ? `DataJud falhando: parou após ${LOTE_DATAJUD_FALHAS_PARAR} lotes seguidos com erro; ${r.naoTentados} processo(s) ficaram para a próxima execução` : null,
   });
 
   // Dispara email imediato se houve movimentos novos — não bloqueia o response em caso de erro
@@ -211,6 +215,7 @@ async function rodarDatajud(admin, res, hoje) {
     filaRestante: filaTotal ?? null,
     datajud: r.novos,
     tentados: r.tentados, verificados: r.verificados, falhas: r.falhas,
+    naoTentados: r.naoTentados, disjuntor: r.disjuntor,
     emailInstant: r.novos > 0,
     elapsed: Math.round((Date.now() - startAt) / 1000) + 's',
   });
@@ -265,15 +270,41 @@ const LOTE_DATAJUD_TAMANHO        = 300;
 const LOTE_DATAJUD_CONCORRENCIA   = 15;
 // Espaça o disparo de cada lote — medido em 09/10: 40 requisições simultâneas
 // no mesmo instante geram um pico de ~240/min (2x o limite de 120/min dos
-// Termos de Uso do CNJ) e foi exatamente aí que vieram os 429 do teste. Com
-// poucas dezenas de lotes (não centenas de processos) isso já é bem mais raro,
-// mas o espaçamento custa pouco e elimina o risco de vez.
-const LOTE_DATAJUD_ESPACAMENTO_MS = 250;
+// Termos de Uso do CNJ) e foi exatamente aí que vieram os 429 do teste.
+// 500ms = no máximo 120/min. Era 250ms: com o DataJud respondendo 429 em meio
+// segundo (pane de nov/2026), os trabalhadores disparavam o lote seguinte na
+// hora e o ritmo chegava a 240/min justamente quando o CNJ estava saturado.
+const LOTE_DATAJUD_ESPACAMENTO_MS = 500;
+// Disjuntor: depois de tantas falhas seguidas de lote, para de disparar — os
+// lotes que sobraram ficam "não tentados" e voltam no começo da próxima
+// execução, em vez de martelar um DataJud que já está caindo.
+const LOTE_DATAJUD_FALHAS_PARAR   = 3;
+const LOTE_DATAJUD_ESPERA_429_MS  = 5000;
+// Até quando a fase de gravação pode começar. maxDuration é 180s (vercel.json);
+// depois da gravação ainda vêm a contagem da fila, fecharExecucao e o disparo
+// do e-mail (até 12s). Era 55+65=120s, mas o último lote pode começar aos 55s,
+// esperar a vez do espaçamento e só voltar depois disso — aí a gravação inteira
+// era pulada e nem a tentativa ficava registrada.
+const PRAZO_GRAVAR_MS             = 150000;
 
 function dividirEmLotes(itens, tamanho) {
   const lotes = [];
   for (let i = 0; i < itens.length; i += tamanho) lotes.push(itens.slice(i, i + tamanho));
   return lotes;
+}
+
+// Sobrecarregado, o DataJud às vezes responde 200 com a busca pela metade:
+// shards que falharam ou estouraram o tempo, e "hits" vazio ou incompleto (visto
+// ao vivo em 21/11/2026: HTTP 200, hits [] e es_rejected_execution no corpo).
+// Tratar isso como "não achou" marcava o processo como verificado sem ter
+// consultado nada — por isso vira erro, e o processo volta na próxima volta.
+function hitsValidos(json, index) {
+  const total = json?.hits?.total?.value;
+  const hits  = json?.hits?.hits || [];
+  if (json?.timed_out || json?._shards?.failed > 0 || json?.error || (total != null && total > hits.length)) {
+    throw new Error(`DataJud resposta parcial (${index}): ${json?._shards?.failed || 0} shard(s) com falha${json?.timed_out ? ', tempo esgotado' : ''}`);
+  }
+  return hits;
 }
 
 async function buscarLoteDatajud(index, numeros) {
@@ -284,8 +315,7 @@ async function buscarLoteDatajud(index, numeros) {
     body: JSON.stringify({ size: numeros.length * 4, query: { terms: { numeroProcesso: numeros } } }),
   });
   if (!r.ok) throw new Error(`DataJud respondeu ${r.status} (${index})`);
-  const json = JSON.parse(decodificarBuffer(await r.arrayBuffer()));
-  return json.hits?.hits || [];
+  return hitsValidos(JSON.parse(decodificarBuffer(await r.arrayBuffer())), index);
 }
 
 // Também usada pelo botão "Sincronizar processos" do painel admin.
@@ -322,38 +352,68 @@ export async function sincronizarDatajud(processos, admin, hoje, startAt = Date.
   // cada processo do lote recebe o mesmo erro, cai no caminho de "erro" de
   // sempre: fim da fila, tenta de novo na próxima execução).
   const mapaResultados = new Map();
-  await comPool(lotesParaBuscar, LOTE_DATAJUD_CONCORRENCIA, startAt + JANELA_INICIAR_MS, async (lote) => {
-    const esperar = reservarVez();
-    if (esperar > 0) await new Promise(r => setTimeout(r, esperar));
-    try {
-      const hits = await buscarLoteDatajud(lote.index, lote.numeros);
-      const porNumero = new Map();
-      for (const h of hits) {
-        const num = h._source?.numeroProcesso;
-        if (!num) continue;
-        if (!porNumero.has(num)) porNumero.set(num, []);
-        porNumero.get(num).push(h);
+  const fimJanela = startAt + JANELA_INICIAR_MS;
+  let falhasSeguidas = 0;
+  let disjuntor = false;
+  await comPool(lotesParaBuscar, LOTE_DATAJUD_CONCORRENCIA, fimJanela, async (lote) => {
+    let hits;
+    for (let tentativa = 0; ; tentativa++) {
+      // Toda tentativa, inclusive a segunda, entra na fila do espaçamento —
+      // senão as retentativas saíam todas juntas e furavam os 120/min.
+      if (disjuntor) return;
+      const esperar = reservarVez();
+      if (esperar > 0) await new Promise(r => setTimeout(r, esperar));
+      if (disjuntor) return;
+      try {
+        hits = await buscarLoteDatajud(lote.index, lote.numeros);
+        break;
+      } catch (e) {
+        // 429 e resposta parcial voltam em ~1s: vale uma segunda tentativa
+        // depois de uma pausa, se ainda couber na janela. Timeout e 504 não —
+        // já custaram 60s.
+        const saturado = classificarErroDatajud(e).tipo === 'cnj-saturado';
+        const cabe = Date.now() + LOTE_DATAJUD_ESPERA_429_MS < fimJanela;
+        if (saturado && tentativa === 0 && cabe && !disjuntor) {
+          await new Promise(r => setTimeout(r, LOTE_DATAJUD_ESPERA_429_MS));
+          continue;
+        }
+        for (const n of lote.numeros) mapaResultados.set(n, e);
+        if (++falhasSeguidas >= LOTE_DATAJUD_FALHAS_PARAR) disjuntor = true;
+        return;
       }
-      for (const n of lote.numeros) mapaResultados.set(n, porNumero.get(n) || []);
-    } catch (e) {
-      for (const n of lote.numeros) mapaResultados.set(n, e);
     }
+    falhasSeguidas = 0;
+    const porNumero = new Map();
+    for (const h of hits) {
+      const num = h._source?.numeroProcesso;
+      if (!num) continue;
+      if (!porNumero.has(num)) porNumero.set(num, []);
+      porNumero.get(num).push(h);
+    }
+    for (const n of lote.numeros) mapaResultados.set(n, porNumero.get(n) || []);
   });
 
   // Aplica o resultado já buscado, processo por processo — mesma lógica de
   // sempre (hash, mesclar movimentos, gravar, classificar erro). Não depende
   // mais de rede aqui, então a concorrência é só sobre I/O do Supabase.
-  const resultados = await comPool(com_datajud, 20, startAt + JANELA_INICIAR_MS + ESPERA_DATAJUD_MS, async (proc) => {
+  const resultados = await comPool(com_datajud, 20, startAt + PRAZO_GRAVAR_MS, async (proc) => {
     const numeroLimpo = proc.numero.replace(/[.\-/ ]/g, '');
-    const resultado = mapaResultados.has(numeroLimpo) ? mapaResultados.get(numeroLimpo) : [];
-    return aplicarResultadoDatajud(proc, resultado, admin, hoje);
+    // Lote que nem chegou a ser consultado (janela acabou ou disjuntor abriu):
+    // não grava NADA. Antes virava [] = "não encontrado" e o processo era
+    // marcado como verificado agora — sumia da fila por 20h e a tela mostrava
+    // "verificado" sem ter havido consulta. Sem gravar, ele continua no começo
+    // da fila (sync_ultima_tentativa não muda) e é o primeiro da próxima vez.
+    if (!mapaResultados.has(numeroLimpo)) return 'nao-tentado';
+    return aplicarResultadoDatajud(proc, mapaResultados.get(numeroLimpo), admin, hoje);
   });
 
   return {
     novos:      resultados.filter(r => r === 'novos').length,
     verificados: resultados.filter(r => r === 'novos' || r === 'atualizado' || r === 'sem-mudanca' || r === 'nao-encontrado').length,
     falhas:     resultados.filter(r => r === 'erro').length,
-    tentados:   resultados.length,
+    naoTentados: resultados.filter(r => r === 'nao-tentado').length,
+    tentados:   resultados.filter(r => r !== 'nao-tentado').length,
+    disjuntor,
     resultados,
   };
 }
@@ -412,8 +472,14 @@ async function aplicarResultadoDatajud(proc, hitsOuErro, admin, hoje) {
   try {
     if (hitsOuErro instanceof Error) throw hitsOuErro;
     const hits = hitsOuErro;
+    // O supabase-js não lança exceção em erro de gravação — devolve { error }.
+    // Sem checar, uma gravação que falhou contava como "verificado".
+    const gravar = async (upd) => {
+      const { error } = await admin.from('processos').update(upd).eq('id', proc.id);
+      if (error) throw new Error(`Falha ao gravar: ${error.message}`);
+    };
     if (!hits?.length) {
-      await admin.from('processos').update(sucessoFila()).eq('id', proc.id);
+      await gravar(sucessoFila());
       return 'nao-encontrado';
     }
 
@@ -421,9 +487,7 @@ async function aplicarResultadoDatajud(proc, hitsOuErro, admin, hoje) {
     const novoHash  = todosMovs.slice(0, 6).map(m => m.data + m.nome).join('|');
 
     if (novoHash === proc.movimentos_hash) {
-      await admin.from('processos')
-        .update({ ...sucessoFila(), ...enriquecerSeDescoberto(proc, hits) })
-        .eq('id', proc.id);
+      await gravar({ ...sucessoFila(), ...enriquecerSeDescoberto(proc, hits) });
       return 'sem-mudanca';
     }
 
@@ -469,6 +533,7 @@ export function classificarErroDatajud(e) {
   // Dizer o número medido evita tanto nos culpar à toa quanto nos isentar.
   if (/aborted|timeout/i.test(m))           return { tipo: 'espera-curta',  origem: 'sistema', texto: `Sem resposta do DataJud em ${Math.round(ESPERA_DATAJUD_MS / 1000)}s (ele responde em ~35s e corta sozinho em 60s)` };
   if (/respondeu 429/.test(m))              return { tipo: 'cnj-saturado',  origem: 'cnj',     texto: 'Servidor do CNJ sem capacidade no momento (429 — fila interna cheia)' };
+  if (/resposta parcial/.test(m))           return { tipo: 'cnj-saturado',  origem: 'cnj',     texto: 'DataJud sobrecarregado devolveu a busca pela metade (shards com falha)' };
   if (/respondeu 5\d\d/.test(m))            return { tipo: 'cnj-fora',      origem: 'cnj',     texto: `DataJud com erro interno (${m.match(/respondeu (\d+)/)[1]})` };
   if (/respondeu 40[13]/.test(m))           return { tipo: 'cnj-bloqueio',  origem: 'cnj',     texto: 'DataJud recusou o acesso (chave pública trocada ou bloqueio de IP)' };
   if (/respondeu 404/.test(m))              return { tipo: 'indice',        origem: 'sistema', texto: 'Tribunal (índice DataJud) inexistente para este número — número do processo pode estar errado' };
@@ -519,8 +584,7 @@ async function buscarNoDatajud(index, numero) {
     body: JSON.stringify({ size: 10, query: { match: { numeroProcesso: numeroLimpo } } }),
   });
   if (!r.ok) throw new Error(`DataJud respondeu ${r.status} (${index})`);
-  const json = JSON.parse(decodificarBuffer(await r.arrayBuffer()));
-  return json.hits?.hits || [];
+  return hitsValidos(JSON.parse(decodificarBuffer(await r.arrayBuffer())), index);
 }
 
 // ── FILA STJ — resolve "AREsp 3254978" pro número CNJ e importa ───────────────

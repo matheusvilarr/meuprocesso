@@ -2292,6 +2292,14 @@ body.acesso-restrito .nav-item:not([data-livre]) { opacity: .4; }
 }
 .restrito-aviso i { font-size: 22px; color: var(--red); flex-shrink: 0; }
 
+/* CNJ (DataJud) fora do ar — os processos param de mudar e o advogado precisa saber que não é o sistema */
+.aviso-cnj[hidden] { display: none !important; }
+.aviso-cnj {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding: 12px 16px;
+  background: #fffbeb; border: 1px solid #fcd34d; border-radius: var(--radius-lg); color: #78350f; font-size: 13px; line-height: 1.55;
+}
+.aviso-cnj i { font-size: 20px; color: #b45309; flex-shrink: 0; }
+
 /* Tela "falta só sua OAB" — cobre o painel de quem entrou sem OAB (ex: Google/LinkedIn) */
 .tela-oab[hidden] { display: none !important; }
 .tela-oab {

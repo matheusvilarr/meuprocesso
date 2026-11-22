@@ -745,8 +745,8 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
   // Até 19/10/2026 era 1 consulta por processo, 20 ao mesmo tempo — o DataJud
   // recusava com 429 e a conta do Pedro ficou com 31 de 32 processos em
   // "falha" num clique, enquanto os crons (já agrupados) passavam limpos.
-  const { resultados } = await sincronizarDatajud(processos, admin, hoje, startAt);
-  parou = resultados.length < processos.length;
+  const { resultados, naoTentados } = await sincronizarDatajud(processos, admin, hoje, startAt);
+  parou = resultados.length < processos.length || naoTentados > 0;
   for (const r of resultados) {
     if (r === 'novos')               { atualizados++; comNovidade++; }
     else if (r === 'atualizado')     atualizados++;
@@ -774,8 +774,8 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
   await fecharExecucao(admin, execId, {
     inicioMs: startAt,
     fila: processos.length,
-    processados: resultados.length,
-    resultados: { novos: comNovidade, verificados: atualizados + semMudanca + naoEncontrado, falhas: erros, reparados },
+    processados: resultados.length - naoTentados,
+    resultados: { novos: comNovidade, verificados: atualizados + semMudanca + naoEncontrado, falhas: erros, naoTentados, reparados },
   });
 
   return res.json({
@@ -786,6 +786,7 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
     semMudanca,
     naoEncontrado,
     erros,
+    naoTentados,
     emailsDisparados,
     parou,
     elapsed: Math.round((Date.now() - startAt) / 1000) + 's',

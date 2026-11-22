@@ -172,10 +172,10 @@ function erroDetalhe(hits) {
   // execution" = fila interna cheia) ou demora mais de 55s. Não é erro do
   // Meu Processo, e insistir na hora não adianta.
   const bruto = JSON.stringify(hits.detail || '');
-  if (hits.status === 429 || /rejected execution/i.test(bruto)) {
+  if (hits.status === 429 || /rejected execution|rejected_execution|resposta parcial/i.test(bruto)) {
     return 'O sistema do CNJ (DataJud) está sobrecarregado agora e recusou a consulta. Tente de novo em alguns minutos — o monitoramento automático continua tentando sozinho.';
   }
-  if (hits.status === 0 && /timeout|aborted/i.test(bruto)) {
+  if ([502, 503, 504].includes(hits.status) || (hits.status === 0 && /timeout|aborted/i.test(bruto))) {
     return 'O CNJ (DataJud) está muito lento agora e não respondeu a tempo. Tente de novo em alguns minutos — o monitoramento automático continua tentando sozinho.';
   }
   const shardReason = hits.detail?.error?.failed_shards?.[0]?.reason?.reason;
@@ -195,16 +195,24 @@ async function chamarDatajud(index, body, key) {
           'Authorization': `ApiKey ${key}`,
           'Content-Type':  'application/json'
         },
-        // 45s como no cron: o DataJud leva de 20 a 48s pra responder, e com
-        // 28s a busca do advogado falhava com "erro de conexão" à toa.
-        signal: AbortSignal.timeout(45000),
+        // 55s: o DataJud leva de 30 a 55s quando está carregado e desiste
+        // sozinho aos 60s. Com 45s, toda resposta que chegava entre 45 e 60s
+        // era jogada fora. maxDuration desta função é 60s (vercel.json).
+        signal: AbortSignal.timeout(55000),
         body: JSON.stringify(body)
       }
     );
-    const buffer = await r.arrayBuffer();
-    const text   = decodificarBuffer(buffer);
-    const d      = JSON.parse(text);
+    const text = decodificarBuffer(await r.arrayBuffer());
+    // Erro do gateway do CNJ vem em HTML (504 "NSX LB"), não em JSON — ler
+    // como JSON antes de olhar o status trocava o 504 por "status 0".
+    let d;
+    try { d = JSON.parse(text); } catch { d = text.slice(0, 200); }
     if (!r.ok) return { _erro: true, status: r.status, detail: d };
+    // Sobrecarregado, o DataJud responde 200 com a busca pela metade (shards
+    // com falha) — sem isso virava "processo não encontrado".
+    if (d?.timed_out || d?._shards?.failed > 0) {
+      return { _erro: true, status: r.status, detail: 'resposta parcial do DataJud (shards com falha)' };
+    }
     return d.hits?.hits || [];
   } catch (e) {
     return { _erro: true, status: 0, detail: e.message };

@@ -1862,6 +1862,7 @@ async function carregarProcessos() {
   atualizarDashboard(meus, countArq);
   atualizarBell();
   atualizarBadgeTarefas();
+  _avisoCnjInstavel(meus);
 
   // Carrega clientes e honorários em background para ficarem disponíveis no detalhe do processo
   carregarClientes();
@@ -1869,6 +1870,32 @@ async function carregarProcessos() {
 
   // Enriquece em background processos com número CNJ mas sem datajud_index
   _enriquecerPendentes(meus);
+}
+
+// Quando o DataJud do CNJ cai, os processos simplesmente param de mudar e o
+// advogado não tem como saber se o problema é o sistema ou o tribunal (pane de
+// nov/2026). Avisa quando a maioria dos processos monitorados está sem consulta
+// bem-sucedida há mais de 2 dias. Processo recém-cadastrado não conta.
+function _avisoCnjInstavel(meus) {
+  const avisos = document.querySelectorAll('.aviso-cnj');
+  if (!avisos.length) return;
+  const limite = Date.now() - 48 * 3600 * 1000;
+  const monitorados = (meus || []).filter(p =>
+    p.datajud_index && p.numero && new Date(p.created_at).getTime() < limite);
+  const atrasados = monitorados.filter(p =>
+    !p.ultima_verificacao || new Date(p.ultima_verificacao).getTime() < limite);
+  const mostrar = monitorados.length >= 3 && atrasados.length / monitorados.length >= 0.5;
+  let html = '';
+  if (mostrar) {
+    const ultima = monitorados.map(p => p.ultima_verificacao).filter(Boolean).sort().pop();
+    const quando = ultima
+      ? ` A última consulta que deu certo foi em ${new Date(ultima).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}.`
+      : '';
+    html = `<i class="ti ti-cloud-off"></i><div><strong>O sistema do CNJ (DataJud) está instável.</strong>
+      ${atrasados.length} de ${monitorados.length} processos estão sem atualização confirmada há mais de 2 dias.${quando}
+      O monitoramento continua tentando sozinho — enquanto isso, confira prazos urgentes direto no tribunal.</div>`;
+  }
+  avisos.forEach(el => { el.innerHTML = html; el.hidden = !mostrar; });
 }
 
 // Roda _enriquecerComDatajud para processos que têm número mas nunca cruzaram com DataJud
@@ -3973,8 +4000,10 @@ async function sincronizarDetalhe() {
 
   try {
     const res  = await _apiFetch(`/api/buscar-processo?tipo=numero&numero=${encodeURIComponent(_processoAtual.numero)}`);
-    const data = await res.json();
-    if (!res.ok || !data.resultados?.length) throw new Error();
+    const data = await res.json().catch(() => ({}));
+    // A mensagem do servidor já diz se é o CNJ sobrecarregado, lento ou se o
+    // processo não existe naquele tribunal — antes tudo virava "Erro ao sincronizar".
+    if (!res.ok || !data.resultados?.length) throw new Error(data.erro || '');
 
     const d = data.resultados[0];
 
@@ -4002,8 +4031,8 @@ async function sincronizarDetalhe() {
 
     showToast(novos.length ? `${novos.length} nova(s) movimentação(ões)!` : 'Timeline atualizada. Sem novidades.');
     carregarProcessos();
-  } catch {
-    showToast('Erro ao sincronizar. Tente novamente.');
+  } catch (e) {
+    showToast(e?.message || 'Erro ao sincronizar. Tente novamente.', 'warning');
   } finally {
     if (btn) { btn.innerHTML = '<i class="ti ti-refresh"></i> Sincronizar'; btn.disabled = false; }
   }
@@ -4645,21 +4674,33 @@ function _atualizacaoDatajud(proc, resultado) {
   return { upd, novos, importantes };
 }
 
-let _sincronizandoTodos = false;
+let _sincronizandoTodos = 0; // início da passada em andamento (0 = nenhuma)
 
 async function sincronizarTodos() {
   // Com o DataJud lento (~60s por resposta), uma passada por 150 processos leva
   // horas — sem a trava, o intervalo de 30 min empilhava passadas na mesma aba.
-  if (_sincronizandoTodos) return;
-  _sincronizandoTodos = true;
+  // A trava expira em 3h: se alguma chamada nunca voltar (aba suspensa, rede
+  // que trava sem erro), o sync desta aba não fica parado para sempre.
+  if (_sincronizandoTodos && Date.now() - _sincronizandoTodos < 3 * 3600 * 1000) return;
+  const minhaPassada = _sincronizandoTodos = Date.now();
   try {
     await _sincronizarTodos();
   } finally {
-    _sincronizandoTodos = false;
+    if (_sincronizandoTodos === minhaPassada) _sincronizandoTodos = 0;
   }
 }
 
 async function _sincronizarTodos() {
+  // A data de verificação em cache é de quando a página abriu: numa aba aberta
+  // há horas, o cron já verificou boa parte dos processos e a aba consultaria
+  // tudo de novo no DataJud. Relê só essa coluna antes de cada passada.
+  const { data: verif } = await _supabase.from('processos')
+    .select('id, ultima_verificacao').eq('user_id', window._escritorioId);
+  if (verif?.length) {
+    const porId = new Map(verif.map(v => [v.id, v.ultima_verificacao]));
+    for (const p of window._processosDB || []) if (porId.has(p.id)) p.ultima_verificacao = porId.get(p.id);
+  }
+
   const agora = Date.now();
   const procs = (window._processosDB || []).filter(p =>
     p.datajud_index && p.numero && !window._sharedSet?.[p.id] &&
@@ -4678,10 +4719,14 @@ async function _sincronizarTodos() {
 
   for (const p of procs) {
     try {
-      const res  = await _apiFetch(`/api/buscar-processo?tipo=numero&numero=${encodeURIComponent(p.numero)}`);
-      // 502/504 = DataJud fora do ar (404 é resposta: só não achou o processo).
-      // 3 seguidas: desiste desta passada, a próxima tenta em 30 min.
-      if (res.status === 502 || res.status === 504) {
+      const res  = await _apiFetch(`/api/buscar-processo?tipo=numero&numero=${encodeURIComponent(p.numero)}`,
+        { signal: AbortSignal.timeout(70000) });
+      // 404 é resposta (só não achou o processo). Qualquer outro erro conta
+      // como falha — antes só 502/504 contavam, e um 500 ou 429 da Vercel
+      // zerava o contador e a passada seguia consultando processo por processo.
+      // 401 = sessão expirou: não adianta continuar.
+      if (res.status === 401) break;
+      if (!res.ok && res.status !== 404) {
         if (++falhasSeguidas >= 3) break;
         continue;
       }
@@ -4711,7 +4756,10 @@ async function _sincronizarTodos() {
       const r = await _gravarComNovidades(p.id, fresco => _atualizacaoDatajud({ ...p, ...fresco }, d));
       if (r.gravado) p.ultima_verificacao = new Date().toISOString();
       if (r.gravado && r.importantes?.length) atualizados++;
-    } catch (_) {}
+    } catch (_) {
+      // Timeout da chamada (70s) ou rede caiu: também é falha seguida.
+      if (++falhasSeguidas >= 3) break;
+    }
   }
 
   if (atualizados > 0) {
