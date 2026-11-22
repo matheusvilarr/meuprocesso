@@ -17,6 +17,10 @@ const HonCalc = globalThis.HonCalc;
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
 const SUPA_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY;
 const CRON_SECRET      = process.env.CRON_SECRET;
+// Segredo dos workers locais (fila STJ e DJEN — scripts/). Só vale para o
+// ?tipo=instant: o worker do DJEN avisa que gravou intimação nova e o e-mail
+// sai na hora. Os outros tipos continuam exclusivos do CRON_SECRET.
+const STJ_FILA_SECRET  = process.env.STJ_FILA_SECRET;
 
 export default async function handler(req, res) {
   // /descadastrar (rewrite no vercel.json) cai aqui: o plano Hobby já está no
@@ -33,7 +37,8 @@ export default async function handler(req, res) {
   if (process.env.VERCEL && !CRON_SECRET) {
     return res.status(503).json({ erro: 'CRON_SECRET não configurado no servidor.' });
   }
-  if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}`) {
+  const workerInstant = STJ_FILA_SECRET && req.query?.tipo === 'instant' && authHeader === `Bearer ${STJ_FILA_SECRET}`;
+  if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}` && !workerInstant) {
     return res.status(401).json({ erro: 'Não autorizado.' });
   }
   if (!SUPA_SERVICE_KEY) {

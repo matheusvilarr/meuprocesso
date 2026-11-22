@@ -16,3 +16,7 @@ backups/
 
 # telas antigas da landing, guardadas na troca de out/2026
 img/screenshots-antigos/
+
+# Worker local do DJEN — log e trava de execução (o .env já cai na regra .env*)
+scripts/worker-djen/*.log
+scripts/worker-djen/.rodando

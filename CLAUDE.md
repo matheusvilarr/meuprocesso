@@ -77,11 +77,15 @@ Repositório: `github.com/matheusvilarr/meuprocesso`
 │   ├── requirements.txt    # playwright, fastapi, uvicorn, requests
 │   ├── backup.bat / backup.sh  # Backup local do banco (ver BACKUP-LEIA-ME.md; saída em backups/, fora do git)
 │   ├── servidor-local.mjs  # Servidor estático local (sem vercel dev — /api responde 501)
-│   └── fila_stj/           # Worker da fila STJ/STF — ver seção própria abaixo
-│       ├── worker.py
-│       ├── requirements.txt
-│       ├── rodar.bat       # Duplo-clique pra rodar (venv fica fora do repo)
-│       └── .env            # Local, fora do git (SUPABASE_SERVICE_KEY, STJ_FILA_SECRET)
+│   ├── fila_stj/           # Worker da fila STJ/STF — ver seção própria abaixo
+│   │   ├── worker.py
+│   │   ├── requirements.txt
+│   │   ├── rodar.bat       # Duplo-clique pra rodar (venv fica fora do repo)
+│   │   └── .env            # Local, fora do git (SUPABASE_SERVICE_KEY, STJ_FILA_SECRET)
+│   └── worker-djen/        # Worker local do DJEN (Node) — ver seção própria abaixo
+│       ├── worker.mjs      # Roda lib/djen-cadernos.js a partir do IP do escritório
+│       ├── rodar.bat       # Duplo-clique ou Agendador de Tarefas (LEIA-ME.md)
+│       └── .env            # Local, fora do git (modelo: exemplo.env)
 ├── supabase/
 │   ├── schema.sql          # Schema completo — rode no SQL Editor do Supabase
 │   └── migration_*.sql     # Migrations aditivas (não destroem dados) — rodar uma por uma
@@ -331,6 +335,35 @@ que `api/cron/sincronizar.js` aceita como credencial alternativa.
 `www.meuprocesso.app.br`, e `requests`/curl descartam o header `Authorization` ao seguir
 redirect pra outro host — isso parecia "CRON_SECRET errado" (401) mas na real nunca chegava
 no handler. `SYNC_ENDPOINT` no `.env` do worker já aponta pro host `www.` direto.
+
+---
+
+## Worker local do DJEN (`scripts/worker-djen/`)
+
+Roda a **mesma** rotina do cron `?tipo=djen` (`lib/djen-cadernos.js`) a partir de um computador
+do escritório. Motivo: a API do DJEN limita/bloqueia por IP e região, e a Vercel não tem IP fixo
+— na pane de nov/2026 ela respondia normal de IP residencial enquanto o cron parava.
+- Usa a mesma fila e a mesma reivindicação atômica do cron: pode rodar junto, sem duplicar item.
+- `.env` local: `SUPABASE_SERVICE_KEY` (obrigatória), `STJ_FILA_SECRET` (e-mail de intimação na
+  hora — `verificar-atualizacoes` aceita esse segredo **só** no `?tipo=instant`), `RESEND_API_KEY`
+  (e-mail de processo novo encontrado).
+- Sem o teto de 180s da Vercel: passa `req.orcamentoMs` (20 min) pro handler.
+- Execuções aparecem no painel com região `worker-local`. Log em `worker-djen.log` (fora do git).
+- Agendamento pelo Agendador de Tarefas do Windows — comando no `LEIA-ME.md` da pasta.
+
+## Pane do DataJud (nov/2026) — o que ficou de regra no código
+
+- O DataJud sobrecarregado responde 429, 504 após 60s, **ou 200 com a busca pela metade**
+  (`_shards.failed > 0`, `timed_out`). Resposta parcial é **erro**, nunca "não encontrado"
+  (`hitsValidos` em `sincronizar.js`; mesmo teste em `buscar-processo.js`).
+- Processo cujo lote não chegou a ser consultado **não grava nada** (`'nao-tentado'`) — marcar
+  como verificado sem consultar escondia a pane por 20h.
+- Disjuntor: o cron para depois de 3 lotes seguidos com erro; espaçamento de 500ms (≤120/min,
+  limite do CNJ) vale também para a retentativa.
+- Resposta sem movimentos **nunca** substitui as movimentações já salvas
+  (`montarNovidadesDatajud` / `_atualizacaoDatajud`).
+- DJEN: "Novo"/e-mail vale para publicação de até 7 dias **ou** posterior à última busca
+  bem-sucedida daquela OAB (`ultimoSucessoOab`) — assim as intimações de uma pane não entram caladas.
 
 ---
 
