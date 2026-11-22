@@ -2292,13 +2292,24 @@ body.acesso-restrito .nav-item:not([data-livre]) { opacity: .4; }
 }
 .restrito-aviso i { font-size: 22px; color: var(--red); flex-shrink: 0; }
 
-/* CNJ (DataJud) fora do ar — os processos param de mudar e o advogado precisa saber que não é o sistema */
-.aviso-cnj[hidden] { display: none !important; }
-.aviso-cnj {
+/* Faixas de aviso: .aviso-cnj = automático (DataJud sem resposta há 2+ dias);
+   .aviso-sistema = escrito pelo admin no painel (tem prioridade sobre o automático) */
+.aviso-cnj[hidden], .aviso-sistema[hidden] { display: none !important; }
+.aviso-cnj, .aviso-sistema {
   display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding: 12px 16px;
   background: #fffbeb; border: 1px solid #fcd34d; border-radius: var(--radius-lg); color: #78350f; font-size: 13px; line-height: 1.55;
 }
-.aviso-cnj i { font-size: 20px; color: #b45309; flex-shrink: 0; }
+.aviso-cnj > i, .aviso-sistema > i { font-size: 20px; color: #b45309; flex-shrink: 0; }
+.aviso-cnj > div, .aviso-sistema > div { flex: 1; min-width: 0; }
+.aviso-sistema.nivel-info    { background: #eff6ff; border-color: #bfdbfe; color: #1e3a8a; }
+.aviso-sistema.nivel-info > i { color: #2563eb; }
+.aviso-sistema.nivel-critico { background: #fef2f2; border-color: #fecaca; color: #7f1d1d; }
+.aviso-sistema.nivel-critico > i { color: var(--red); }
+.aviso-fechar {
+  flex-shrink: 0; background: transparent; border: 1px solid currentColor; color: inherit; opacity: .75;
+  border-radius: 8px; padding: 4px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.aviso-fechar:hover { opacity: 1; }
 
 /* Tela "falta só sua OAB" — cobre o painel de quem entrou sem OAB (ex: Google/LinkedIn) */
 .tela-oab[hidden] { display: none !important; }

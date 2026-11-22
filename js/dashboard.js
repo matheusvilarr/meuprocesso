@@ -1862,6 +1862,7 @@ async function carregarProcessos() {
   atualizarDashboard(meus, countArq);
   atualizarBell();
   atualizarBadgeTarefas();
+  _carregarAvisoSistema();
   _avisoCnjInstavel(meus);
 
   // Carrega clientes e honorários em background para ficarem disponíveis no detalhe do processo
@@ -1872,30 +1873,66 @@ async function carregarProcessos() {
   _enriquecerPendentes(meus);
 }
 
-// Quando o DataJud do CNJ cai, os processos simplesmente param de mudar e o
-// advogado não tem como saber se o problema é o sistema ou o tribunal (pane de
-// nov/2026). Avisa quando a maioria dos processos monitorados está sem consulta
-// bem-sucedida há mais de 2 dias. Processo recém-cadastrado não conta.
+// ── AVISOS NO TOPO (do admin e do CNJ) ──
+// "Entendi" esconde a faixa por 24h. Sem localStorage (aba anônima com
+// bloqueio), a faixa só não fica escondida.
+function _avisoOculto(chave) {
+  try { return Number(localStorage.getItem('aviso-oculto:' + chave) || 0) > Date.now(); } catch { return false; }
+}
+function _ocultarAviso(chave, seletor) {
+  try { localStorage.setItem('aviso-oculto:' + chave, String(Date.now() + 24 * 3600 * 1000)); } catch {}
+  document.querySelectorAll(seletor).forEach(el => { el.hidden = true; });
+}
+
+// Aviso escrito pelo admin no painel (tabela avisos_sistema) — quem fala com o
+// cliente numa pane é uma pessoa, não uma regra automática. Tem prioridade:
+// com ele ativo, o aviso automático do CNJ não aparece. Até a migration
+// migration_aviso_sistema.sql ser rodada a tabela não existe, a consulta dá
+// erro e simplesmente não há aviso.
+let _avisoSistemaBuscadoEm = 0;
+async function _carregarAvisoSistema() {
+  if (Date.now() - _avisoSistemaBuscadoEm < 10 * 60 * 1000) return;   // no máximo 1 consulta a cada 10 min
+  _avisoSistemaBuscadoEm = Date.now();
+  const { data: aviso, error } = await _supabase.from('avisos_sistema')
+    .select('id, titulo, mensagem, nivel').eq('ativo', true)
+    .order('criado_em', { ascending: false }).limit(1).maybeSingle();
+  window._avisoSistemaAtivo = !error && !!aviso;
+  const mostrar = window._avisoSistemaAtivo && !_avisoOculto('sistema:' + aviso.id);
+  const icone = { info: 'ti-info-circle', critico: 'ti-alert-octagon' }[aviso?.nivel] || 'ti-alert-triangle';
+  document.querySelectorAll('.aviso-sistema').forEach(el => {
+    el.className = 'aviso-sistema' + (aviso?.nivel ? ' nivel-' + aviso.nivel : '');
+    el.innerHTML = mostrar
+      ? `<i class="ti ${icone}"></i><div><strong>${_esc(aviso.titulo)}</strong> ${_esc(aviso.mensagem).replace(/\n/g, '<br>')}</div>
+         <button class="aviso-fechar" onclick="_ocultarAviso('sistema:${_jsArg(aviso.id)}', '.aviso-sistema')">Entendi</button>`
+      : '';
+    el.hidden = !mostrar;
+  });
+  if (window._avisoSistemaAtivo) document.querySelectorAll('.aviso-cnj').forEach(el => { el.hidden = true; });
+}
+
+// Quando o DataJud do CNJ cai, os processos param de mudar e o advogado não tem
+// como saber se o problema é o sistema ou o tribunal (pane de nov/2026). Só
+// aparece quando NENHUMA consulta deu certo há mais de 2 dias — pane de verdade.
+// A 1ª versão contava processo por processo: com o rodízio da fila, dizia
+// "3 de 5 sem atualização" com o DataJud respondendo, e parecia defeito nosso.
 function _avisoCnjInstavel(meus) {
   const avisos = document.querySelectorAll('.aviso-cnj');
   if (!avisos.length) return;
   const limite = Date.now() - 48 * 3600 * 1000;
   const monitorados = (meus || []).filter(p =>
     p.datajud_index && p.numero && new Date(p.created_at).getTime() < limite);
-  const atrasados = monitorados.filter(p =>
-    !p.ultima_verificacao || new Date(p.ultima_verificacao).getTime() < limite);
-  const mostrar = monitorados.length >= 3 && atrasados.length / monitorados.length >= 0.5;
-  let html = '';
-  if (mostrar) {
-    const ultima = monitorados.map(p => p.ultima_verificacao).filter(Boolean).sort().pop();
-    const quando = ultima
-      ? ` A última consulta que deu certo foi em ${new Date(ultima).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}.`
+  const ultima = monitorados.map(p => p.ultima_verificacao).filter(Boolean).sort().pop();
+  const mostrar = monitorados.length > 0 && (!ultima || new Date(ultima).getTime() < limite)
+    && !window._avisoSistemaAtivo && !_avisoOculto('cnj');
+  avisos.forEach(el => {
+    el.innerHTML = mostrar
+      ? `<i class="ti ti-cloud-off"></i><div><strong>Andamentos do CNJ com atraso.</strong>
+         O DataJud, sistema do CNJ que fornece os andamentos processuais, está instável. Seus processos
+         continuam sendo verificados automaticamente e serão atualizados assim que o serviço normalizar.</div>
+         <button class="aviso-fechar" onclick="_ocultarAviso('cnj', '.aviso-cnj')">Entendi</button>`
       : '';
-    html = `<i class="ti ti-cloud-off"></i><div><strong>O sistema do CNJ (DataJud) está instável.</strong>
-      ${atrasados.length} de ${monitorados.length} processos estão sem atualização confirmada há mais de 2 dias.${quando}
-      O monitoramento continua tentando sozinho — enquanto isso, confira prazos urgentes direto no tribunal.</div>`;
-  }
-  avisos.forEach(el => { el.innerHTML = html; el.hidden = !mostrar; });
+    el.hidden = !mostrar;
+  });
 }
 
 // Roda _enriquecerComDatajud para processos que têm número mas nunca cruzaram com DataJud
