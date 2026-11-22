@@ -39,6 +39,31 @@
         <div id="saude-cards" class="saude-cards"></div>
       </section>
 
+      <!-- AVISO AOS ADVOGADOS (faixa no topo do dashboard deles) -->
+      <section class="saude" id="aviso-sistema">
+        <div class="saude-header">
+          <div class="saude-titulo"><i class="ti ti-speakerphone"></i> Aviso aos advogados</div>
+          <div class="saude-meta"><span id="aviso-status">Carregando…</span></div>
+        </div>
+        <div class="aviso-form">
+          <label for="aviso-titulo">Título</label>
+          <input id="aviso-titulo" maxlength="120" placeholder="Ex: Andamentos do CNJ com atraso">
+          <label for="aviso-mensagem">Mensagem</label>
+          <textarea id="aviso-mensagem" maxlength="600" rows="3" placeholder="O que está acontecendo e o que o advogado precisa saber."></textarea>
+          <div class="aviso-form-linha">
+            <select id="aviso-nivel">
+              <option value="info">Informativo (azul)</option>
+              <option value="atencao" selected>Atenção (amarelo)</option>
+              <option value="critico">Crítico (vermelho)</option>
+            </select>
+            <button class="adm-btn-small" onclick="modeloAvisoCnj()"><i class="ti ti-template"></i> Modelo: CNJ instável</button>
+            <span style="flex:1"></span>
+            <button class="adm-btn-secondary" id="btn-aviso-desativar" onclick="desativarAvisoSistema()" hidden><i class="ti ti-eye-off"></i> Tirar do ar</button>
+            <button class="adm-btn-primary" onclick="publicarAvisoSistema()"><i class="ti ti-send"></i> Publicar</button>
+          </div>
+        </div>
+      </section>
+
       <!-- STATS -->
       <div class="adm-stats">
         <div class="adm-stat-card adm-stat-blue">

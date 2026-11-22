@@ -24,7 +24,7 @@ import {
   normalizarNumeroCNJ, tituloProcesso, detectarArea, limparLogsAntigos,
   abrirExecucao, fecharExecucao, enviarEmail, cabecalho, rodape, btnDashboard,
   inferirTratamento, usuariosComAcesso, enviarAvisoReativacao, normalizarNumeroSuperior,
-  montarNovidadesDatajud, gravarComNovidades,
+  montarNovidadesDatajud, gravarComNovidades, alertarAdmins,
 } from '../../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
@@ -177,6 +177,8 @@ async function rodarDatajud(admin, res, hoje) {
 
   if (error) {
     await fecharExecucao(admin, execId, { inicioMs: startAt, erro: error.message });
+    await alertarAdmins(admin, 'datajud-banco', 'Sincronização do DataJud não conseguiu ler o banco',
+      `O cron do DataJud falhou antes de consultar qualquer processo: ${error.message}`);
     return res.status(500).json({ erro: error.message });
   }
 
@@ -198,6 +200,17 @@ async function rodarDatajud(admin, res, hoje) {
     // passava como execução normal.
     erro: r.disjuntor ? `DataJud falhando: parou após ${LOTE_DATAJUD_FALHAS_PARAR} lotes seguidos com erro; ${r.naoTentados} processo(s) ficaram para a próxima execução` : null,
   });
+
+  // Nenhuma consulta deu certo nesta execução (disjuntor, ou poucos lotes e
+  // todos falharam): os admins ficam sabendo na hora, não quando abrirem o painel.
+  // (falhas, não "tentados": processo cadastrado hoje é "pulado" e não pode disparar alerta)
+  if (r.disjuntor || (r.falhas > 0 && r.verificados === 0)) {
+    await alertarAdmins(admin, 'datajud', 'DataJud (CNJ) sem responder',
+      `Na execução das ${new Date().toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })}, ` +
+      `nenhuma consulta ao DataJud deu certo: ${r.falhas} processo(s) com erro e ${r.naoTentados} que ficaram para a próxima execução` +
+      `${r.disjuntor ? ` (o cron parou após ${LOTE_DATAJUD_FALHAS_PARAR} lotes seguidos com erro, para não sobrecarregar o CNJ)` : ''}. ` +
+      'O cron continua tentando sozinho. Se durar, vale publicar um aviso aos advogados no painel admin (seção "Aviso aos advogados").');
+  }
 
   // Dispara email imediato se houve movimentos novos — não bloqueia o response em caso de erro
   if (r.novos > 0) {

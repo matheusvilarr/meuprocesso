@@ -183,6 +183,7 @@ antiga em aberto — parcial e adiantado de vários meses são o mesmo gesto.
 | `email_envios` | `email_envios` | Controle da cota do Resend |
 | `notif_log` | `notif_log` | Evita e-mail repetido no mesmo dia |
 | `error_log` | `error_log` | Erros dos crons (grava com service role; só admins leem) |
+| `avisos_sistema` | `aviso_sistema` | Faixa no topo do dashboard escrita pelo admin (painel → "Aviso aos advogados"); 1 ativo por vez |
 
 Notas, comentários de processo e de cliente são editados por funções SQL atômicas
 (`anexar_`/`remover_nota_processo`, `..._comentario_processo`, `..._comentario_cliente`) —
@@ -364,6 +365,11 @@ do escritório. Motivo: a API do DJEN limita/bloqueia por IP e região, e a Verc
   (`montarNovidadesDatajud` / `_atualizacaoDatajud`).
 - DJEN: "Novo"/e-mail vale para publicação de até 7 dias **ou** posterior à última busca
   bem-sucedida daquela OAB (`ultimoSucessoOab`) — assim as intimações de uma pane não entram caladas.
+- **Admin fica sabendo na hora:** `alertarAdmins()` (`lib/sync-comum.js`) manda e-mail a cada admin quando
+  o DataJud não responde, o DJEN falha por inteiro, ou um cron para com erro — 1 por tipo por dia (trava
+  em `notif_log`, tipo `alerta:<chave>`). Problema novo detectado num cron → chamar `alertarAdmins`.
+- Faixa na tela do advogado: o aviso escrito pelo admin (`avisos_sistema`) tem prioridade. A automática
+  do CNJ só aparece quando **nenhuma** consulta deu certo há 2+ dias, sem números internos, com "Entendi".
 
 ---
 

@@ -461,6 +461,18 @@ code.adm-code {
 .saude-titulo { font-size: 15px; font-weight: 700; color: var(--navy); display: flex; align-items: center; gap: 8px; }
 .saude-meta { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--gray-400); }
 .saude-carregando { color: var(--gray-400); font-size: 13px; padding: 8px 0; }
+
+/* Aviso aos advogados */
+.aviso-form label { display: block; font-size: 12px; color: var(--gray-600); margin: 10px 0 4px; }
+.aviso-form input, .aviso-form textarea, .aviso-form select {
+  width: 100%; padding: 9px 12px; border: 1px solid var(--gray-200); border-radius: var(--radius);
+  font: inherit; font-size: 13px; background: var(--white);
+}
+.aviso-form textarea { resize: vertical; }
+.aviso-form-linha { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.aviso-form-linha select { width: auto; }
+.aviso-form [hidden] { display: none !important; }
+#aviso-status.no-ar { color: #b45309; font-weight: 600; }
 .saude-alertas { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
 .saude-alerta { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: var(--radius); font-size: 13px; line-height: 1.45; border: 1px solid transparent; }
 .saude-alerta > i { font-size: 20px; flex-shrink: 0; margin-top: 1px; }

@@ -67,8 +67,67 @@ async function init() {
   startCronClock();
   carregarPendentes(); // carrega em background só para mostrar badge
   carregarSaude();
+  carregarAvisoSistema();
 }
 let _tabsProntas = false;
+
+// ── AVISO AOS ADVOGADOS ────────────────────────────────────────────────────────
+// Faixa no topo do dashboard dos advogados (api/admin.js → acaoAviso*).
+
+async function carregarAvisoSistema() {
+  const status = document.getElementById('aviso-status');
+  const btnTirar = document.getElementById('btn-aviso-desativar');
+  try {
+    const r = await fetch('/api/admin?acao=aviso', { headers: { 'Authorization': `Bearer ${_adminToken}` } });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.erro || 'erro');
+    status.classList.remove('no-ar');
+    if (d.semTabela) {
+      status.textContent = 'Indisponível: rode supabase/migration_aviso_sistema.sql no Supabase';
+      btnTirar.hidden = true;
+      return;
+    }
+    if (d.aviso) {
+      status.textContent = `No ar desde ${new Date(d.aviso.criado_em).toLocaleString('pt-BR')}`;
+      status.classList.add('no-ar');
+      document.getElementById('aviso-titulo').value   = d.aviso.titulo;
+      document.getElementById('aviso-mensagem').value = d.aviso.mensagem;
+      document.getElementById('aviso-nivel').value    = d.aviso.nivel;
+    } else {
+      status.textContent = 'Nenhum aviso no ar';
+    }
+    btnTirar.hidden = !d.aviso;
+  } catch (e) {
+    status.textContent = 'Erro ao carregar: ' + e.message;
+  }
+}
+
+function modeloAvisoCnj() {
+  document.getElementById('aviso-titulo').value = 'Andamentos do CNJ com atraso.';
+  document.getElementById('aviso-mensagem').value =
+    'O DataJud, sistema do CNJ que fornece os andamentos processuais, está instável. ' +
+    'Seus processos continuam sendo verificados automaticamente e serão atualizados assim que o serviço normalizar.';
+  document.getElementById('aviso-nivel').value = 'atencao';
+}
+
+async function publicarAvisoSistema() {
+  const titulo   = document.getElementById('aviso-titulo').value.trim();
+  const mensagem = document.getElementById('aviso-mensagem').value.trim();
+  const nivel    = document.getElementById('aviso-nivel').value;
+  if (!titulo || !mensagem) return alert('Preencha o título e a mensagem.');
+  if (!confirm('Publicar este aviso no dashboard de TODOS os advogados? Ele substitui o aviso atual, se houver.')) return;
+  const r = await chamarAdmin('aviso-publicar', { titulo, mensagem, nivel });
+  if (r.erro) return alert(r.erro);
+  carregarAvisoSistema();
+}
+
+async function desativarAvisoSistema() {
+  if (!confirm('Tirar o aviso do ar? Ele some do dashboard dos advogados em até 10 minutos.')) return;
+  const r = await chamarAdmin('aviso-desativar', {});
+  if (r.erro) return alert(r.erro);
+  ['aviso-titulo', 'aviso-mensagem'].forEach(id => { document.getElementById(id).value = ''; });
+  carregarAvisoSistema();
+}
 
 // ── SAÚDE DO SISTEMA ───────────────────────────────────────────────────────────
 

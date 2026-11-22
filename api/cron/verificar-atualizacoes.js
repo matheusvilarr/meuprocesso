@@ -7,7 +7,7 @@ import { timingSafeEqual } from 'node:crypto';
 // Títulos antigos vieram gravados como 'APELAçãO CíVEL' (importação de jun/2026);
 // o painel normaliza na tela e o e-mail precisa normalizar igual.
 import { usuariosComAcesso, enviarAvisoReativacao, enviarEmail, tituloProcesso, novidadesParaEmail,
-         tokenDescadastro, linkDescadastro, definirDescadastro, lerOab } from '../../lib/sync-comum.js';
+         tokenDescadastro, linkDescadastro, definirDescadastro, lerOab, alertarAdmins } from '../../lib/sync-comum.js';
 // Conta de parcelas/pagamentos de honorários — o MESMO arquivo que a tela usa
 // (dashboard.html carrega como <script>), pra e-mail e tela nunca discordarem
 // sobre o que está vencido. Expõe globalThis.HonCalc.
@@ -62,6 +62,8 @@ export default async function handler(req, res) {
     return await rodarEvening(admin, res, hoje);
   } catch (e) {
     await logErro(admin, `cron:email-${tipo}`, e.message, { stack: e.stack });
+    await alertarAdmins(admin, `emails-${tipo}`, `E-mails automáticos (${tipo}) falharam`,
+      `O envio de e-mails do tipo "${tipo}" parou com erro: ${String(e.message || e).slice(0, 300)}. Os advogados podem não ter recebido os avisos desta rodada.`);
     return res.status(500).json({ erro: e.message });
   }
 }

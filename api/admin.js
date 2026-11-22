@@ -825,6 +825,7 @@ export default async function handler(req, res) {
   if (acao === 'emails')        return acaoEmails(req, res, admin);
   if (acao === 'pendentes')     return acaoPendentes(req, res, admin);
   if (acao === 'djen-cadernos') return acaoDjenCadernos(req, res, admin);
+  if (acao === 'aviso')         return acaoAviso(req, res, admin);
 
   if (req.method !== 'POST') return res.status(405).end();
 
@@ -841,6 +842,8 @@ export default async function handler(req, res) {
   if (acao === 'rejeitar-usuario')      return acaoRejeitarUsuario(req, res, admin);
   if (acao === 'atualizar-assinatura')  return acaoAtualizarAssinatura(req, res, admin, adminUser);
   if (acao === 'atender-pedido')        return acaoAtenderPedido(req, res, admin, adminUser);
+  if (acao === 'aviso-publicar')        return acaoAvisoPublicar(req, res, admin, adminUser);
+  if (acao === 'aviso-desativar')       return acaoAvisoDesativar(req, res, admin, adminUser);
   if (acao === 'confirmar-email')       return acaoConfirmarEmail(req, res, admin);
 
   return res.status(400).json({ erro: 'acao inválida.' });
@@ -1196,6 +1199,53 @@ async function acaoAtenderPedido(req, res, admin, adminUser) {
   if (errPedido) return res.status(500).json({ erro: errPedido.message });
 
   return res.json({ ok: true, decisao });
+}
+
+// ── AVISO AOS ADVOGADOS ──────────────────────────────────────────────────────
+// Faixa no topo do dashboard, escrita aqui pelo admin (tabela avisos_sistema,
+// supabase/migration_aviso_sistema.sql). Um ativo por vez; os antigos ficam
+// como histórico.
+
+const NIVEIS_AVISO = ['info', 'atencao', 'critico'];
+const semTabelaAviso = e => e && (e.code === '42P01' || e.code === 'PGRST205' || /avisos_sistema/.test(e.message || ''));
+
+async function acaoAviso(req, res, admin) {
+  const { data, error } = await admin.from('avisos_sistema')
+    .select('id, titulo, mensagem, nivel, ativo, criado_em, desativado_em')
+    .order('criado_em', { ascending: false }).limit(6);
+  if (semTabelaAviso(error)) return res.json({ ok: true, semTabela: true });
+  if (error) return res.status(500).json({ erro: error.message });
+  return res.json({ ok: true, aviso: data.find(a => a.ativo) || null, historico: data.filter(a => !a.ativo) });
+}
+
+async function acaoAvisoPublicar(req, res, admin, adminUser) {
+  const titulo   = String(req.body?.titulo || '').trim();
+  const mensagem = String(req.body?.mensagem || '').trim();
+  const nivel    = req.body?.nivel || 'atencao';
+  if (!titulo || titulo.length > 120)     return res.status(400).json({ erro: 'Título obrigatório, até 120 caracteres.' });
+  if (!mensagem || mensagem.length > 600) return res.status(400).json({ erro: 'Mensagem obrigatória, até 600 caracteres.' });
+  if (!NIVEIS_AVISO.includes(nivel))      return res.status(400).json({ erro: 'Nível inválido.' });
+
+  // Desativa o anterior antes — o índice único só deixa um ativo por vez.
+  const desativar = await admin.from('avisos_sistema')
+    .update({ ativo: false, desativado_em: new Date().toISOString(), desativado_por: adminUser.user.id })
+    .eq('ativo', true);
+  if (semTabelaAviso(desativar.error)) return res.status(422).json({ erro: 'Rode a migration supabase/migration_aviso_sistema.sql no Supabase antes de publicar avisos.' });
+  if (desativar.error) return res.status(500).json({ erro: desativar.error.message });
+
+  const { error } = await admin.from('avisos_sistema')
+    .insert({ titulo, mensagem, nivel, ativo: true, criado_por: adminUser.user.id });
+  if (error) return res.status(500).json({ erro: error.message });
+  return res.json({ ok: true });
+}
+
+async function acaoAvisoDesativar(req, res, admin, adminUser) {
+  const { error } = await admin.from('avisos_sistema')
+    .update({ ativo: false, desativado_em: new Date().toISOString(), desativado_por: adminUser.user.id })
+    .eq('ativo', true);
+  if (semTabelaAviso(error)) return res.status(422).json({ erro: 'A tabela de avisos ainda não existe (migration_aviso_sistema.sql).' });
+  if (error) return res.status(500).json({ erro: error.message });
+  return res.json({ ok: true });
 }
 
 // ── HISTÓRICO DAS EXECUÇÕES AUTOMÁTICAS ──────────────────────────────────────
