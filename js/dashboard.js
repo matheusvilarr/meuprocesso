@@ -66,7 +66,8 @@ let _navegandoPorHistorico = false; // true durante popstate, pra não empilhar 
 
 function showPage(id) {
   // Sem OAB a pessoa não fica presa no perfil (até 16/10/2026 ficava — afastava
-  // quem só queria conhecer): pede numa tela só, por cima do painel (_mostrarTelaOAB).
+  // quem só queria conhecer). Hoje só a busca/cadastro de processo pede OAB +
+  // telefone (_exigirCadastroCompleto); as páginas todas ficam livres.
   // Assinatura vencida/cancelada/bloqueada: só "Minha Assinatura" (ver auth-guard).
   if (window._acessoRestrito && id !== 'assinatura') {
     showToast('Sua assinatura está inativa — escolha um plano para voltar a usar o sistema.', 'warning');
@@ -167,6 +168,10 @@ function _atualizarBadgesDetalhe(proc) {
 
 // Modal
 function openModal(id) {
+  // Busca e cadastro de processo só com OAB + telefone — todo botão de
+  // "Buscar"/"Novo processo" (painel, Meus Processos, busca automática pela
+  // OAB, link ?abrir=busca-oab dos e-mails) passa por aqui.
+  if ((id === 'modal-busca-tribunal' || id === 'modal-novo-processo') && !_exigirCadastroCompleto()) return;
   document.getElementById(id).classList.add('open');
   if (id === 'modal-lembrete') {
     const hoje = new Date().toISOString().slice(0, 10);
@@ -989,17 +994,56 @@ function selecionarAbaBusca(aba, btn) {
   }
 }
 
-// DataJud não manda um campo pronto de "área do direito" — classe, órgão
-// julgador e assuntos são os três sinais que têm (classe isolada costuma ser
-// genérica demais: "Cumprimento de Sentença" não diz nada sobre a área).
-function _detectarArea(siglaTribunal, ...textos) {
-  const t = (siglaTribunal || '').toUpperCase();
-  const c = textos.filter(Boolean).join(' ').toUpperCase();
-  if (t.startsWith('TRT') || c.includes('TRABALH') || c.includes('RECLAMAÇÃO')) return 'Trabalhista';
-  if (c.includes('FAMÍL') || c.includes('DIVÓRC') || c.includes('ALIMENT') || c.includes('GUARDA') || c.includes('ADOÇÃO')) return 'Família';
-  if (c.includes('TRIBUT') || c.includes('FISCAL') || c.includes('EXECUÇÃO FISCAL') || c.includes('FAZENDA PÚBLICA')) return 'Tributário';
-  if (c.includes('PREVIDÊN') || c.includes('BENEFÍCIO') || c.includes('INSS') || c.includes('APOSENTAD')) return 'Previdenciário';
-  if (c.includes('CRIMIN') || c.includes('PENAL') || c.includes('CRIME') || c.includes('INQUÉRIT') || c.includes('JÚRI')) return 'Criminal';
+// Área do direito é PALPITE: DataJud e DJEN não informam. O advogado corrige em
+// "Editar dados" e nenhuma sincronização regrava. Sinais, do mais confiável pro
+// menos: ramo da Justiça (dígito J do número CNJ), classe, órgão julgador — só
+// quando especializado ("Vara Cível e Criminal", "Juizado Especial Cível e
+// Criminal" e "Vara da Fazenda Pública" não dizem a área) — e assuntos.
+// Palavra inteira e sem acento: "Penalidades" e "Cláusula Penal" não são crime,
+// "Reclamação" do STF/STJ não é trabalhista. Classe cível nunca vira Criminal.
+// Mesma regra em lib/sync-comum.js (detectarArea) — mudar nas duas.
+function _detectarArea({ tribunal, classe, orgao, assuntos, numero } = {}) {
+  const sem = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+  const t = sem(tribunal).replace(/[^A-Z0-9]/g, '');
+  const c = sem(classe), o = sem(orgao);
+  const a = sem([assuntos].flat(Infinity).map(x => (typeof x === 'string' ? x : x?.nome)).filter(Boolean).join(' | '));
+  const dig = String(numero || '').replace(/\D/g, '');
+  const j = dig.length === 20 ? dig[13] : '';
+
+  // Justiça do Trabalho (J=5) e Militar (J=7 federal, J=9 estadual — só julga crime).
+  // Lista fechada dos TJM: "TJM" como prefixo pegaria TJMG, TJMS, TJMT e TJMA.
+  if (j === '5' || /^(TRT\d*|TST)$/.test(t)) return 'Trabalhista';
+  if (j === '7' || j === '9' || /^(STM|TJMSP|TJMMG|TJMRS)$/.test(t)) return 'Criminal';
+
+  const classeCivel = /\bCIVE(L|IS)\b/.test(c);
+  if (/ACIDENT/.test(c) && /TRABALH/.test(c)) return 'Previdenciário';   // acidentária na Justiça comum = INSS
+  if (/TRABALH/.test(c)) return 'Trabalhista';
+  if (!classeCivel && /CRIMIN|\bCRIMES?\b|\bPENA(L|IS)?\b|INQUERITO|FLAGRANTE|TERMO CIRCUNSTANCIADO|SENTIDO ESTRITO|\bJURI\b|\bPRISAO\b|HABEAS CORPUS|MEDIDAS PROTETIVAS/.test(c)) return 'Criminal';
+  if (/FAMILIA|DIVORCI|ALIMENTOS|\bGUARDA\b|ADOCAO|UNIAO ESTAVEL|PATERNIDADE|CURATELA|INTERDICAO|VISITAS/.test(c)) return 'Família';
+  if (/FISCAL|TRIBUT/.test(c)) return 'Tributário';
+  if (/PREVIDENCI|APOSENTAD|\bINSS\b/.test(c)) return 'Previdenciário';
+
+  // Órgão julgador só conta quando aponta UMA área (vara mista não diz nada)
+  const doOrgao = new Set();
+  if (/\bCIVE(L|IS)\b/.test(o)) doOrgao.add('Cível');
+  if (/CRIMIN|\bJURI\b|EXECUC(AO|OES) PENA|VIOLENCIA DOMESTICA|ENTORPECENTES|TOXICOS|AUDITORIA MILITAR/.test(o)
+      || (t === 'STJ' && /\b(QUINTA|SEXTA) TURMA\b|TERCEIRA SECAO/.test(o))) doOrgao.add('Criminal');
+  if (/FAMILIA|SUCESSOES/.test(o) && !/VIOLENCIA DOMESTICA/.test(o)) doOrgao.add('Família');
+  if (/EXECUC(AO|OES) FISCA/.test(o) && !/FAZENDA/.test(o)) doOrgao.add('Tributário');
+  if (/PREVIDENCI|ACIDENTES? D[OE] TRABALHO/.test(o)) doOrgao.add('Previdenciário');
+  const orgaoUnico = doOrgao.size === 1 ? [...doOrgao][0] : null;
+  if (orgaoUnico && orgaoUnico !== 'Cível' && !(orgaoUnico === 'Criminal' && classeCivel)) return orgaoUnico;
+
+  const porAssunto = [
+    ['Família',        /ALIMENTOS|DIVORCI|\bGUARDA\b(?! MUNICIPAL)|UNIAO ESTAVEL|PATERNIDADE|ADOCAO|PARTILHA|REGIME DE BENS|VISITAS|PODER FAMILIAR|INVENTARIO|SUCESSOES/],
+    ['Previdenciário', /PREVIDENCI(?!A (PRIVADA|COMPLEMENTAR))|APOSENTADORIA|AUXILIO[- ](DOENCA|ACIDENTE|POR INCAPACIDADE|RECLUSAO)|BENEFICIO ASSISTENCIAL|\bLOAS\b|\bBPC\b|PENSAO POR MORTE|SALARIO[- ]MATERNIDADE|\bINSS\b/],
+    ['Tributário',     /TRIBUT|IMPOSTO|\b(ICMS|IPTU|IPVA|ISSQN|ISS|ITBI|ITCMD|IRPF|IRPJ|COFINS)\b|DIVIDA ATIVA/],
+    ['Criminal',       /\bCRIMES?\b|TRAFICO DE DROGAS|\bROUBO|\bFURTO|HOMICIDIO|ESTELIONATO|LESAO CORPORAL|RECEPTACAO|ESTUPRO|VIOLENCIA DOMESTICA|MARIA DA PENHA|CONTRAVENC|ORGANIZACAO CRIMINOSA|LAVAGEM DE DINHEIRO/],
+  ];
+  for (const [area, re] of porAssunto) {
+    if (area === 'Criminal' && (classeCivel || doOrgao.has('Cível'))) continue;
+    if (re.test(a)) return area;
+  }
   return 'Cível';
 }
 
@@ -1299,6 +1343,7 @@ function _usarOABDetectada() {
 }
 
 async function buscarProcesso() {
+  if (!_exigirCadastroCompleto()) return;
   const rawInput = document.getElementById('busca-input').value.trim();
   const btn      = document.getElementById('busca-btn');
   const tribunal = document.getElementById('busca-tribunal-select').value;
@@ -1693,6 +1738,7 @@ async function adicionarProcesso(i) {
 // ── SUPABASE: SALVAR PROCESSO ─────────────────────────────────────────────
 
 async function salvarProcesso() {
+  if (!_exigirCadastroCompleto()) return;
   const btn = document.getElementById('btn-criar-processo');
 
   // Número sempre no formato do CNJ, independente de como foi digitado/colado
@@ -1763,6 +1809,13 @@ async function salvarProcesso() {
     // Formato STJ (ex: "AREsp 3254978") fica pesquisável mesmo depois que a
     // fila trocar "numero" pelo número CNJ — ver filtrarProcessos/topbarSearch.
     numero_registro_superior: _normalizarNumeroSuperior(numero)?.termo || null,
+    // Marca de cadastro à mão: a área (e o resto) foi o advogado que escolheu,
+    // e a sincronização nunca corrige (areaParaCorrigir em lib/sync-comum.js).
+    historico: [{
+      id: crypto.randomUUID(), tipo: 'criado_manual', descricao: 'Cadastrou o processo manualmente',
+      autor_id: window._user?.id, autor_nome: window._user?.user_metadata?.nome || window._user?.email || 'Usuário',
+      created_at: new Date().toISOString(),
+    }],
   };
 
   const { error } = await _supabase.from('processos').insert(payload);
@@ -3295,7 +3348,7 @@ function popularDetalhe(proc) {
   const statusCls = s => (s || 'Ativo').toLowerCase().replace(/\s/g, '-');
   const isArquivado = proc.status === 'Arquivado';
   document.getElementById('detalhe-tags').innerHTML = `
-    <span class="badge badge-${areaMap[proc.area] || 'civil'}">${proc.area || 'Cível'}</span>
+    <span class="badge badge-${areaMap[proc.area] || 'civil'}" style="cursor:pointer" title="Área errada? Clique para trocar" onclick="abrirEditarProcesso()">${_esc(proc.area || 'Cível')}</span>
     <span class="pc-status status-${statusCls(proc.status)}" style="font-size:11px;padding:3px 10px;border-radius:10px;font-weight:600">${proc.status || 'Ativo'}</span>
     ${isArquivado ? `
     <button class="btn-atualizar-mini" style="border-color:var(--green);color:var(--green)"
@@ -4138,7 +4191,11 @@ async function salvarApelido() {
 // jeito de completar o número depois de cadastrado.
 function abrirEditarProcesso() {
   if (!_processoAtual) return;
-  document.getElementById('ep-area').value              = _processoAtual.area || 'Cível';
+  const selArea = document.getElementById('ep-area');
+  const area    = _processoAtual.area || 'Cível';
+  // Área fora da lista vira opção — senão o select fica vazio e salvar apagaria a área
+  if (![...selArea.options].some(o => o.value === area)) selArea.add(new Option(area, area));
+  selArea.value = area;
   document.getElementById('ep-classe').value           = _processoAtual.classe || '';
   document.getElementById('ep-tribunal').value         = _processoAtual.tribunal || '';
   document.getElementById('ep-orgao-julgador').value   = _processoAtual.orgao_julgador || '';
@@ -4815,6 +4872,12 @@ function iniciarSyncAutomatico() {
 
 // ── INIT: carrega dados ao abrir dashboard ────────────────────────────────
 
+// Parâmetros com que a página foi aberta (?abrir=busca-oab, ?completar=1 — botões
+// dos e-mails), lidos ANTES do replaceState abaixo limpar a barra. Até 23/11/2026
+// eram lidos depois, já sem eles: o botão do e-mail "Encontramos X processos"
+// só abria o painel, sem a busca.
+const _paramsEntrada = new URLSearchParams(window.location.search);
+
 window.addEventListener('DOMContentLoaded', () => {
   // Marca a entrada atual como a base (home) sem empilhar uma nova —
   // showPage() empilha a partir daqui a cada navegação real.
@@ -4843,7 +4906,8 @@ window.addEventListener('DOMContentLoaded', () => {
       return;
     }
     _liberarTela();
-    _mostrarTelaOAB();
+    _mostrarCompletarCadastroNaChegada();
+    _dispararBoasVindas();
     carregarProcessos().then(() => {
       iniciarSyncAutomatico();
       sincronizarTodos();
@@ -4889,7 +4953,7 @@ function _abrirBuscaOABAutomatica(oabs) {
 // (sem bloquear a UI) o e-mail de boas-vindas + "achamos X processos" no
 // servidor — mesmo gatilho cobre quem entrou por Google ou por e-mail/senha.
 function _tentarOnboardingOAB() {
-  if (window._isColaborador || window._oabPendente) return;
+  if (window._isColaborador || window._cadastroIncompleto) return;
   if ((window._processosDB || []).length > 0) return;
 
   const chave = `onboarding_oab_${window._user.id}`;
@@ -4903,78 +4967,170 @@ function _tentarOnboardingOAB() {
   _abrirBuscaOABAutomatica(oabs);
 }
 
-// ── TELA "FALTA SÓ SUA OAB" ─────────────────────────────────────────────────
-// Quem entra pelo Google ou LinkedIn não traz OAB, e sem ela o DJEN não acha
-// nada dessa pessoa. Até 05/11/2026 era uma faixa no topo com "Lembrar depois"
-// — gente entrou pelo Google, adiou e foi embora sem OAB. Agora a tela cobre o
-// painel e só some depois de salvar (ou de sair da conta). Colaborador nunca
-// vê: ele acompanha a OAB do titular (window._oabPendente já exclui).
+// ── COMPLETE SEU CADASTRO (OAB + TELEFONE) ──────────────────────────────────
+// Busca e cadastro de processos só com OAB + telefone; agenda, tarefas,
+// clientes e honorários ficam livres (regra em _pendenciasCadastro, auth-guard.js).
+// Histórico: até 05/11/2026 faixa com "Lembrar depois"; de 05/11 a 23/11 tela
+// que cobria o painel inteiro — quem só queria conhecer ia embora (Claudson,
+// Google via ChatGPT). Agora a janela abre sozinha só no 1º acesso, fecha no
+// "Agora não", fica a faixa no topo, e ela volta quando a pessoa tenta buscar
+// ou cadastrar processo (_exigirCadastroCompleto). Colaborador nunca vê.
 const _UFS = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SE','SP','TO'];
 
-function _mostrarTelaOAB() {
+function _atualizarPendenciasCadastro() {
+  const p = window._pendenciasCadastro(window._user);
+  window._oabPendente        = p.oab;
+  window._telefonePendente   = p.telefone;
+  window._cadastroIncompleto = p.oab || p.telefone;
+  _renderAvisoCadastro();
+}
+
+function _oQueFaltaCadastro() {
+  return [window._oabPendente && 'sua OAB', window._telefonePendente && 'um telefone'].filter(Boolean).join(' e ');
+}
+
+// Porta única de busca/cadastro de processo (openModal e funções de importar).
+function _exigirCadastroCompleto() {
+  if (!window._cadastroIncompleto) return true;
+  _abrirCompletarCadastro(true);
+  return false;
+}
+
+function _renderAvisoCadastro() {
+  document.querySelectorAll('.aviso-cadastro').forEach(el => {
+    el.hidden = !window._cadastroIncompleto;
+    el.innerHTML = window._cadastroIncompleto
+      ? `<i class="ti ti-id-badge-2"></i>
+         <div><b>Falta completar seu cadastro.</b> Para buscar e acompanhar seus processos, informe ${_oQueFaltaCadastro()}. Agenda, tarefas, clientes e honorários já estão liberados.</div>
+         <button class="aviso-cadastro-btn" onclick="_abrirCompletarCadastro(false)">Completar agora</button>`
+      : '';
+  });
+}
+
+// porBusca: veio de um botão de buscar/cadastrar processo (o texto explica a trava).
+function _abrirCompletarCadastro(porBusca) {
   const tela = document.getElementById('tela-oab');
-  if (!tela) return;
-  const mostrar = !!window._oabPendente;
-  tela.hidden = !mostrar;
-  document.body.classList.toggle('oab-pendente', mostrar);
-  if (!mostrar) return;
+  if (!tela || !window._cadastroIncompleto) return;
   const sel = document.getElementById('tela-oab-uf');
   if (sel && sel.options.length <= 1) sel.insertAdjacentHTML('beforeend', _UFS.map(u => `<option>${u}</option>`).join(''));
+  document.getElementById('tela-oab-campos-oab').hidden = !window._oabPendente;
+  const tel = document.getElementById('tela-oab-tel');
+  tel.hidden = !window._telefonePendente;
   // Quem se cadastrou por e-mail já respondeu no formulário; Google/LinkedIn só aqui.
   const como = document.getElementById('tela-oab-como');
   if (como) como.hidden = !!window._user?.user_metadata?.como_conheceu;
-  // OAB antiga gravada só com o número ("59360"): já deixa o número preenchido,
-  // falta só escolher o estado.
-  const meta = (window._user?.user_metadata?.oab || '').trim();
-  if (meta) {
-    document.getElementById('tela-oab-texto').innerHTML =
-      `Sua OAB <b>"${_esc(meta)}"</b> está sem o estado — sem ele não encontramos suas intimações no Diário Eletrônico.`;
+  document.getElementById('tela-oab-erro').textContent = '';
+
+  const texto = document.getElementById('tela-oab-texto');
+  const metaOab = (window._user?.user_metadata?.oab || '').trim();
+  if (window._oabPendente && metaOab) {
+    // OAB antiga gravada só com o número ("59360"): falta só o estado.
+    texto.innerHTML = `Sua OAB <b>"${_esc(metaOab)}"</b> está sem o estado — sem ele não encontramos suas intimações no Diário Eletrônico.`;
     const num = document.getElementById('tela-oab-num');
-    if (num && !num.value && /^\d+$/.test(meta)) num.value = meta;
+    if (num && !num.value && /^\d+$/.test(metaOab)) num.value = metaOab;
+  } else {
+    texto.textContent = `Para buscar e acompanhar seus processos, falta ${_oQueFaltaCadastro()}.`
+      + (window._oabPendente ? ' Com a OAB encontramos suas intimações e processos no Diário Eletrônico, todos os dias.' : '')
+      + (porBusca ? '' : ' Agenda, tarefas, clientes e honorários já estão liberados.');
   }
-  setTimeout(() => sel?.focus(), 50);
+  tela.hidden = false;
+  document.body.classList.add('oab-pendente');
+  _gaTelaOAB(porBusca ? 'oab_tela_vista_busca' : 'oab_tela_vista');
+  setTimeout(() => (window._oabPendente ? sel : tel)?.focus(), 50);
+}
+
+function _fecharCompletarCadastro() {
+  const tela = document.getElementById('tela-oab');
+  if (tela) tela.hidden = true;
+  document.body.classList.remove('oab-pendente');
+  if (window._cadastroIncompleto) _gaTelaOAB('oab_tela_depois');
+}
+
+// Na chegada: abre sozinha 1 vez por conta (no 1º acesso); depois fica só a
+// faixa. ?completar=1 (botão dos e-mails de boas-vindas e lembrete) abre sempre.
+function _mostrarCompletarCadastroNaChegada() {
+  _renderAvisoCadastro();
+  const pediu = _paramsEntrada.get('completar') === '1';
+  _paramsEntrada.delete('completar');
+  if (!window._cadastroIncompleto) return;
+  const chave = `completar_cadastro_visto_${window._user.id}`;
+  let visto = false;
+  try { visto = !!localStorage.getItem(chave); localStorage.setItem(chave, '1'); } catch (_) {}
+  if (pediu || !visto) _abrirCompletarCadastro(false);
+}
+
+// Boas-vindas no 1º acesso de conta nova SEM OAB (Google/LinkedIn) — até
+// 23/11/2026 o e-mail só saía junto com a busca pela OAB, e quem entrava pelo
+// Google nunca recebia (o Matheus acompanha os cadastros pela Resend). Com OAB,
+// quem dispara é _tentarOnboardingOAB (uma chamada só, sem e-mail em dobro).
+// O servidor é idempotente; a trava local só evita a chamada em todo F5.
+function _dispararBoasVindas() {
+  const u = window._user;
+  if (!u || window._isColaborador || window._oabsValidas(u.user_metadata?.oab).length) return;
+  if (u.user_metadata?.boas_vindas_enviada || u.user_metadata?.onboarding_email_enviado) return;
+  if (Date.now() - Date.parse(u.created_at) > 7 * 86400000) return;
+  const chave = `boas_vindas_${u.id}`;
+  try { if (localStorage.getItem(chave)) return; localStorage.setItem(chave, '1'); } catch (_) {}
+  _dispararEmailOnboarding();
+}
+
+// Mede o funil da tela no GA (vista → salva | sair). Até 23/11/2026 não havia
+// evento nenhum: quem entrava pelo Google e parava aqui (caso do Claudson, vindo
+// do ChatGPT) só aparecia como "sem OAB" no admin, sem dar pra saber quantos.
+function _gaTelaOAB(evento) {
+  try { if (typeof gtag === 'function') gtag('event', evento, { provedor: (window._user?.app_metadata?.provider || '') }); } catch (_) {}
 }
 
 async function _salvarTelaOAB() {
-  const uf  = document.getElementById('tela-oab-uf').value;
-  const num = document.getElementById('tela-oab-num').value.replace(/\D/g, '').replace(/^0+/, '');
   const err = document.getElementById('tela-oab-erro');
   const btn = document.getElementById('tela-oab-btn');
   err.textContent = '';
-  if (!uf)              { err.textContent = 'Selecione o estado da sua OAB.'; return; }
-  if (num.length < 3)   { err.textContent = 'Digite o número da OAB (só os números).'; return; }
+  const pedeOab = !document.getElementById('tela-oab-campos-oab').hidden;
+  const telEl   = document.getElementById('tela-oab-tel');
+  const pedeTel = !telEl.hidden;
+  const uf  = document.getElementById('tela-oab-uf').value;
+  const num = document.getElementById('tela-oab-num').value.replace(/\D/g, '').replace(/^0+/, '');
+  const tel = telEl.value.replace(/\D/g, '');
+  if (pedeOab && !uf)            { err.textContent = 'Selecione o estado da sua OAB.'; return; }
+  if (pedeOab && num.length < 3) { err.textContent = 'Digite o número da OAB (só os números).'; return; }
+  if (pedeTel && tel.length < 10) { err.textContent = 'Digite um telefone válido com DDD.'; return; }
   const comoEl = document.getElementById('tela-oab-como');
   const como   = comoEl && !comoEl.hidden ? comoEl.value : '';
   if (comoEl && !comoEl.hidden && !como) { err.textContent = 'Conta pra gente como conheceu o Meu Processo.'; return; }
 
   btn.disabled = true; btn.textContent = 'Salvando…';
   try {
-    // Mesma trava anti-abuso do cadastro por e-mail (mesma OAB criando várias
-    // contas pra ganhar vários testes). Antes, quem entrava pelo Google
-    // preenchia a OAB no perfil sem passar por ela.
-    const r = await fetch('/api/verificar-oab?oab=' + encodeURIComponent(uf + num));
-    const { existe } = await r.json().catch(() => ({}));
-    if (existe) {
-      err.textContent = 'Essa OAB já tem uma conta no Meu Processo. Se for sua, entre por ela — ou fale com o suporte.';
-      return;
+    if (pedeOab) {
+      // Mesma trava anti-abuso do cadastro por e-mail (mesma OAB criando várias
+      // contas pra ganhar vários testes).
+      const r = await fetch('/api/verificar-oab?oab=' + encodeURIComponent(uf + num));
+      const { existe } = await r.json().catch(() => ({}));
+      if (existe) {
+        _gaTelaOAB('oab_tela_duplicada');
+        err.textContent = 'Essa OAB já tem uma conta no Meu Processo. Se for sua, entre por ela — ou fale com o suporte.';
+        return;
+      }
     }
-    const oab = `${uf} ${num}`;
-    const dados = como ? { oab, como_conheceu: como } : { oab };
+    const dados = {};
+    if (pedeOab) dados.oab = `${uf} ${num}`;
+    if (pedeTel) dados.telefone = tel;
+    if (como)    dados.como_conheceu = como;
     const { error } = await _supabase.auth.updateUser({ data: dados });
     if (error) { err.textContent = 'Não deu pra salvar: ' + error.message; return; }
     if (como && typeof gtag === 'function') gtag('set', 'user_properties', { acquisition_self_reported: como });
+    _gaTelaOAB('oab_tela_salva');
 
     window._user.user_metadata = { ...window._user.user_metadata, ...dados };
-    window._oabPendente = false;
-    _mostrarTelaOAB();
-    showToast('OAB salva! Vamos buscar suas intimações no Diário Eletrônico.', 'success');
+    _atualizarPendenciasCadastro();
+    _fecharCompletarCadastro();
+    showToast(window._cadastroIncompleto ? 'Dados salvos.' : 'Cadastro completo! A busca de processos está liberada.', 'success');
     if (document.getElementById('page-configuracoes')?.classList.contains('active')) carregarConfiguracoes();
     _tentarOnboardingOAB();
     _scanHistoricoDjen();
   } catch {
     err.textContent = 'Não deu pra salvar agora. Confira sua internet e tente de novo.';
   } finally {
-    btn.disabled = false; btn.textContent = 'Continuar';
+    btn.disabled = false; btn.textContent = 'Salvar e liberar a busca';
   }
 }
 
@@ -4993,9 +5149,8 @@ async function _dispararEmailOnboarding() {
 // roda a mesma busca automática, mas sem as travas do onboarding silencioso
 // (o clique já é uma ação explícita, não precisa checar "já visto"/0 processos).
 function _tentarAbrirBuscaOABPorLink() {
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('abrir') !== 'busca-oab') return;
-  history.replaceState(null, '', '/dashboard');
+  if (_paramsEntrada.get('abrir') !== 'busca-oab') return;
+  _paramsEntrada.delete('abrir');
   const oabs = window._oabsValidas(window._user?.user_metadata?.oab);
   if (!oabs.length) return;
   _abrirBuscaOABAutomatica(oabs);
@@ -6034,8 +6189,8 @@ function carregarConfiguracoes() {
   if (boas) {
     const a = window._assinatura;
     const emTrial = a?.plano === 'trial' && a?.status === 'ativo';
-    boas.style.display = (window._oabPendente && emTrial) ? 'block' : 'none';
-    if (window._oabPendente && emTrial) {
+    boas.style.display = (window._cadastroIncompleto && emTrial) ? 'block' : 'none';
+    if (window._cadastroIncompleto && emTrial) {
       const dias = Math.max(Math.ceil((new Date(a.data_expiracao) - new Date()) / 86400000), 0);
       const el = document.getElementById('trial-dias');
       if (el) el.textContent = dias;
@@ -6240,24 +6395,25 @@ async function salvarEscritorio() {
     };
   }
 
-  const estavaBloqueado = window._oabPendente;
-  window._oabPendente = !window._isColaborador && validas.length === 0;
+  // OAB e telefone também se completam aqui — mesma regra do "Complete seu
+  // cadastro" (_pendenciasCadastro), pra liberar a busca na hora.
+  const estavaBloqueado = window._cadastroIncompleto;
+  _atualizarPendenciasCadastro();
 
   const oabEl = document.getElementById('config-oab');
   if (oabEl) oabEl.value = oab;
   _oabRenderChips();
   carregarConfiguracoes();
 
-  if (estavaBloqueado && !window._oabPendente) {
-    _mostrarTelaOAB();
-    showToast('OAB cadastrada! Vamos buscar suas intimações.', 'success');
-    // Quem entra pelo Google nunca tem OAB no primeiro acesso (window._oabPendente
-    // fica true) — _tentarOnboardingOAB() só roda no carregamento inicial da
-    // página, e nesse momento ainda estava bloqueada, então sempre saía sem
-    // fazer nada. Esse é o ÚNICO lugar onde "acabou de preencher a OAB pela
-    // primeira vez" acontece pra esse tipo de conta — sem chamar aqui, quem
-    // se cadastra pelo Google nunca recebe o onboarding automático.
+  if (estavaBloqueado && !window._cadastroIncompleto) {
+    _fecharCompletarCadastro();
+    showToast('Cadastro completo! A busca de processos está liberada.', 'success');
+    // Quem entra pelo Google nunca tem OAB no primeiro acesso — e
+    // _tentarOnboardingOAB() só roda no carregamento inicial da página, quando
+    // ainda estava pendente. Sem chamar aqui, quem completa pelo perfil nunca
+    // recebe a busca automática nem o e-mail "achamos X processos".
     _tentarOnboardingOAB();
+    _scanHistoricoDjen();
     setTimeout(() => showPage('dashboard'), 900);
     return;
   }
@@ -8397,7 +8553,8 @@ async function _importarComMerge(d) {
     numero,
     nome:                _tituloProcesso(d.classe) || numero || '',
     cliente:             clientePart?.nome    || '',
-    area:                _detectarArea(d.tribunal, d.classe, d.orgaoJulgador, (d.assuntos || []).join(' ')),
+    area:                _detectarArea({ tribunal: d.tribunal || _extrairTribunalDeIndex(d._datajudIndex), classe: d.classe,
+                                         orgao: d.orgaoJulgador, assuntos: d.assuntos, numero }),
     tribunal:            d.tribunal || _extrairTribunalDeIndex(d._datajudIndex) || '',
     parte_contraria:     '',
     // Sem índice o processo fica fora da fila — deriva do número como o servidor faz
@@ -8492,6 +8649,7 @@ function loteToggleTodos() {
 }
 
 async function importarLoteSelecionados() {
+  if (!_exigirCadastroCompleto()) return;
   const selecionados = _loteResultados.filter(r => r.selecionado && r.status === 'encontrado' && r.data);
   if (!selecionados.length) { showToast('Selecione pelo menos um processo.'); return; }
 
@@ -8571,7 +8729,7 @@ let _djenUsoManual = 0;
 function _marcarUsoDjen() { _djenUsoManual = Date.now(); }
 
 async function _scanHistoricoDjen() {
-  if (_scanHistoricoRodando || window._isColaborador || window._acessoRestrito) return;
+  if (_scanHistoricoRodando || window._isColaborador || window._acessoRestrito || window._cadastroIncompleto) return;
   const meta   = window._user?.user_metadata || {};
   const estado = { ...(meta.historico_djen || {}) };
   const faltam = window._oabsValidas(meta.oab).map(o => `${o.uf}${o.num}`).filter(c => !estado[c]?.concluido);
@@ -8782,6 +8940,7 @@ function _itemDescobertoHtml(item) {
 // O Lucas tem 439 processos — se aparecerem 15 sugestões, decidir uma a uma
 // não escala.
 async function importarTodosDescobertos(grupo) {
+  if (!_exigirCadastroCompleto()) return;
   const todos = [...(_gruposDescobertos[grupo] || [])];
   if (!todos.length) return;
   const ok = await _confirmar(
@@ -8835,6 +8994,7 @@ async function ignorarDescoberto(id) {
 }
 
 async function importarDescoberto(id) {
+  if (!_exigirCadastroCompleto()) return;
   const item = _descobertosCache.find(d => d.id === id);
   if (!item) return;
   const result = await _importarComMerge(item.dados);
@@ -9239,6 +9399,7 @@ async function salvarAtualizacaoDJe(docIndex, processoId, btn) {
 }
 
 async function importarProcessoDJe(docIndex) {
+  if (!_exigirCadastroCompleto()) return;
   const doc = (window._djeResultados || [])[docIndex];
   if (!doc || !doc.processos[0]) return;
 
@@ -9301,7 +9462,7 @@ async function importarProcessoDJe(docIndex) {
     datajud_index:   _indiceDoNumero(numero),
     cliente:         clienteFinal,
     parte_contraria: doc.partes?.contrario?.length > 2 ? doc.partes.contrario : null,
-    area:            _detectarArea(doc.siglaTribunal, doc.nomeClasse, doc.nomeOrgao),
+    area:            _detectarArea({ tribunal: doc.siglaTribunal, classe: doc.nomeClasse, orgao: doc.nomeOrgao, numero }),
     classe:          _tituloProcesso(doc.nomeClasse) || null,
     orgao_julgador:  doc.nomeOrgao   || null,
     movimentos_recentes: [novoMov],
@@ -9373,6 +9534,7 @@ async function _emLotes(itens, tamanho, tarefa) {
 }
 
 async function importarTodosDJe() {
+  if (!_exigirCadastroCompleto()) return;
   const dbNums = new Set((window._processosDB || []).map(p => _digitos(p.numero)).filter(Boolean));
   // _djeResultados é 1 linha por PUBLICAÇÃO — um processo ativo pode ter várias
   // (despacho, decisão, intimação...). Sem isso, "importar todos" contava
@@ -9406,7 +9568,7 @@ async function importarTodosDJe() {
       datajud_index:   _indiceDoNumero(numero),
       cliente:         doc.partes?.cliente   || null,
       parte_contraria: doc.partes?.contrario || null,
-      area:            _detectarArea(doc.siglaTribunal, doc.nomeClasse, doc.nomeOrgao),
+      area:            _detectarArea({ tribunal: doc.siglaTribunal, classe: doc.nomeClasse, orgao: doc.nomeOrgao, numero }),
       classe:          _tituloProcesso(doc.nomeClasse) || null,
       orgao_julgador:  doc.nomeOrgao   || null,
       movimentos_recentes: [{

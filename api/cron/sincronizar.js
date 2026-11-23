@@ -24,7 +24,7 @@ import {
   normalizarNumeroCNJ, tituloProcesso, detectarArea, limparLogsAntigos,
   abrirExecucao, fecharExecucao, enviarEmail, cabecalho, rodape, btnDashboard,
   inferirTratamento, usuariosComAcesso, enviarAvisoReativacao, normalizarNumeroSuperior,
-  montarNovidadesDatajud, gravarComNovidades, alertarAdmins,
+  montarNovidadesDatajud, gravarComNovidades, alertarAdmins, areaParaCorrigir,
 } from '../../lib/sync-comum.js';
 
 const SUPA_URL         = 'https://ctsjhsdblallguftycqs.supabase.co';
@@ -167,7 +167,7 @@ async function rodarDatajud(admin, res, hoje) {
   // número CNJ) não têm como ser consultados no DataJud.
   const { data: processos, error } = await admin
     .from('processos')
-    .select('id, user_id, numero, nome, apelido, datajud_index, movimentos_hash, movimentos_recentes, notificacao_pendente, novos_movimentos, sync_falhas, created_at')
+    .select('id, user_id, numero, nome, apelido, area, historico, datajud_index, movimentos_hash, movimentos_recentes, notificacao_pendente, novos_movimentos, sync_falhas, created_at')
     .not('numero', 'is', null)
     .not('datajud_index', 'is', null)
     .neq('status', 'Arquivado')
@@ -198,7 +198,7 @@ async function rodarDatajud(admin, res, hoje) {
     resultados: { novos: r.novos, verificados: r.verificados, falhas: r.falhas, naoTentados: r.naoTentados, disjuntor: r.disjuntor, reparados },
     // Aparece no histórico de execuções do painel — antes uma pane do DataJud
     // passava como execução normal.
-    erro: r.disjuntor ? `DataJud falhando: parou após ${LOTE_DATAJUD_FALHAS_PARAR} lotes seguidos com erro; ${r.naoTentados} processo(s) ficaram para a próxima execução` : null,
+    erro: r.disjuntor ? `DataJud fora do ar: parou após ${LOTE_DATAJUD_FALHAS_PARAR} lotes seguidos sem resposta (60s sem responder, erro 5xx, rede ou chave recusada); ${r.naoTentados} processo(s) ficaram para a próxima execução` : null,
   });
 
   // Nenhuma consulta deu certo nesta execução (disjuntor, ou poucos lotes e
@@ -207,8 +207,8 @@ async function rodarDatajud(admin, res, hoje) {
   if (r.disjuntor || (r.falhas > 0 && r.verificados === 0)) {
     await alertarAdmins(admin, 'datajud', 'DataJud (CNJ) sem responder',
       `Na execução das ${new Date().toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })}, ` +
-      `nenhuma consulta ao DataJud deu certo: ${r.falhas} processo(s) com erro e ${r.naoTentados} que ficaram para a próxima execução` +
-      `${r.disjuntor ? ` (o cron parou após ${LOTE_DATAJUD_FALHAS_PARAR} lotes seguidos com erro, para não sobrecarregar o CNJ)` : ''}. ` +
+      `${r.verificados ? `só ${r.verificados} processo(s) foram verificados` : 'nenhuma consulta ao DataJud deu certo'}: ${r.falhas} processo(s) com erro e ${r.naoTentados} que ficaram para a próxima execução` +
+      `${r.disjuntor ? ` (o cron parou após ${LOTE_DATAJUD_FALHAS_PARAR} lotes seguidos sem resposta, para não sobrecarregar o CNJ)` : ''}. ` +
       'O cron continua tentando sozinho. Se durar, vale publicar um aviso aos advogados no painel admin (seção "Aviso aos advogados").');
   }
 
@@ -295,8 +295,15 @@ const LOTE_DATAJUD_ESPACAMENTO_MS = 500;
 // Disjuntor: depois de tantas falhas seguidas de lote, para de disparar — os
 // lotes que sobraram ficam "não tentados" e voltam no começo da próxima
 // execução, em vez de martelar um DataJud que já está caindo.
+// Só conta falha que pesa no CNJ (sem resposta em 60s, 5xx) ou que vai se
+// repetir em tudo (chave recusada, rede). O 429 "fila cheia" volta em ~0,1s,
+// recusado na porta: até 23/11/2026 ele também contava, e com o CNJ recusando
+// ~80% (pane de nov/2026) o robô desistia da rodada depois de ~8 lotes, com a
+// janela quase inteira sobrando. Mesma regra do skills-datajud-djen (GitHub).
 const LOTE_DATAJUD_FALHAS_PARAR   = 3;
-const LOTE_DATAJUD_ESPERA_429_MS  = 5000;
+// 429 / resposta parcial: novas tentativas curtas (a recusa é instantânea e a
+// aceitação é sorteio — medido em 19 e 23/11). O CNJ não manda Retry-After.
+const LOTE_DATAJUD_ESPERAS_429_MS = [2000, 4000];
 // Até quando a fase de gravação pode começar. maxDuration é 180s (vercel.json);
 // depois da gravação ainda vêm a contagem da fila, fecharExecucao e o disparo
 // do e-mail (até 12s). Era 55+65=120s, mas o último lote pode começar aos 55s,
@@ -385,17 +392,17 @@ export async function sincronizarDatajud(processos, admin, hoje, startAt = Date.
         hits = await buscarLoteDatajud(lote.index, lote.numeros);
         break;
       } catch (e) {
-        // 429 e resposta parcial voltam em ~1s: vale uma segunda tentativa
-        // depois de uma pausa, se ainda couber na janela. Timeout e 504 não —
-        // já custaram 60s.
+        // 429 e resposta parcial voltam rápido: novas tentativas depois de uma
+        // pausa curta, se ainda couber na janela. Timeout e 504 não — já
+        // custaram 60s.
         const saturado = classificarErroDatajud(e).tipo === 'cnj-saturado';
-        const cabe = Date.now() + LOTE_DATAJUD_ESPERA_429_MS < fimJanela;
-        if (saturado && tentativa === 0 && cabe && !disjuntor) {
-          await new Promise(r => setTimeout(r, LOTE_DATAJUD_ESPERA_429_MS));
+        const espera = LOTE_DATAJUD_ESPERAS_429_MS[tentativa];
+        if (saturado && espera != null && Date.now() + espera < fimJanela && !disjuntor) {
+          await new Promise(r => setTimeout(r, espera));
           continue;
         }
         for (const n of lote.numeros) mapaResultados.set(n, e);
-        if (++falhasSeguidas >= LOTE_DATAJUD_FALHAS_PARAR) disjuntor = true;
+        if (!saturado && ++falhasSeguidas >= LOTE_DATAJUD_FALHAS_PARAR) disjuntor = true;
         return;
       }
     }
@@ -466,6 +473,30 @@ function enriquecerSeDescoberto(proc, hits) {
   return upd;
 }
 
+// Corrige a área quando ela foi palpite do sistema (regra em areaParaCorrigir).
+// Gravação à parte e condicionada à área lida na fila: se o advogado trocou a
+// área nesse meio tempo, não sobrescreve. Falha aqui não derruba a sincronização.
+async function corrigirAreaAutomatica(admin, proc, hits) {
+  try {
+    const src = hits[0]?._source || {};
+    const nova = areaParaCorrigir(proc, {
+      tribunal: src.tribunal,
+      classe:   corrigirMojibake(src.classe?.nome),
+      orgao:    corrigirMojibake(src.orgaoJulgador?.nome),
+      assuntos: [src.assuntos].flat(Infinity).map(a => corrigirMojibake(a?.nome)).filter(Boolean),
+      numero:   proc.numero,
+    });
+    if (!nova) return;
+    let q = admin.from('processos').update({ area: nova }).eq('id', proc.id);
+    q = proc.area == null ? q.is('area', null) : q.eq('area', proc.area);
+    const { error } = await q;
+    if (error) throw new Error(error.message);
+  } catch (e) {
+    await logErro(admin, 'cron:area', `Falha ao corrigir a área: ${String(e.message || e).slice(0, 150)}`,
+      { numero: proc.numero, processoId: proc.id }, proc.user_id);
+  }
+}
+
 // Usado só pelo botão "DataJud agora" do painel admin (1 processo, sob
 // demanda) — busca e aplica. O cron em lote chama aplicarResultadoDatajud()
 // direto, já com os hits buscados em lote (ver sincronizarDatajud acima).
@@ -505,6 +536,7 @@ async function aplicarResultadoDatajud(proc, hitsOuErro, admin, hoje) {
 
     if (novoHash === proc.movimentos_hash) {
       await gravar({ ...sucessoFila(), ...enriquecerSeDescoberto(proc, hits) });
+      await corrigirAreaAutomatica(admin, proc, hits);
       return 'sem-mudanca';
     }
 
@@ -515,6 +547,7 @@ async function aplicarResultadoDatajud(proc, hitsOuErro, admin, hoje) {
       const m = montarNovidadesDatajud({ ...proc, ...fresco }, todosMovs);
       return { ...m, upd: { ...m.upd, ...extra } };
     });
+    await corrigirAreaAutomatica(admin, proc, hits);
     // 'novos' dispara o e-mail na hora — só quando tem andamento importante.
     return r.importantes?.length ? 'novos' : 'atualizado';
   } catch (e) {
@@ -743,7 +776,7 @@ async function rodarFilaStj(admin, res) {
           numero,
           nome:                     d.classe || numero,
           cliente:                  clientePart?.nome || '',
-          area:                     detectarArea(d.tribunal, d.classe, d.orgaoJulgador, (d.assuntos || []).join(' ')),
+          area:                     detectarArea({ tribunal: d.tribunal, classe: d.classe, orgao: d.orgaoJulgador, assuntos: d.assuntos, numero }),
           tribunal:                 d.tribunal || '',
           datajud_index:            d._datajudIndex || index,
           classe:                   d.classe || null,
@@ -1084,20 +1117,29 @@ async function retentarOnboardingDjen(admin) {
   }
 }
 
-async function enviarBoasVindas(email, nome) {
+// semOab: conta que entrou pelo Google/LinkedIn e ainda não informou OAB e
+// telefone — a busca de processos fica travada até lá (ver auth-guard.js),
+// então o e-mail aponta pro "Complete seu cadastro" (?completar=1).
+async function enviarBoasVindas(email, nome, { semOab = false } = {}) {
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const assunto = 'Bem-vindo(a) ao Meu Processo';
+  const texto = semOab
+    ? `Olá, ${esc(nome)}. Sua conta está pronta e o <b>teste grátis já está ativo</b> — agenda, tarefas, clientes e honorários já podem ser usados.
+       <br><br>Para o Meu Processo <b>encontrar e acompanhar seus processos</b> (movimentações, publicações no DJEN e prazos), falta só informar <b>sua OAB e um telefone</b>. Leva menos de 1 minuto.`
+    : `Olá, ${esc(nome)}. A partir de agora o Meu Processo acompanha seus processos automaticamente:
+      monitoramos movimentações, publicações no DJEN e prazos, e avisamos você quando algo mudar —
+      sem precisar consultar nenhum portal manualmente todo dia.`;
+  const botao = semOab
+    ? `<div style="text-align:center;margin-top:20px;padding:0 28px 24px"><a href="https://www.meuprocesso.app.br/dashboard?completar=1" style="display:inline-block;background:#1a2e6b;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:600">Completar meu cadastro →</a></div>`
+    : btnDashboard('#1a2e6b');
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
 <div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1)">
   ${cabecalho('Bem-vindo(a)!')}
   <div style="padding:20px 24px">
-    <div style="font-size:14px;color:#374151;line-height:1.6">
-      Olá, ${nome}. A partir de agora o Meu Processo acompanha seus processos automaticamente:
-      monitoramos movimentações, publicações no DJEN e prazos, e avisamos você quando algo mudar —
-      sem precisar consultar nenhum portal manualmente todo dia.
-    </div>
+    <div style="font-size:14px;color:#374151;line-height:1.6">${texto}</div>
   </div>
-  ${btnDashboard('#1a2e6b')}
+  ${botao}
   ${rodape()}
 </div>
 </body></html>`;
@@ -1211,6 +1253,17 @@ async function rodarHistoricoOab(req, res) {
   }
 }
 
+// Grava marcas no user_metadata relendo o usuário NA HORA e mandando tudo de
+// volta: a cópia lida no início da requisição pode estar velha (o navegador
+// grava origem/ga_signup/ultimo_acesso no mesmo 1º acesso) e não arrisca
+// depender de o Supabase mesclar ou substituir. Sem conseguir ler, não grava.
+async function marcarMetadata(admin, userId, extra) {
+  const { data, error } = await admin.auth.admin.getUserById(userId);
+  if (error || !data?.user) throw new Error(`Não consegui reler o usuário pra marcar ${Object.keys(extra).join(', ')}`);
+  const { error: e2 } = await admin.auth.admin.updateUserById(userId, { user_metadata: { ...(data.user.user_metadata || {}), ...extra } });
+  if (e2) throw e2;
+}
+
 async function rodarOnboarding(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ erro: 'Método não permitido.' });
   const authHeader = req.headers['authorization'];
@@ -1242,38 +1295,46 @@ async function rodarOnboarding(req, res) {
   }
 
   try {
-    // Idempotente — duas chamadas (ex: duas abas abertas) não mandam e-mail em dobro.
-    if (user.user_metadata?.onboarding_email_enviado) {
+    const meta = user.user_metadata || {};
+    // Idempotente — duas chamadas (ex: duas abas abertas) não mandam e-mail em
+    // dobro. onboarding_email_enviado = já fez a busca pela OAB (e, nas contas
+    // de antes de 23/11/2026, mandou as boas-vindas junto).
+    if (meta.onboarding_email_enviado) {
       return res.status(200).json({ ok: true, jaEnviado: true });
     }
 
-    // Só pra conta recém-criada — evita mandar "boas-vindas" pra alguém antigo
-    // que hoje só está com 0 processos (ex: arquivou tudo). Chamada
-    // administrativa pula essa trava de propósito.
-    if (!ignorarIdadeConta && Date.now() - new Date(user.created_at).getTime() > 2 * 86400000) {
-      return res.status(200).json({ ok: true, contaAntiga: true });
-    }
-
-    const { count } = await admin.from('processos')
-      .select('id', { count: 'exact', head: true }).eq('user_id', user.id);
-    if (count > 0) return res.status(200).json({ ok: true, jaTemProcessos: true });
-
-    const oabsPorUsuario = await buscarOabsUsuarios(admin, [user.id]);
-    const oabs = oabsPorUsuario[user.id] || [];
-    if (!oabs.length) return res.status(200).json({ ok: true, semOab: true });
-
-    // Marca ANTES de mandar — se der erro no meio do caminho, não tenta nas
-    // próximas chamadas em loop.
-    await admin.auth.admin.updateUserById(user.id, {
-      user_metadata: { ...user.user_metadata, onboarding_email_enviado: true },
-    });
-
-    const primeiroNome = (user.user_metadata?.full_name || user.user_metadata?.nome || '').trim().split(' ')[0] || 'Advogado(a)';
+    const idadeDias = (Date.now() - new Date(user.created_at).getTime()) / 86400000;
+    const primeiroNome = (meta.full_name || meta.nome || '').trim().split(' ')[0] || 'Advogado(a)';
     // "Dr./Dra." só quando o primeiro nome permite inferir o gênero com
     // confiança (ver inferirTratamento) — nome ambíguo usa só o primeiro nome.
     const tratamento = inferirTratamento(primeiroNome);
     const nome = tratamento ? `${tratamento} ${primeiroNome}` : primeiroNome;
-    await enviarBoasVindas(user.email, nome);
+    const oabsPorUsuario = await buscarOabsUsuarios(admin, [user.id]);
+    const oabs = oabsPorUsuario[user.id] || [];
+
+    // 1) Boas-vindas: toda conta nova recebe, com ou sem OAB. Até 23/11/2026
+    // só saía junto com a busca pela OAB, e quem entrava pelo Google/LinkedIn
+    // (sem OAB) nunca recebia. Até 7 dias de conta — não dá "boas-vindas" a
+    // conta antiga. Marca ANTES de mandar (erro no envio não vira loop).
+    let enviouBoasVindas = false;
+    if (!meta.boas_vindas_enviada && (ignorarIdadeConta || idadeDias <= 7)) {
+      await marcarMetadata(admin, user.id, { boas_vindas_enviada: true });
+      await enviarBoasVindas(user.email, nome, { semOab: !oabs.length });
+      enviouBoasVindas = true;
+    }
+
+    // 2) Busca pela OAB + "achamos X processos": 1 vez, quando houver OAB.
+    // Quem entra pelo Google informa a OAB dias depois — por isso até 30 dias
+    // de conta (era 2). Conta com processo já não precisa da busca.
+    if (!oabs.length) return res.status(200).json({ ok: true, enviouBoasVindas, semOab: true });
+    if (!ignorarIdadeConta && idadeDias > 30) return res.status(200).json({ ok: true, enviouBoasVindas, contaAntiga: true });
+    const { count } = await admin.from('processos')
+      .select('id', { count: 'exact', head: true }).eq('user_id', user.id);
+    if (count > 0) return res.status(200).json({ ok: true, enviouBoasVindas, jaTemProcessos: true });
+
+    // Marca ANTES de buscar — se der erro no meio do caminho, não tenta nas
+    // próximas chamadas em loop.
+    await marcarMetadata(admin, user.id, { onboarding_email_enviado: true });
 
     let busca;
     try {
@@ -1281,18 +1342,16 @@ async function rodarOnboarding(req, res) {
     } catch (e) {
       // DJEN no limite/fora do ar: não diz "não achamos nada". Marca pra o
       // próximo scan do DJEN (6x/dia) tentar de novo — retentarOnboardingDjen().
-      await admin.auth.admin.updateUserById(user.id, {
-        user_metadata: { ...user.user_metadata, onboarding_email_enviado: true, onboarding_djen_pendente: true },
-      });
+      await marcarMetadata(admin, user.id, { onboarding_email_enviado: true, onboarding_djen_pendente: true });
       await logErro(admin, 'onboarding-djen', `Busca adiada: ${String(e.message || e).slice(0, 200)}`, {}, user.id);
-      return res.status(200).json({ ok: true, enviouBoasVindas: true, buscaAdiada: true });
+      return res.status(200).json({ ok: true, enviouBoasVindas, buscaAdiada: true });
     }
     const { totalProcessos, exato, itens } = busca;
     if (totalProcessos > 0 && itens.length) {
       await enviarEmailDescoberta(user.email, nome, oabs[0], totalProcessos, exato, itens);
     }
 
-    return res.status(200).json({ ok: true, enviouBoasVindas: true, processosEncontrados: totalProcessos });
+    return res.status(200).json({ ok: true, enviouBoasVindas, processosEncontrados: totalProcessos });
   } catch (e) {
     await logErro(admin, 'onboarding-email', String(e.message || e).slice(0, 300), {}, user.id);
     return res.status(500).json({ erro: 'Falha ao processar onboarding.' });

@@ -726,7 +726,7 @@ async function acaoSincronizarProcessos(req, res, admin, adminUser) {
 
   // Ordena pelos menos sincronizados primeiro — garante rotação entre todos
   let q = admin.from('processos')
-    .select('id, user_id, numero, nome, datajud_index, movimentos_hash, movimentos_recentes, notificacao_pendente, novos_movimentos, sync_falhas, created_at')
+    .select('id, user_id, numero, nome, area, historico, datajud_index, movimentos_hash, movimentos_recentes, notificacao_pendente, novos_movimentos, sync_falhas, created_at')
     .not('datajud_index', 'is', null)
     .neq('status', 'Arquivado')
     .order('sync_ultima_tentativa', { ascending: true, nullsFirst: true });

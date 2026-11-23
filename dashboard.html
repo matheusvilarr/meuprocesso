@@ -171,16 +171,18 @@
     </div>
   </header>
 
-  <!-- Tela "falta só sua OAB" — obrigatória pra quem entrou sem OAB, ex: Google/LinkedIn (ver _mostrarTelaOAB) -->
+  <!-- "Complete seu cadastro" (OAB + telefone) — libera busca e cadastro de processos.
+       Não trava o resto do sistema: fecha no "Agora não" (ver _abrirCompletarCadastro) -->
   <div id="tela-oab" class="tela-oab" hidden role="dialog" aria-modal="true" aria-labelledby="tela-oab-titulo">
     <form class="tela-oab-card" onsubmit="event.preventDefault();_salvarTelaOAB()">
       <div class="tela-oab-ico"><i class="ti ti-id-badge-2"></i></div>
-      <h2 id="tela-oab-titulo">Falta só sua OAB</h2>
-      <p id="tela-oab-texto">É por ela que encontramos suas intimações e processos no Diário Eletrônico, todos os dias.</p>
-      <div class="tela-oab-campos">
+      <h2 id="tela-oab-titulo">Complete seu cadastro</h2>
+      <p id="tela-oab-texto"></p>
+      <div class="tela-oab-campos" id="tela-oab-campos-oab">
         <select id="tela-oab-uf" aria-label="Estado da OAB"><option value="">UF</option></select>
         <input id="tela-oab-num" type="text" inputmode="numeric" placeholder="Número da OAB" autocomplete="off" aria-label="Número da OAB">
       </div>
+      <input id="tela-oab-tel" class="tela-oab-tel" type="tel" inputmode="tel" placeholder="Telefone com DDD" autocomplete="tel" aria-label="Telefone com DDD" hidden>
       <select id="tela-oab-como" class="tela-oab-como" hidden aria-label="Como conheceu o Meu Processo?">
         <option value="">Como conheceu o Meu Processo?</option>
         <option>Pesquisa no Google</option>
@@ -195,8 +197,9 @@
         <option>Outro</option>
       </select>
       <div class="tela-oab-erro" id="tela-oab-erro" role="alert"></div>
-      <button type="submit" class="tela-oab-btn" id="tela-oab-btn">Continuar</button>
-      <button type="button" class="tela-oab-sair" onclick="fazerLogout()">Entrou com a conta errada? Sair</button>
+      <button type="submit" class="tela-oab-btn" id="tela-oab-btn">Salvar e liberar a busca</button>
+      <button type="button" class="tela-oab-depois" onclick="_fecharCompletarCadastro()">Agora não — quero conhecer o sistema primeiro</button>
+      <button type="button" class="tela-oab-sair" onclick="_gaTelaOAB('oab_tela_sair');fazerLogout()">Entrou com a conta errada? Sair</button>
     </form>
   </div>
 
@@ -217,6 +220,7 @@
       </div>
     </div>
 
+    <div class="aviso-cadastro" hidden></div>
     <div class="aviso-sistema" hidden></div>
 
     <div class="stats-row">
@@ -330,6 +334,7 @@
       </div>
     </div>
 
+    <div class="aviso-cadastro" hidden></div>
     <div class="aviso-sistema" hidden></div>
     <div class="aviso-cnj" hidden></div>
 
@@ -2040,6 +2045,7 @@
           <option>Cível</option><option>Trabalhista</option><option>Criminal</option>
           <option>Tributário</option><option>Família</option><option>Previdenciário</option>
         </select>
+        <div style="font-size:11.5px;color:var(--gray-400);margin-top:5px">O tribunal não informa a área: o sistema deduz pela classe, vara e assuntos. Se estiver errada, troque aqui. A sincronização não muda a sua escolha.</div>
       </div>
       <div class="form-row">
         <div class="form-field">

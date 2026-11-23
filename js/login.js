@@ -8,6 +8,45 @@ if (/error_code=user_banned/.test(window.location.hash) || new URLSearchParams(w
   history.replaceState(null, '', window.location.pathname);
 }
 
+// ── Botão "Confirmar e entrar" do lembrete de cadastro ──────────────────────
+// /confirmar-cadastro confirma o e-mail no servidor e manda pra cá com um login
+// de uso único (token_hash); trocá-lo por sessão aqui já abre o painel.
+// ?confirmacao= traz o desfecho quando não deu pra entrar direto.
+(function () {
+  const p = new URLSearchParams(window.location.search);
+  const th = p.get('token_hash'), conf = p.get('confirmacao');
+  if (!th && !conf) return;
+  history.replaceState(null, '', window.location.pathname);
+  const caixa = document.getElementById('avisoConfirmacao');
+  const aviso = (titulo, texto, ok) => {
+    if (!caixa) return;
+    const [fundo, borda, cor] = ok ? ['#f0fdf4', '#bbf7d0', '#166534'] : ['#fffbeb', '#fde68a', '#92400e'];
+    caixa.innerHTML = `<div style="background:${fundo};border:1.5px solid ${borda};border-radius:10px;padding:14px 16px;margin-bottom:16px;text-align:left">
+      <div style="font-size:13.5px;font-weight:700;color:${cor};margin-bottom:5px">${titulo}</div>
+      <div style="font-size:12.5px;color:${cor};line-height:1.6">${texto}</div></div>`;
+    caixa.style.display = 'block';
+  };
+  if (th && p.get('type') === 'magiclink') {
+    aviso('Confirmando seu e-mail…', 'Só um instante, já vamos abrir o sistema.', true);
+    _supabase.auth.verifyOtp({ token_hash: th, type: 'magiclink' }).then(({ error }) => {
+      if (!error) {
+        try { sessionStorage.setItem('mp_login', 'email'); } catch (_) {}
+        window.location.replace('/dashboard');
+        return;
+      }
+      aviso('E-mail confirmado ✓', 'Só o acesso automático não funcionou (o link pode já ter sido aberto). Entre com seu e-mail e senha abaixo.', true);
+    });
+    return;
+  }
+  const msgs = {
+    ok:       ['E-mail confirmado ✓', 'Agora é só entrar com seu e-mail e senha abaixo.', true],
+    ja:       ['Seu e-mail já está confirmado', 'Entre com seu e-mail e senha — ou com Google, se foi assim que criou a conta.', true],
+    invalida: ['Este link não vale mais', 'Entre com seu e-mail e senha. Se o e-mail ainda não foi confirmado, a tela oferece reenviar a confirmação.', false],
+    erro:     ['Não conseguimos confirmar agora', 'Tente o botão do e-mail de novo em alguns minutos, ou escreva para contato@meuprocesso.app.br.', false],
+  };
+  if (msgs[conf]) aviso(...msgs[conf]);
+})();
+
 // ── Sessão já ativa → não mostra o login ────────────────────────────────────
 // pageshow (não só DOMContentLoaded) pra pegar também quando o navegador
 // restaura /login do cache ao voltar (o script não roda de novo nesse caso)
@@ -162,16 +201,18 @@ document.getElementById('loginForm').addEventListener('submit', async function (
 
 // Explica o que realmente aconteceu e dá o caminho de saída ali mesmo, em vez
 // de mandar a pessoa adivinhar ou tentar "esqueci minha senha" sem motivo.
-function mostrarAvisoConfirmacao(email) {
+// aposCadastro: logo depois de criar a conta (mesmo painel, texto de boas-vindas).
+function mostrarAvisoConfirmacao(email, aposCadastro = false) {
   const caixa = document.getElementById('avisoConfirmacao');
   if (!caixa) return;
+  const end = email.replace(/[<>&"]/g, '');
   caixa.innerHTML = `
     <div style="background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:10px;padding:14px 16px;margin-bottom:16px;text-align:left">
-      <div style="font-size:13.5px;font-weight:700;color:#1e3a5f;margin-bottom:5px">Falta confirmar seu e-mail</div>
+      <div style="font-size:13.5px;font-weight:700;color:#1e3a5f;margin-bottom:5px">${aposCadastro ? '✅ Conta criada! Falta só confirmar seu e-mail' : 'Falta confirmar seu e-mail'}</div>
       <div style="font-size:12.5px;color:#1e40af;line-height:1.6">
-        Sua senha está correta. Enviamos um link de confirmação para
-        <strong>${email.replace(/[<>&"]/g, '')}</strong> — abra o e-mail e clique nele para entrar.
-        <br><span style="color:#64748b">Não achou? Veja no lixo eletrônico ou promoções.</span>
+        ${aposCadastro ? 'Enviamos agora um link de confirmação para' : 'Sua senha está correta. Enviamos um link de confirmação para'}
+        <strong>${end}</strong> — abra o e-mail e clique nele para entrar.
+        <br><span style="color:#64748b">Não chegou em 2 minutos? Veja no lixo eletrônico ou em Promoções, ou peça de novo abaixo.${aposCadastro ? ' E-mail digitado errado? Escreva para contato@meuprocesso.app.br.' : ''}</span>
       </div>
       <button type="button" id="btnReenviar" style="margin-top:11px;background:#1e3a5f;color:#fff;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit">
         Reenviar e-mail de confirmação
@@ -395,8 +436,12 @@ document.getElementById('signupForm').addEventListener('submit', async function 
     return;
   }
 
-  btn.style.display = 'none';
-  document.getElementById('signupSuccess').style.display = 'block';
+  // Painel no topo com o endereço, dica de spam e botão de reenviar. Antes era
+  // só "Conta criada! Verifique seu e-mail" no pé do formulário — e quem não
+  // achou o e-mail (o Supabase manda uma vez só) desistia ali.
+  document.getElementById('signupForm').style.display = 'none';
+  mostrarAvisoConfirmacao(email, true);
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 });
 
 // ── Ícones ────────────────────────────────────────────────────────────────────

@@ -359,8 +359,11 @@ do escritório. Motivo: a API do DJEN limita/bloqueia por IP e região, e a Verc
   (`hitsValidos` em `sincronizar.js`; mesmo teste em `buscar-processo.js`).
 - Processo cujo lote não chegou a ser consultado **não grava nada** (`'nao-tentado'`) — marcar
   como verificado sem consultar escondia a pane por 20h.
-- Disjuntor: o cron para depois de 3 lotes seguidos com erro; espaçamento de 500ms (≤120/min,
-  limite do CNJ) vale também para a retentativa.
+- Disjuntor: o cron para depois de 3 lotes seguidos com falha **lenta ou fatal** (sem resposta em 60s,
+  5xx, 401/403, rede). O 429 "fila cheia" (`es_rejected_execution_exception`, volta em ~0,1s, sem
+  `Retry-After`) **não conta**: ganha até 3 tentativas (2s, 4s) e o robô segue pros outros tribunais —
+  até 23/11/2026 contava, e o robô desistia da rodada depois de ~8 lotes. Espaçamento de 500ms
+  (≤120/min, limite do CNJ) vale também para as retentativas.
 - Resposta sem movimentos **nunca** substitui as movimentações já salvas
   (`montarNovidadesDatajud` / `_atualizacaoDatajud`).
 - DJEN: "Novo"/e-mail vale para publicação de até 7 dias **ou** posterior à última busca
@@ -370,6 +373,34 @@ do escritório. Motivo: a API do DJEN limita/bloqueia por IP e região, e a Verc
   em `notif_log`, tipo `alerta:<chave>`). Problema novo detectado num cron → chamar `alertarAdmins`.
 - Faixa na tela do advogado: o aviso escrito pelo admin (`avisos_sistema`) tem prioridade. A automática
   do CNJ só aparece quando **nenhuma** consulta deu certo há 2+ dias, sem números internos, com "Entendi".
+
+## Área do direito (`processos.area`)
+
+- DataJud e DJEN não informam a área — é **palpite** de `_detectarArea` (dashboard.js) e
+  `detectarArea` (lib/sync-comum.js), **mesma regra nas duas cópias — mudar nas duas**. Ordem: dígito J
+  do número CNJ (5 = Trabalho, 7/9 = Militar), classe, órgão julgador só quando especializado (vara
+  "Cível e Criminal" não conta), assuntos. Palavra inteira e sem acento.
+- O advogado troca em "Editar dados" (ou clicando na etiqueta da área no detalhe).
+- A sincronização (cron e botão do admin) só **corrige** a área quando foi o sistema que escolheu
+  (`areaParaCorrigir`): histórico sem `dados_editados` nem `criado_manual` E área atual igual a um
+  palpite antigo do sistema. Escolha do advogado nunca muda. Sem correção em massa no banco.
+
+## Cadastro: OAB + telefone liberam a busca de processos
+
+- Conta sem OAB válida (ou sem telefone, só para conta criada a partir de 23/11/2026) usa todo o sistema,
+  **menos buscar/cadastrar processo**. Regra única: `window._pendenciasCadastro` (auth-guard.js).
+  Trava em `openModal` (`modal-busca-tribunal`, `modal-novo-processo`) e `_exigirCadastroCompleto()` nas
+  funções de buscar/importar/salvar e no scan do DJEN. Colaborador nunca é travado.
+- "Complete seu cadastro" (`#tela-oab`) abre sozinho só no 1º acesso (fecha em "Agora não"); depois fica a
+  faixa `.aviso-cadastro`. `?completar=1` (botões de e-mail) abre direto.
+- Boas-vindas para **toda** conta nova no 1º acesso (`boas_vindas_enviada`, até 7 dias); a busca pela OAB
+  + "Encontramos X processos" é separada (`onboarding_email_enviado`, até 30 dias). Marcas no
+  user_metadata via `marcarMetadata` (relê o usuário antes de gravar).
+- Lembrete diário `cadastro_incompleto` cobre também quem **não confirmou o e-mail** (o Supabase manda a
+  confirmação 1 vez só), com botão `/confirmar-cadastro` (link HMAC próprio, 14 dias — nunca reaproveitar
+  o token de descadastro, que vai em todo e-mail).
+- Parâmetros de entrada do dashboard (`?abrir=`, `?completar=`) são lidos de `_paramsEntrada`: o
+  DOMContentLoaded faz `replaceState('/dashboard')` e apaga a query antes de qualquer função ler.
 
 ---
 

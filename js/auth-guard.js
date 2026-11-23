@@ -12,6 +12,25 @@ window._oabsValidas = function (raw) {
   }).filter(Boolean);
 };
 
+// O que falta no cadastro pra liberar BUSCA e CADASTRO de processos (decisão do
+// Matheus, 23/11/2026). O resto do sistema (agenda, tarefas, clientes,
+// honorários) fica livre desde o 1º acesso — até aqui a tela da OAB cobria o
+// painel inteiro e quem só queria conhecer ia embora (caso do Claudson, vindo
+// do ChatGPT pelo Google). Telefone só é exigido de conta criada a partir de
+// 23/11: quem já usa o sistema pelo Google com OAB e sem telefone (há contas
+// com centenas de processos) não pode perder a busca de um dia pro outro.
+// Colaborador usa os dados do titular. Regra única: auth-guard e dashboard.js.
+const _TELEFONE_OBRIGATORIO_DESDE = Date.parse('2026-11-23T00:00:00-03:00');
+window._pendenciasCadastro = function (user) {
+  if (window._isColaborador) return { oab: false, telefone: false };
+  const meta = user?.user_metadata || {};
+  return {
+    oab:      window._oabsValidas(meta.oab).length === 0,
+    telefone: String(meta.telefone || '').replace(/\D/g, '').length < 10 &&
+              Date.parse(user?.created_at || '') >= _TELEFONE_OBRIGATORIO_DESDE,
+  };
+};
+
 // GA: user_id + sign_up/trial_start na 1ª abertura do painel (vale pra e-mail,
 // Google e LinkedIn — o OAuth não passa por nenhuma tela nossa antes daqui).
 // A marca ga_signup no user_metadata evita contar de novo em outro aparelho.
@@ -116,12 +135,14 @@ function _registrarAnalytics(user, assinatura, gravandoAcesso) {
   // que no bloqueado só tinha "fale com a gente" — tela sem saída.
   window._acessoRestrito = !window._isAdmin && !assinaturaValida;
 
-  // Quem entra pelo Google ou LinkedIn não traz OAB (só nome e e-mail), e sem
-  // OAB o monitoramento do DJEN não encontra nada dessa pessoa — o dashboard
-  // cobre o painel com a tela "Falta só sua OAB" até preencher (_mostrarTelaOAB).
-  // Colaborador não precisa: ele acompanha a OAB do titular.
-  window._oabPendente = !window._isColaborador &&
-    window._oabsValidas(session.user.user_metadata?.oab).length === 0;
+  // Quem entra pelo Google ou LinkedIn não traz OAB nem telefone (só nome e
+  // e-mail). Sem eles a busca/cadastro de processos fica travada e o painel
+  // mostra "Complete seu cadastro" (ver _pendenciasCadastro acima e
+  // _exigirCadastroCompleto em dashboard.js) — o resto do sistema é livre.
+  const pend = window._pendenciasCadastro(session.user);
+  window._oabPendente        = pend.oab;
+  window._telefonePendente   = pend.telefone;
+  window._cadastroIncompleto = pend.oab || pend.telefone;
 
   _registrarAnalytics(session.user, assinatura, gravandoAcesso);
 

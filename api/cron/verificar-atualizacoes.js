@@ -7,7 +7,8 @@ import { timingSafeEqual } from 'node:crypto';
 // Títulos antigos vieram gravados como 'APELAçãO CíVEL' (importação de jun/2026);
 // o painel normaliza na tela e o e-mail precisa normalizar igual.
 import { usuariosComAcesso, enviarAvisoReativacao, enviarEmail, tituloProcesso, novidadesParaEmail,
-         tokenDescadastro, linkDescadastro, definirDescadastro, lerOab, alertarAdmins } from '../../lib/sync-comum.js';
+         tokenDescadastro, linkDescadastro, definirDescadastro, lerOab, alertarAdmins,
+         linkConfirmarCadastro, validarLinkConfirmarCadastro } from '../../lib/sync-comum.js';
 // Conta de parcelas/pagamentos de honorários — o MESMO arquivo que a tela usa
 // (dashboard.html carrega como <script>), pra e-mail e tela nunca discordarem
 // sobre o que está vencido. Expõe globalThis.HonCalc.
@@ -27,6 +28,9 @@ export default async function handler(req, res) {
   // teto de 12 funções, não cabe um arquivo novo em api/. Autenticado pelo
   // HMAC do link, não pelo CRON_SECRET.
   if (req.query?.acao === 'descadastrar') return descadastrar(req, res);
+  // /confirmar-cadastro (rewrite): botão do lembrete de e-mail não confirmado.
+  // Também autenticado pelo HMAC do link.
+  if (req.query?.acao === 'confirmar-cadastro') return confirmarCadastro(req, res);
 
   const authHeader = req.headers['authorization'];
   // Fecha por padrão: se a variável CRON_SECRET desaparecer da Vercel (num
@@ -107,6 +111,39 @@ async function descadastrar(req, res) {
   }
   const linkVoltar = `<a href="${linkDescadastro(userId)}&voltar=1" style="display:inline-block;margin-top:20px;font-size:13px;color:#0d5a96">Cliquei sem querer — quero continuar recebendo</a>`;
   return res.status(200).send(pagina('Pronto, você foi descadastrado', 'Você não vai mais receber os e-mails automáticos do Meu Processo. Seus processos continuam sendo acompanhados normalmente no painel.', linkVoltar));
+}
+
+// Botão "Confirmar e entrar" do lembrete de e-mail não confirmado. Chegar aqui
+// pelo link assinado prova que a pessoa recebe e-mail nesse endereço — o mesmo
+// que o link de confirmação do Supabase prova (o do Supabase vale 1 vez só e,
+// em nov/2026, muita gente parava nele). Confirma e manda pra tela de login
+// com um login de uso único (verifyOtp em js/login.js). Conta já confirmada não
+// ganha login por aqui: link antigo vira só "entre com e-mail e senha".
+async function confirmarCadastro(req, res) {
+  const LOGIN = 'https://www.meuprocesso.app.br/login';
+  const ir = url => { res.statusCode = 302; res.setHeader('Location', url); res.setHeader('Cache-Control', 'no-store'); res.end(); };
+  const userId = String(req.query?.u || '');
+  if (!SUPA_SERVICE_KEY || !validarLinkConfirmarCadastro(userId, req.query?.exp, req.query?.t)) return ir(`${LOGIN}?confirmacao=invalida`);
+
+  const admin = createClient(SUPA_URL, SUPA_SERVICE_KEY);
+  let confirmou = false;
+  try {
+    const { data, error } = await admin.auth.admin.getUserById(userId);
+    const user = data?.user;
+    if (error || !user?.email) return ir(`${LOGIN}?confirmacao=invalida`);
+    if (user.email_confirmed_at) return ir(`${LOGIN}?confirmacao=ja`);
+    const { error: e1 } = await admin.auth.admin.updateUserById(userId, { email_confirm: true });
+    if (e1) throw e1;
+    confirmou = true;
+    const { data: link, error: e2 } = await admin.auth.admin.generateLink({ type: 'magiclink', email: user.email });
+    const th = link?.properties?.hashed_token;
+    if (e2 || !th) throw e2 || new Error('generateLink sem hashed_token');
+    return ir(`${LOGIN}?token_hash=${encodeURIComponent(th)}&type=magiclink`);
+  } catch (e) {
+    await logErro(admin, 'confirmar-cadastro', String(e?.message || e).slice(0, 300), { confirmou }, userId);
+    // Confirmou mas não gerou o login automático: entra com e-mail e senha.
+    return ir(`${LOGIN}?confirmacao=${confirmou ? 'ok' : 'erro'}`);
+  }
 }
 
 async function logErro(admin, origem, mensagem, detalhes, userId) {
@@ -552,7 +589,12 @@ async function rodarHonorarioVencido(admin, res, hoje) {
 }
 
 // ── CADASTRO INCOMPLETO ──────────────────────────────────────────────────────
-// 1x/dia. Duas situações, no máximo 2 e-mails cada, por conta:
+// 1x/dia. Três situações, no máximo 2 e-mails cada, por conta:
+//   - criou a conta com e-mail e senha e nunca clicou no link de confirmação:
+//     o Supabase manda esse e-mail UMA vez e não repete (até 23/11/2026 esta
+//     rotina pulava o caso achando que "o Supabase já cuida" — caso do
+//     Claudson). Lembrete na manhã seguinte e de novo 3+ dias depois, com
+//     botão que confirma e já entra (linkConfirmarCadastro);
 //   - criou a conta e nunca entrou (ex: login com Google que não completou —
 //     caso do Italo, 15/10/2026): 1 dia depois e de novo 3+ dias depois;
 //   - entrou mas não informou a OAB (desde 16/10 a OAB é opcional): sem ela o
@@ -581,7 +623,7 @@ async function rodarCadastroIncompleto(admin, res, hoje, simular) {
   const ids = recentes.map(u => u.id);
   const [{ data: colabs }, { data: logs }, comAcesso] = await Promise.all([
     admin.from('colaboradores').select('user_id').in('user_id', ids).eq('status', 'ativo'),
-    admin.from('notif_log').select('user_id, tipo, data').in('user_id', ids).in('tipo', ['cadastro_nunca_entrou', 'cadastro_sem_oab']),
+    admin.from('notif_log').select('user_id, tipo, data').in('user_id', ids).in('tipo', ['cadastro_nao_confirmou', 'cadastro_nunca_entrou', 'cadastro_sem_oab']),
     usuariosComAcesso(admin, ids),
   ]);
   const ehColab = new Set((colabs || []).map(c => c.user_id));
@@ -591,16 +633,21 @@ async function rodarCadastroIncompleto(admin, res, hoje, simular) {
   for (const u of recentes) {
     if (!u.email || !comAcesso.has(u.id)) continue;
     const idadeDias = (agora - new Date(u.created_at)) / 86400000;
-    const nuncaEntrou = !u.last_sign_in_at && !!u.email_confirmed_at;   // e-mail não confirmado = o Supabase já cuida
+    const naoConfirmou = !u.email_confirmed_at;
+    const nuncaEntrou  = !u.last_sign_in_at && !!u.email_confirmed_at;
     const semOab = !!u.last_sign_in_at && !ehColab.has(u.id) && oabsValidas(u.user_metadata?.oab).length === 0;
-    const tipo = nuncaEntrou ? 'cadastro_nunca_entrou' : semOab ? 'cadastro_sem_oab' : null;
+    const tipo = naoConfirmou ? 'cadastro_nao_confirmou' : nuncaEntrou ? 'cadastro_nunca_entrou' : semOab ? 'cadastro_sem_oab' : null;
     if (!tipo) continue;
 
     const envios = historico(u.id, tipo);
     if (envios.length >= MAX_LEMBRETES || envios.includes(hoje)) continue;
-    const intervalo2 = tipo === 'cadastro_nunca_entrou' ? 3 : 4;
+    const intervalo2 = tipo === 'cadastro_sem_oab' ? 4 : 3;
+    // 1º lembrete já na manhã seguinte (o cron roda 1x/dia, 10h): com "1 dia",
+    // quem se cadastrou à noite só recebia 1 dia e meio depois — o Claudson
+    // (Google, 22/11 19h32, parou na tela da OAB) só receberia em 24/11.
+    const primeiro = 0.5;
     const diasDesdeUltimo = envios.length ? (agora - new Date(envios.at(-1) + 'T12:00:00Z')) / 86400000 : Infinity;
-    const vence = envios.length === 0 ? idadeDias >= 1 : (idadeDias >= intervalo2 && diasDesdeUltimo >= 2);
+    const vence = envios.length === 0 ? idadeDias >= primeiro : (idadeDias >= intervalo2 && diasDesdeUltimo >= 2);
     if (vence) plano.push({ u, tipo, envio: envios.length + 1 });
   }
 
@@ -631,7 +678,15 @@ export function emailCadastroIncompleto(u, tipo, envio) {
   const botao = (txt, url) => `<div style="text-align:center;padding:8px 28px 28px"><a href="${url}" style="display:inline-block;background:linear-gradient(135deg,#053958 0%,#0d5a96 55%,#2196f3 100%);color:#fff;text-decoration:none;padding:14px 34px;border-radius:9px;font-size:15px;font-weight:700">${txt}</a>`;
 
   let assunto, subtitulo, corpo, cta;
-  if (tipo === 'cadastro_nunca_entrou') {
+  if (tipo === 'cadastro_nao_confirmou') {
+    assunto   = envio === 1 ? 'Falta 1 clique para ativar sua conta no Meu Processo' : 'Sua conta no Meu Processo ainda não foi ativada';
+    subtitulo = 'Falta confirmar seu e-mail';
+    corpo = `<p style="margin:0 0 14px">${ola}</p>
+      <p style="margin:0 0 14px">Você criou sua conta no Meu Processo, mas o e-mail de confirmação ficou sem clique — às vezes ele cai no lixo eletrônico ou em Promoções. Sem essa confirmação o sistema não deixa entrar.</p>
+      <p style="margin:0 0 14px">O botão abaixo <b>confirma seu e-mail e já abre o sistema</b>, sem precisar digitar a senha. Seu <b>teste grátis já está ativo</b>.</p>`;
+    cta = botao('Confirmar e entrar →', linkConfirmarCadastro(u.id))
+      + `<div style="font-size:12px;color:#6b7280;margin-top:10px">O botão vale por 14 dias. Se não foi você que criou esta conta, é só ignorar este e-mail.</div></div>`;
+  } else if (tipo === 'cadastro_nunca_entrou') {
     assunto   = envio === 1 ? `${primeiro || 'Sua conta'}${primeiro ? ', sua conta' : ''} no Meu Processo já está pronta` : 'Seu teste grátis no Meu Processo está esperando por você';
     subtitulo = 'Sua conta está pronta';
     corpo = `<p style="margin:0 0 14px">${ola}</p>
@@ -645,8 +700,11 @@ export function emailCadastroIncompleto(u, tipo, envio) {
     subtitulo = 'Falta um passo';
     corpo = `<p style="margin:0 0 14px">${ola}</p>
       <p style="margin:0 0 14px">Sua conta está ativa, mas ainda <b>sem a OAB cadastrada</b>. É por ela que encontramos automaticamente suas intimações e processos no Diário Eletrônico — sem ela, não temos como avisar você.</p>
-      <p style="margin:0 0 14px">Leva 10 segundos: entre no sistema e informe estado e número na tela que aparece logo ao entrar.</p>`;
-    cta = botao('Informar minha OAB →', 'https://www.meuprocesso.app.br/dashboard') + '</div>';
+      <p style="margin:0 0 14px">Leva menos de 1 minuto: o botão abaixo abre o sistema já no pedido da OAB (e do telefone, se ainda faltar). Agenda, tarefas, clientes e honorários continuam liberados enquanto isso.</p>`;
+    // Quem chega pelo ChatGPT nem sempre é advogado ("meu processo" soa como
+    // "o processo que eu sou parte") — a resposta conta pra gente o que procurava.
+    cta = botao('Informar minha OAB →', 'https://www.meuprocesso.app.br/dashboard?completar=1')
+      + `<div style="font-size:12px;color:#6b7280;margin-top:12px;line-height:1.6">Não é advogado(a)? O Meu Processo é feito para advogados acompanharem os processos dos clientes.<br>Se você quer acompanhar um processo seu, escreva para <a href="mailto:contato@meuprocesso.app.br" style="color:#0d5a96">contato@meuprocesso.app.br</a> que a gente orienta.</div></div>`;
   }
 
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>

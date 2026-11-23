@@ -13,7 +13,8 @@
     }
   ],
   "rewrites": [
-    { "source": "/descadastrar", "destination": "/api/cron/verificar-atualizacoes?acao=descadastrar" }
+    { "source": "/descadastrar", "destination": "/api/cron/verificar-atualizacoes?acao=descadastrar" },
+    { "source": "/confirmar-cadastro", "destination": "/api/cron/verificar-atualizacoes?acao=confirmar-cadastro" }
   ],
   "headers": [
     {
