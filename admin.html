@@ -126,6 +126,7 @@
         <button class="adm-tab" data-tab="sincronizacoes"><i class="ti ti-refresh"></i> Sincronizações</button>
         <button class="adm-tab" data-tab="djen-cadernos"><i class="ti ti-file-stack"></i> Cadernos DJEN</button>
         <button class="adm-tab" data-tab="execucoes"><i class="ti ti-history"></i> Execuções</button>
+        <button class="adm-tab" data-tab="fontes"><i class="ti ti-plug-connected"></i> Fontes de dados</button>
         <button class="adm-tab" data-tab="emails"><i class="ti ti-mail"></i> E-mails</button>
         <button class="adm-tab" data-tab="codigos"><i class="ti ti-ticket"></i> Códigos de convite</button>
         <button class="adm-tab" data-tab="admins"><i class="ti ti-shield-lock"></i> Administradores</button>
@@ -263,6 +264,16 @@
         <div class="sync-stats-row" id="exec-stats-row"></div>
         <div id="exec-dias-wrap" style="margin-top:24px;"></div>
         <div id="exec-tabela-wrap" style="margin-top:24px;"></div>
+      </section>
+
+      <!-- FONTES DE DADOS (lista em js/fontes-juridicas.js) -->
+      <section id="tab-fontes" class="adm-panel" style="display:none;">
+        <div class="adm-panel-header">
+          <h2>Fontes de dados jurídicos</h2>
+        </div>
+        <p class="fontes-intro">De onde o sistema busca (ou pode buscar) andamentos e publicações. Cada fonte nova vira um worker; o status é atualizado em <code class="adm-code">js/fontes-juridicas.js</code> junto com o código do worker.</p>
+        <div class="fontes-resumo" id="fontes-resumo"></div>
+        <div id="fontes-lista"></div>
       </section>
 
       <!-- E-MAILS -->
@@ -429,6 +440,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2"></script>
   <script src="js/supabase-client.js"></script>
+  <script src="js/fontes-juridicas.js"></script>
   <script src="js/admin.js"></script>
 </body>
 </html>

@@ -71,6 +71,46 @@ async function init() {
 }
 let _tabsProntas = false;
 
+// ── FONTES DE DADOS ────────────────────────────────────────────────────────────
+// Lista em js/fontes-juridicas.js (window.FONTES_JURIDICAS).
+
+const STATUS_FONTE = {
+  'em-uso':        { label: 'Em uso',                 classe: 'ok' },
+  'instavel':      { label: 'Em uso · instável',      classe: 'critico' },
+  'worker-pronto': { label: 'Worker pronto',          classe: 'pronto' },
+  'planejado':     { label: 'Planejado',              classe: 'planejado' },
+  'avaliar':       { label: 'A avaliar',              classe: 'avaliar' },
+  'pausado':       { label: 'Pausado',                classe: 'neutro' },
+  'descartado':    { label: 'Descartado',             classe: 'neutro' },
+};
+
+function renderFontes() {
+  const fontes = window.FONTES_JURIDICAS || [];
+  const contagem = {};
+  for (const f of fontes) contagem[f.status] = (contagem[f.status] || 0) + 1;
+  document.getElementById('fontes-resumo').innerHTML = Object.entries(STATUS_FONTE)
+    .filter(([k]) => contagem[k])
+    .map(([k, s]) => `<span class="fonte-chip ${s.classe}">${s.label}: ${contagem[k]}</span>`).join('');
+
+  const grupos = [...new Set(fontes.map(f => f.grupo))];
+  document.getElementById('fontes-lista').innerHTML = grupos.map(g => `
+    <h3 class="fontes-grupo">${esc(g)}</h3>
+    <div class="adm-table-wrap"><table class="adm-table fontes-tabela">
+      <thead><tr><th>Fonte</th><th>O que traz</th><th>Acesso</th><th>Status</th><th>Onde no código / próximo passo</th></tr></thead>
+      <tbody>${fontes.filter(f => f.grupo === g).map(f => {
+        const s = STATUS_FONTE[f.status] || { label: f.status, classe: 'neutro' };
+        return `<tr>
+          <td><strong>${f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.nome)}</a>` : esc(f.nome)}</strong>
+            <div class="fonte-sub">${esc(f.cobertura || '')}</div></td>
+          <td>${esc(f.traz || '')}</td>
+          <td>${esc(f.acesso || '')}</td>
+          <td><span class="fonte-chip ${s.classe}">${s.label}</span>${f.prioridade ? `<div class="fonte-sub">prioridade ${f.prioridade}</div>` : ''}</td>
+          <td>${f.onde ? `<code class="adm-code">${esc(f.onde)}</code>` : ''}<div class="fonte-sub">${esc(f.proximo || '')}</div></td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>`).join('');
+}
+
 // ── AVISO AOS ADVOGADOS ────────────────────────────────────────────────────────
 // Faixa no topo do dashboard dos advogados (api/admin.js → acaoAviso*).
 
@@ -402,6 +442,7 @@ function setupTabs() {
       if (btn.dataset.tab === 'djen-cadernos') carregarDjenCadernos();
       if (btn.dataset.tab === 'execucoes')     carregarExecucoes();
       if (btn.dataset.tab === 'licencas')      carregarLicencas();
+      if (btn.dataset.tab === 'fontes')        renderFontes();
     });
   });
 }

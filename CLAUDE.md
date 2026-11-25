@@ -339,6 +339,15 @@ no handler. `SYNC_ENDPOINT` no `.env` do worker já aponta pro host `www.` diret
 
 ---
 
+## Fontes de dados jurídicos (`js/fontes-juridicas.js`)
+
+Mapa de todas as fontes de andamentos/publicações (CNJ, consultas públicas dos tribunais, serviços
+pagos), exibido no painel admin → aba **Fontes de dados**. Objetivo: não depender só do DataJud.
+**Ao criar ou mudar um worker, atualize o `status` da fonte nesse arquivo no mesmo commit.**
+Teste rápido das APIs do CNJ a partir do computador local (sem Vercel): `scripts/diagnostico/testar-datajud.bat`.
+
+---
+
 ## Worker local do DJEN (`scripts/worker-djen/`)
 
 Roda a **mesma** rotina do cron `?tipo=djen` (`lib/djen-cadernos.js`) a partir de um computador

@@ -462,6 +462,21 @@ code.adm-code {
 .saude-meta { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--gray-400); }
 .saude-carregando { color: var(--gray-400); font-size: 13px; padding: 8px 0; }
 
+/* Fontes de dados */
+.fontes-intro { font-size: 13px; color: var(--gray-600); margin: 0 0 12px; line-height: 1.55; }
+.fontes-resumo { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.fontes-grupo { font-size: 14px; color: var(--navy); margin: 22px 0 8px; }
+.fontes-tabela td { vertical-align: top; font-size: 12.5px; line-height: 1.5; }
+.fontes-tabela td:first-child { min-width: 180px; }
+.fonte-sub { font-size: 11.5px; color: var(--gray-400); margin-top: 3px; }
+.fonte-chip { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.fonte-chip.ok        { background: #dcfce7; color: #166534; }
+.fonte-chip.critico   { background: #fee2e2; color: #991b1b; }
+.fonte-chip.pronto    { background: #dbeafe; color: #1e40af; }
+.fonte-chip.planejado { background: #ede9fe; color: #5b21b6; }
+.fonte-chip.avaliar   { background: #fef3c7; color: #92400e; }
+.fonte-chip.neutro    { background: #f3f4f6; color: #6b7280; }
+
 /* Aviso aos advogados */
 .aviso-form label { display: block; font-size: 12px; color: var(--gray-600); margin: 10px 0 4px; }
 .aviso-form input, .aviso-form textarea, .aviso-form select {
