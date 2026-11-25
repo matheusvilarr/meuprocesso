@@ -217,3 +217,39 @@ window.FONTES_JURIDICAS = [
     url: 'https://cna.oab.org.br/',
   },
 ];
+
+// ── Tribunais de Justiça estaduais ───────────────────────────────────────────
+// Sistema que cada TJ usa para os processos (define qual worker atende). Vários
+// estão migrando em 2026 — "confirmar: true" = conferir no site do tribunal
+// antes de construir o worker. O painel mostra, ao lado, quantos processos dos
+// clientes estão em cada TJ (índice api_publica_tjXX do DataJud).
+// status: mesmos valores das fontes acima ('avaliar' = ainda sem worker).
+window.TRIBUNAIS_ESTADUAIS = [
+  { sigla: 'TJAC',  uf: 'AC', indice: 'api_publica_tjac',  sistema: 'e-SAJ',  status: 'avaliar' },
+  { sigla: 'TJAL',  uf: 'AL', indice: 'api_publica_tjal',  sistema: 'e-SAJ',  status: 'avaliar' },
+  { sigla: 'TJAP',  uf: 'AP', indice: 'api_publica_tjap',  sistema: 'Tucujuris (sistema próprio)', status: 'avaliar', confirmar: true },
+  { sigla: 'TJAM',  uf: 'AM', indice: 'api_publica_tjam',  sistema: 'e-SAJ',  status: 'avaliar', confirmar: true },
+  { sigla: 'TJBA',  uf: 'BA', indice: 'api_publica_tjba',  sistema: 'PJe (e-SAJ/Projudi em acervos antigos)', status: 'avaliar' },
+  { sigla: 'TJCE',  uf: 'CE', indice: 'api_publica_tjce',  sistema: 'e-SAJ + PJe (criminal migrou para o PJe em 2026)', status: 'avaliar' },
+  { sigla: 'TJDFT', uf: 'DF', indice: 'api_publica_tjdft', sistema: 'PJe',    status: 'planejado', obs: 'Já existe scraper (scripts/scraper_pje.py)' },
+  { sigla: 'TJES',  uf: 'ES', indice: 'api_publica_tjes',  sistema: 'PJe',    status: 'avaliar' },
+  { sigla: 'TJGO',  uf: 'GO', indice: 'api_publica_tjgo',  sistema: 'Projudi', status: 'avaliar' },
+  { sigla: 'TJMA',  uf: 'MA', indice: 'api_publica_tjma',  sistema: 'PJe',    status: 'avaliar' },
+  { sigla: 'TJMT',  uf: 'MT', indice: 'api_publica_tjmt',  sistema: 'PJe',    status: 'avaliar' },
+  { sigla: 'TJMS',  uf: 'MS', indice: 'api_publica_tjms',  sistema: 'e-SAJ',  status: 'avaliar' },
+  { sigla: 'TJMG',  uf: 'MG', indice: 'api_publica_tjmg',  sistema: 'PJe → eproc (migração até abr/2027)', status: 'avaliar', obs: 'Durante a migração o processo pode estar em qualquer um dos dois' },
+  { sigla: 'TJPA',  uf: 'PA', indice: 'api_publica_tjpa',  sistema: 'PJe',    status: 'avaliar' },
+  { sigla: 'TJPB',  uf: 'PB', indice: 'api_publica_tjpb',  sistema: 'PJe',    status: 'avaliar' },
+  { sigla: 'TJPR',  uf: 'PR', indice: 'api_publica_tjpr',  sistema: 'Projudi → eproc (em fases, 2026)', status: 'avaliar', confirmar: true },
+  { sigla: 'TJPE',  uf: 'PE', indice: 'api_publica_tjpe',  sistema: 'PJe',    status: 'avaliar' },
+  { sigla: 'TJPI',  uf: 'PI', indice: 'api_publica_tjpi',  sistema: 'PJe',    status: 'avaliar' },
+  { sigla: 'TJRJ',  uf: 'RJ', indice: 'api_publica_tjrj',  sistema: 'eproc (migração do DCP/PJe)', status: 'avaliar', confirmar: true },
+  { sigla: 'TJRN',  uf: 'RN', indice: 'api_publica_tjrn',  sistema: 'PJe',    status: 'avaliar' },
+  { sigla: 'TJRS',  uf: 'RS', indice: 'api_publica_tjrs',  sistema: 'eproc',  status: 'avaliar' },
+  { sigla: 'TJRO',  uf: 'RO', indice: 'api_publica_tjro',  sistema: 'PJe',    status: 'avaliar' },
+  { sigla: 'TJRR',  uf: 'RR', indice: 'api_publica_tjrr',  sistema: 'Projudi', status: 'avaliar', confirmar: true },
+  { sigla: 'TJSC',  uf: 'SC', indice: 'api_publica_tjsc',  sistema: 'eproc',  status: 'avaliar' },
+  { sigla: 'TJSE',  uf: 'SE', indice: 'api_publica_tjse',  sistema: 'Sistema próprio / PJe', status: 'avaliar', confirmar: true },
+  { sigla: 'TJSP',  uf: 'SP', indice: 'api_publica_tjsp',  sistema: 'e-SAJ (migração para o eproc anunciada)', status: 'avaliar', confirmar: true },
+  { sigla: 'TJTO',  uf: 'TO', indice: 'api_publica_tjto',  sistema: 'eproc',  status: 'avaliar' },
+];

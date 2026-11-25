@@ -189,7 +189,14 @@ async function acaoDados(req, res, admin, adminUser) {
     convitesPendentes:  (codigos || []).filter(c => c.email_convidado && !c.usado_em).length,
   };
 
-  return res.json({ ok: true, advogados, codigos: codigos || [], stats, cronErros: cronErros || [], meuNivel: adminUser.nivel });
+  // Processos ativos por tribunal (índice do DataJud) — a aba "Fontes de dados"
+  // usa pra priorizar os workers pelos tribunais onde os clientes realmente estão.
+  const processosPorIndice = {};
+  for (const p of processosRows || []) {
+    if (p.datajud_index) processosPorIndice[p.datajud_index] = (processosPorIndice[p.datajud_index] || 0) + 1;
+  }
+
+  return res.json({ ok: true, advogados, codigos: codigos || [], stats, cronErros: cronErros || [], meuNivel: adminUser.nivel, processosPorIndice });
 }
 
 async function acaoGerarCodigo(req, res, admin, adminUser) {

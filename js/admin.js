@@ -109,6 +109,45 @@ function renderFontes() {
         </tr>`;
       }).join('')}</tbody>
     </table></div>`).join('');
+
+  renderTribunaisEstaduais();
+}
+
+// Os 27 TJs, com quantos processos dos clientes estão em cada um — é isso que
+// decide a ordem dos workers. Contagem vem de /api/admin?acao=dados.
+function renderTribunaisEstaduais() {
+  const el = document.getElementById('fontes-tjs');
+  if (!el) return;
+  const porIndice = _adminData?.processosPorIndice || {};
+  const tjs = [...(window.TRIBUNAIS_ESTADUAIS || [])]
+    .map(t => ({ ...t, processos: porIndice[t.indice] || 0 }))
+    .sort((a, b) => b.processos - a.processos || a.sigla.localeCompare(b.sigla));
+  const indicesTj = new Set(tjs.map(t => t.indice));
+  const outros = Object.entries(porIndice)
+    .filter(([i]) => !indicesTj.has(i))
+    .sort((a, b) => b[1] - a[1])
+    .map(([i, n]) => `${esc(i.replace('api_publica_', '').toUpperCase())}: ${n}`);
+  const semContagem = !_adminData?.processosPorIndice;
+
+  el.innerHTML = `
+    <h3 class="fontes-grupo">Tribunais de Justiça estaduais (27)</h3>
+    <p class="fontes-intro">Ordenados pelos processos dos clientes — de cima pra baixo é a ordem sugerida dos workers.
+      Todos já são cobertos pelo DataJud (instável) e pelo DJEN (publicações); o worker por tribunal traz os andamentos direto do site do TJ.
+      ${semContagem ? '<br><strong>Contagem de processos indisponível</strong> — recarregue o painel.' : ''}</p>
+    <div class="adm-table-wrap"><table class="adm-table fontes-tabela">
+      <thead><tr><th>Tribunal</th><th>Sistema</th><th>Processos dos clientes</th><th>Worker</th><th>Observação</th></tr></thead>
+      <tbody>${tjs.map(t => {
+        const s = STATUS_FONTE[t.status] || { label: t.status, classe: 'neutro' };
+        return `<tr>
+          <td><strong>${esc(t.sigla)}</strong></td>
+          <td>${esc(t.sistema)}${t.confirmar ? ' <span class="fonte-chip avaliar" title="Sistema em migração ou não confirmado — conferir no site do tribunal">confirmar</span>' : ''}</td>
+          <td>${t.processos || '<span class="fonte-sub">0</span>'}</td>
+          <td><span class="fonte-chip ${s.classe}">${s.label}</span></td>
+          <td><span class="fonte-sub">${esc(t.obs || '')}</span></td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table></div>
+    ${outros.length ? `<p class="fontes-intro" style="margin-top:12px"><strong>Processos em outros tribunais:</strong> ${outros.join(' · ')}</p>` : ''}`;
 }
 
 // ── AVISO AOS ADVOGADOS ────────────────────────────────────────────────────────
