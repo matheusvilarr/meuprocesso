@@ -20,7 +20,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Preços — Meu Processo</title>
-<meta name="description" content="30 dias grátis, sem cartão de crédito. Depois, a partir de R$ 29/mês — ou R$ 97 no plano anual, com monitoramento automático em mais de 90 tribunais.">
+<meta name="description" content="30 dias grátis, sem cartão de crédito. Depois, a partir de R$ 25/mês no plano anual (R$ 300 por ano) ou R$ 34,90 no mensal, com monitoramento automático em mais de 90 tribunais.">
 <link rel="canonical" href="https://meuprocesso.app.br/precos">
 <link rel="icon" type="image/png" href="/img/images/logo.png">
 <link rel="apple-touch-icon" href="/img/images/logo.png">
@@ -90,6 +90,8 @@
   /* Alturas fixas por faixa: é o que mantém nome, preço, nota, selo e botão
      na mesma linha nos três cards, mesmo com textos de tamanhos diferentes. */
   .pr-nome{min-height:20px;font-size:12.5px;font-weight:700;color:var(--g500);letter-spacing:.1em;text-transform:uppercase;margin-bottom:16px}
+  .pr-de{min-height:19px;margin-bottom:4px;font-size:13px;color:var(--g400);font-variant-numeric:tabular-nums}
+  .pr-de s{color:var(--g500);font-weight:600}
   .pr-preco{min-height:46px;display:flex;align-items:baseline;justify-content:center;gap:5px}
   .pr-valor{font-size:44px;font-weight:800;color:var(--g900);letter-spacing:-.035em;line-height:1;font-variant-numeric:tabular-nums}
   .pr-periodo{font-size:15px;color:var(--g500);font-weight:500}
@@ -172,7 +174,7 @@
     .pr-wrap{padding-top:96px}
     /* empilhado, a altura fixa por faixa não serve pra mais nada e só deixa
        buraco entre os textos */
-    .pr-nome,.pr-preco,.pr-equiv,.pr-nota,.pr-chip-area{min-height:0}
+    .pr-nome,.pr-de,.pr-preco,.pr-equiv,.pr-nota,.pr-chip-area{min-height:0}
     .pr-card.destaque{order:-1}
     .pr-selo{top:-12px}
   }
@@ -185,11 +187,11 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://meuprocesso.app.br/precos">
 <meta property="og:title" content="Preços — Meu Processo">
-<meta property="og:description" content="30 dias grátis, sem cartão de crédito. Depois, a partir de R$ 29/mês — ou R$ 97 no plano anual, com monitoramento automático em mais de 90 tribunais.">
+<meta property="og:description" content="30 dias grátis, sem cartão de crédito. Depois, a partir de R$ 25/mês no plano anual (R$ 300 por ano) ou R$ 34,90 no mensal, com monitoramento automático em mais de 90 tribunais.">
 <meta property="og:image" content="https://meuprocesso.app.br/img/screenshots/social.jpg">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Preços — Meu Processo">
-<meta name="twitter:description" content="30 dias grátis, sem cartão de crédito. Depois, a partir de R$ 29/mês — ou R$ 97 no plano anual, com monitoramento automático em mais de 90 tribunais.">
+<meta name="twitter:description" content="30 dias grátis, sem cartão de crédito. Depois, a partir de R$ 25/mês no plano anual (R$ 300 por ano) ou R$ 34,90 no mensal, com monitoramento automático em mais de 90 tribunais.">
 <meta name="twitter:image" content="https://meuprocesso.app.br/img/screenshots/social.jpg">
 </head>
 <body>
@@ -225,11 +227,12 @@
     <!-- MENSAL -->
     <div class="pr-card">
       <div class="pr-nome">Mensal</div>
+      <div class="pr-de"></div>
       <div class="pr-preco">
-        <span class="pr-valor">R$ 29</span>
+        <span class="pr-valor">R$ 34,90</span>
         <span class="pr-periodo">/mês</span>
       </div>
-      <div class="pr-equiv">R$ 29,00 por mês</div>
+      <div class="pr-equiv">R$ 34,90 por mês</div>
       <p class="pr-nota">Para usar sem compromisso de prazo.</p>
       <div class="pr-chip-area"><span class="pr-chip cinza">Renove quando quiser</span></div>
       <div class="pr-btn-area">
@@ -240,13 +243,14 @@
     <!-- SEMESTRAL -->
     <div class="pr-card">
       <div class="pr-nome">Semestral</div>
+      <div class="pr-de"><s>R$&nbsp;209,40</s> pagando mês a mês</div>
       <div class="pr-preco">
-        <span class="pr-valor">R$ 69</span>
+        <span class="pr-valor">R$ 180</span>
         <span class="pr-periodo">/6 meses</span>
       </div>
-      <div class="pr-equiv">R$ 11,50 por mês</div>
+      <div class="pr-equiv">R$ 30 por mês</div>
       <p class="pr-nota">Pagamento único, vale por 6 meses.</p>
-      <div class="pr-chip-area"><span class="pr-chip verde">Economize R$ 105</span></div>
+      <div class="pr-chip-area"><span class="pr-chip verde">Economize R$ 29</span></div>
       <div class="pr-btn-area">
         <a href="/login?tab=signup" class="pr-btn vazio">Começar grátis</a>
       </div>
@@ -256,13 +260,14 @@
     <div class="pr-card destaque">
       <div class="pr-selo">Melhor preço</div>
       <div class="pr-nome">Anual</div>
+      <div class="pr-de"><s>R$&nbsp;418,80</s> pagando mês a mês</div>
       <div class="pr-preco">
-        <span class="pr-valor">R$ 97</span>
+        <span class="pr-valor">R$ 300</span>
         <span class="pr-periodo">/ano</span>
       </div>
-      <div class="pr-equiv">R$ 8,08 por mês</div>
+      <div class="pr-equiv">R$ 25 por mês</div>
       <p class="pr-nota">Pagamento único, vale por 12 meses.</p>
-      <div class="pr-chip-area"><span class="pr-chip verde">Economize R$ 251</span></div>
+      <div class="pr-chip-area"><span class="pr-chip verde">Mais de 3 meses grátis</span></div>
       <div class="pr-btn-area">
         <a href="/login?tab=signup" class="pr-btn cheio">Começar grátis <span>→</span></a>
       </div>

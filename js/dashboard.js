@@ -6054,9 +6054,9 @@ async function carregarAssinatura() {
 }
 
 const PLANOS_LICENCA = [
-  { id: 'mensal',    nome: 'Mensal',    valor: 29, periodo: '1 mês',   porMes: 'R$ 29,00/mês', economia: null },
-  { id: 'semestral', nome: 'Semestral', valor: 69, periodo: '6 meses', porMes: 'R$ 11,50/mês', economia: 'Economize R$ 105' },
-  { id: 'anual',     nome: 'Anual',     valor: 97, periodo: '12 meses', porMes: 'R$ 8,08/mês', economia: 'Economize R$ 251' },
+  { id: 'mensal',    nome: 'Mensal',    valor: 34.9, preco: 'R$ 34,90', periodo: '1 mês',    porMes: 'R$ 34,90/mês', economia: null },
+  { id: 'semestral', nome: 'Semestral', valor: 180,  preco: 'R$ 180',   periodo: '6 meses',  porMes: 'R$ 30/mês',    de: 'R$ 209,40', economia: 'Economize R$ 29' },
+  { id: 'anual',     nome: 'Anual',     valor: 300,  preco: 'R$ 300',   periodo: '12 meses', porMes: 'R$ 25/mês',    de: 'R$ 418,80', economia: 'Mais de 3 meses grátis' },
 ];
 
 function _blocoPedidoEnviado(p) {
@@ -6096,7 +6096,8 @@ function _blocoEscolherPlano(assinatura, vencida) {
     <div style="flex:1;min-width:170px;background:#fff;border:${p.id === 'anual' ? '2px solid var(--navy)' : '1.5px solid var(--gray-200)'};border-radius:12px;padding:20px 18px;text-align:center;position:relative">
       ${p.id === 'anual' ? `<div style="position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;padding:4px 12px;border-radius:100px;white-space:nowrap">Melhor preço</div>` : ''}
       <div style="font-size:11.5px;font-weight:700;color:var(--gray-400);letter-spacing:.09em;text-transform:uppercase;margin-bottom:12px">${p.nome}</div>
-      <div style="font-size:30px;font-weight:800;color:var(--navy);line-height:1;letter-spacing:-.03em">R$ ${p.valor}</div>
+      <div style="min-height:17px;margin-bottom:4px;font-size:11.5px;color:var(--gray-400)">${p.de ? `<s>${p.de}</s> no mensal` : ''}</div>
+      <div style="font-size:30px;font-weight:800;color:var(--navy);line-height:1;letter-spacing:-.03em">${p.preco}</div>
       <div style="font-size:12px;color:var(--gray-400);margin-top:4px">por ${p.periodo}</div>
       <div style="font-size:12.5px;color:var(--navy);font-weight:600;margin-top:8px">${p.porMes}</div>
       <div style="min-height:24px;margin-top:8px">${p.economia ? `<span style="display:inline-block;background:#f0fdf4;color:#15803d;font-size:11.5px;font-weight:700;padding:4px 10px;border-radius:6px">${p.economia}</span>` : ''}</div>
@@ -6121,7 +6122,7 @@ async function solicitarLicenca(planoId) {
 
   const telefone = window._user?.user_metadata?.telefone || '';
   const ok = await _confirmar(
-    `R$ ${plano.valor},00 por ${plano.periodo}. Vamos entrar em contato com os dados para pagamento por Pix — nada é cobrado agora.`,
+    `${plano.preco} por ${plano.periodo}. Vamos entrar em contato com os dados para pagamento por Pix — nada é cobrado agora.`,
     `Pedir o plano ${plano.nome}?`,
     { textoOk: 'Enviar pedido', icone: '📄' },
   );

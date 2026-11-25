@@ -191,6 +191,9 @@ h3{font-size:18px;letter-spacing:-.01em}
 .plano-periodo{margin:10px 0 26px;font-size:15px;color:var(--cinza);flex:1}
 .plano-destaque{grid-row:span 2;padding:40px 36px;background:radial-gradient(500px 300px at 85% 0%,rgba(124,192,247,.35),transparent 60%),var(--marca-grad);border:0;color:#d6e6f3;box-shadow:0 40px 70px -40px rgba(5,57,88,.85),inset 0 1px 0 rgba(255,255,255,.15)}
 .plano-destaque .plano-preco{font-size:64px}
+.plano-de{margin-top:14px;font-size:15px;color:#cfe2f2}
+.plano-de s{font-weight:600}
+.plano-de + .plano-preco{margin-top:6px}
 .plano-destaque .plano-periodo{flex:0;margin-bottom:22px}
 .plano-destaque .plano-periodo b{color:#fff;font-weight:700}
 .plano-lista{display:grid;gap:10px;margin-bottom:30px;flex:1;font-size:15px;color:#e1edf7}

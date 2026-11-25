@@ -4,7 +4,7 @@
 
 O Meu Processo é feito para advogado solo e para escritórios pequenos. O advogado cadastra o número CNJ do processo (ou busca pela OAB, CPF ou nome da parte e importa vários de uma vez), e o sistema verifica diariamente as movimentações. Inclui controle de prazos com alerta por e-mail (1, 3 ou 7 dias antes), calendário jurídico, kanban de tarefas, controle de honorários e workspace colaborativo com nível de acesso por colaborador.
 
-Planos (pagamento único por período, sem renovação automática): mensal R$ 29, semestral R$ 69 e anual R$ 97. Valores atualizados em https://meuprocesso.app.br/precos.
+Planos (pagamento único por período, sem renovação automática): mensal R$ 34,90, semestral R$ 180 (R$ 30/mês) e anual R$ 300 (R$ 25/mês). Valores atualizados em https://meuprocesso.app.br/precos.
 
 ## Produto
 

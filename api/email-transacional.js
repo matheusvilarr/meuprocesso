@@ -15,9 +15,9 @@ const FROM          = 'Meu Processo <contato@meuprocesso.app.br>';
 const AVISOS_PARA   = 'contato@meuprocesso.app.br';
 
 const PLANOS = {
-  mensal:    { nome: 'Mensal',    valor: 29, periodo: '1 mês'   },
-  semestral: { nome: 'Semestral', valor: 69, periodo: '6 meses' },
-  anual:     { nome: 'Anual',     valor: 97, periodo: '12 meses' },
+  mensal:    { nome: 'Mensal',    valor: '34,90', periodo: '1 mês'   },
+  semestral: { nome: 'Semestral', valor: '180',   periodo: '6 meses' },
+  anual:     { nome: 'Anual',     valor: '300',   periodo: '12 meses' },
 };
 
 const ESCAPE_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };

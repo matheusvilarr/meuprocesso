@@ -688,6 +688,9 @@ const FILTROS_ADV = {
   oabdup:         a => a.oabDuplicado,
 };
 
+// R$ 34,90 tem centavos; os outros planos são redondos (R$ 180, não R$ 180,00)
+const _brlPlano = v => 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: Number(v) % 1 ? 2 : 0, maximumFractionDigits: 2 });
+
 function renderAdvogados() {
   const termo = (document.getElementById('adv-busca')?.value || '').toLowerCase().trim();
   const semAcento = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -1493,7 +1496,7 @@ function renderLicencas(d) {
                   ${zap.length >= 10 ? `<a href="https://wa.me/55${zap}" target="_blank" style="font-size:11.5px;color:#16a34a;font-weight:600;text-decoration:none;">Abrir WhatsApp</a>` : ''}
                 </td>
                 <td style="font-size:12px;">${esc(PLANO_LABEL[p.plano] || p.plano)}</td>
-                <td style="font-size:13px;font-weight:700;">R$ ${Number(p.valor).toFixed(0)}</td>
+                <td style="font-size:13px;font-weight:700;">${_brlPlano(p.valor)}</td>
                 <td style="font-size:12px;color:#6b7280;">${new Date(p.criado_em).toLocaleDateString('pt-BR')}</td>
                 <td style="text-align:right;white-space:nowrap;">
                   <button class="adm-btn-primary" style="font-size:12px;padding:6px 12px;" onclick="atenderPedido('${p.id}','pago','${esc(p.nome || '')}')">Recebi o pagamento</button>
@@ -1521,7 +1524,7 @@ function renderLicencas(d) {
           <td><span style="font-size:11px;background:${bg};color:${cor};padding:2px 8px;border-radius:6px;">${esc(a.status)}</span></td>
           <td><span style="font-size:11.5px;color:${cor};font-weight:600;">${txt}</span></td>
           <td style="font-size:12px;color:#6b7280;">${a.data_expiracao ? new Date(a.data_expiracao).toLocaleDateString('pt-BR') : '—'}</td>
-          <td style="font-size:12px;">${a.valor_pago ? 'R$ ' + Number(a.valor_pago).toFixed(0) : '—'}</td>
+          <td style="font-size:12px;">${a.valor_pago ? _brlPlano(a.valor_pago) : '—'}</td>
           <td style="text-align:right;"><button class="adm-btn-small" onclick="abrirAssinatura('${a.escritorio_id}')">Editar</button></td>
         </tr>`;
       }).join('')}</tbody></table></div>`;
@@ -1536,7 +1539,7 @@ function renderLicencas(d) {
         <tr>
           <td style="font-size:12.5px;">${esc(p.nome || '—')}</td>
           <td style="font-size:12px;">${esc(PLANO_LABEL[p.plano] || p.plano)}</td>
-          <td style="font-size:12px;">R$ ${Number(p.valor).toFixed(0)}</td>
+          <td style="font-size:12px;">${_brlPlano(p.valor)}</td>
           <td><span style="font-size:11px;background:${p.status === 'pago' ? '#f0fdf4' : '#f3f4f6'};color:${p.status === 'pago' ? '#166534' : '#6b7280'};padding:2px 8px;border-radius:6px;">${esc(p.status)}</span></td>
           <td style="font-size:12px;color:#6b7280;">${p.atendido_em ? new Date(p.atendido_em).toLocaleDateString('pt-BR') : '—'}</td>
           <td style="font-size:11.5px;color:#6b7280;max-width:220px;">${esc(p.nota_interna || '')}</td>
